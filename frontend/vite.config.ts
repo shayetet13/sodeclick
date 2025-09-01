@@ -14,5 +14,33 @@ export default defineConfig({
         secure: false
       }
     }
+  },
+  build: {
+    chunkSizeWarningLimit: 1000, // เพิ่ม limit เป็น 1MB
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          // แยก vendor libraries
+          vendor: ['react', 'react-dom'],
+          // แยก UI components
+          ui: [
+            './src/components/ui/button',
+            './src/components/ui/avatar',
+            './src/components/ui/tabs',
+            './src/components/ui/dialog',
+            './src/components/ui/toast'
+          ],
+          // แยก icons
+          icons: ['lucide-react'],
+          // แยก services
+          services: [
+            './src/services/membershipAPI',
+            './src/services/profileAPI',
+            './src/services/paymentAPI',
+            './src/services/feelfreepayAPI'
+          ]
+        }
+      }
+    }
   }
 })

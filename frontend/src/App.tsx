@@ -15,6 +15,7 @@ import CreatePrivateRoomModal from './components/CreatePrivateRoomModal'
 import AIMatchingSystem from './components/AIMatchingSystem'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
 import { ToastProvider, useToast } from './components/ui/toast'
+import { membershipAPI } from './services/membershipAPI'
 import { 
   Heart, 
   Search, 
@@ -549,7 +550,6 @@ function App() {
     setCurrentView('success')
     // Call actual upgrade API
     try {
-      const { membershipAPI } = await import('./services/membershipAPI')
       await membershipAPI.upgradeMembership({
         userId: user._id,
         tier: transactionData.tier,
