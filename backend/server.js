@@ -16,7 +16,7 @@ const server = http.createServer(app);
 // Environment Variables
 const PORT = process.env.PORT || 5000;
 const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/sodeclick';
-const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
+const FRONTEND_URL = process.env.FRONTEND_URL || 'http://sodeclick-front-production.up.railway.app';
 
 // Import CORS configuration
 const { corsOptions } = require('./config/cors');
