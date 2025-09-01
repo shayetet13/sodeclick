@@ -16,8 +16,8 @@ export const AuthProvider = ({ children }) => {
 
   useEffect(() => {
     // Check if user is logged in on app start
-    const token = localStorage.getItem('token');
-    const userData = localStorage.getItem('user');
+    const token = sessionStorage.getItem('token');
+    const userData = sessionStorage.getItem('user');
     
     if (token && userData) {
       try {
@@ -25,24 +25,24 @@ export const AuthProvider = ({ children }) => {
         setUser(parsedUser);
       } catch (error) {
         console.error('Error parsing user data:', error);
-        localStorage.removeItem('token');
-        localStorage.removeItem('user');
+        sessionStorage.removeItem('token');
+        sessionStorage.removeItem('user');
       }
     }
     setLoading(false);
   }, []);
 
-  const login = (userData) => {
-    setUser(userData.user || userData);
-    localStorage.setItem('token', userData.token || userData.data?.token);
-    localStorage.setItem('user', JSON.stringify(userData.user || userData));
-  };
+      const login = (userData) => {
+      setUser(userData.user || userData);
+      sessionStorage.setItem('token', userData.token || userData.data?.token);
+      sessionStorage.setItem('user', JSON.stringify(userData.user || userData));
+    };
 
-  const logout = () => {
-    setUser(null);
-    localStorage.removeItem('token');
-    localStorage.removeItem('user');
-  };
+      const logout = () => {
+      setUser(null);
+      sessionStorage.removeItem('token');
+      sessionStorage.removeItem('user');
+    };
 
   const value = {
     user,

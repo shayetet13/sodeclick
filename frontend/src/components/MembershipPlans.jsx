@@ -10,7 +10,7 @@ const MembershipPlans = ({ currentUserId, currentTier = 'member' }) => {
   const [loading, setLoading] = useState(true)
   const [upgrading, setUpgrading] = useState(null)
   const [error, setError] = useState(null)
-  const { warning, ToastContainer } = useToast()
+  const { warning } = useToast()
 
   // ดึงแพ็กเกจสมาชิก
   const fetchPlans = async () => {
@@ -241,7 +241,6 @@ const MembershipPlans = ({ currentUserId, currentTier = 'member' }) => {
           </div>
         </div>
       </div>
-      <ToastContainer />
     </div>
   )
 }

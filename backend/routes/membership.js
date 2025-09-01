@@ -92,22 +92,30 @@ router.get('/user/:userId', async (req, res) => {
         console.log(`⚠️  พบ Premium Member (${user.membership.tier}) ที่ไม่มี endDate - สร้างใหม่`);
         needNewEndDate = true;
       } else {
-        // ตรวจสอบว่า endDate ปัจจุบันตรงกับระยะเวลาที่กำหนดหรือไม่
-        const now = new Date();
-        const currentEndDate = new Date(user.membership.endDate);
-        const currentDays = Math.ceil((currentEndDate - now) / (1000 * 60 * 60 * 24));
+        // ตรวจสอบว่า endDate ปัจจุบันถูกต้องหรือไม่
+        const startDate = user.membership.startDate;
+        const endDate = user.membership.endDate;
         
-        // ถ้าวันที่เหลือไม่ตรงกับระยะเวลาที่กำหนด ให้สร้างใหม่
-        if (Math.abs(currentDays - durationDays) > 1) {
-          console.log(`⚠️  พบ Premium Member (${user.membership.tier}) ที่มี endDate ไม่ตรงกับระยะเวลาที่กำหนด (${currentDays} วัน vs ${durationDays} วัน) - สร้างใหม่`);
+        if (startDate && endDate) {
+          // คำนวณระยะเวลาจริงจาก startDate ถึง endDate
+          const actualDuration = Math.ceil((endDate - startDate) / (1000 * 60 * 60 * 24));
+          
+          // ถ้าระยะเวลาไม่ตรงกับที่กำหนด ให้สร้างใหม่
+          if (actualDuration !== durationDays) {
+            console.log(`⚠️  พบ Premium Member (${user.membership.tier}) ที่มีระยะเวลาไม่ตรงกับที่กำหนด (${actualDuration} วัน vs ${durationDays} วัน) - สร้างใหม่`);
+            needNewEndDate = true;
+          }
+        } else {
+          // ถ้าไม่มี startDate หรือ endDate ให้สร้างใหม่
+          console.log(`⚠️  พบ Premium Member (${user.membership.tier}) ที่ไม่มี startDate หรือ endDate - สร้างใหม่`);
           needNewEndDate = true;
         }
       }
       
       if (needNewEndDate) {
-        // สร้าง endDate ใหม่ตามระยะเวลาที่กำหนด
-        const newEndDate = new Date();
-        newEndDate.setDate(newEndDate.getDate() + durationDays);
+        // สร้าง endDate ใหม่จาก startDate ที่ถูกต้อง
+        const startDate = user.membership.startDate || new Date();
+        const newEndDate = new Date(startDate.getTime() + (durationDays * 24 * 60 * 60 * 1000));
         
         user.membership.endDate = newEndDate;
         await user.save();
@@ -115,7 +123,7 @@ router.get('/user/:userId', async (req, res) => {
         membershipExpiry = newEndDate;
         isActive = true;
         
-        console.log(`✅ สร้าง endDate ใหม่: ${newEndDate.toISOString()} (${durationDays} วัน)`);
+        console.log(`✅ สร้าง endDate ใหม่จาก startDate: ${startDate.toISOString()} -> ${newEndDate.toISOString()} (${durationDays} วัน)`);
       }
     }
     

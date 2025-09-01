@@ -24,7 +24,7 @@ const createSampleUsers = async () => {
         lookingFor: 'female',
         location: 'Bangkok',
         bio: 'Software developer who loves coffee and hiking. Looking for meaningful connections.',
-        membership: { tier: 'member' }, // Fixed: use correct structure
+        membership: { tier: 'member' },
         coins: 2500,
         votePoints: 0,
         dailyUsage: {
@@ -36,7 +36,9 @@ const createSampleUsers = async () => {
         profileImages: ['https://placehold.co/500x600/6366f1/ffffff?text=John'],
         isVerified: false,
         isOnline: true,
-        lastActive: new Date()
+        lastActive: new Date(),
+        isActive: true,
+        isBanned: false
       },
       {
         _id: new mongoose.Types.ObjectId('507f1f77bcf86cd799439012'),
@@ -161,7 +163,7 @@ const seedDatabase = async () => {
     console.log('🌱 Starting database seeding...');
     
     // เชื่อมต่อ MongoDB
-    const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/sodeclick';
+    const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/love';
     await mongoose.connect(MONGODB_URI);
     console.log('✅ Connected to MongoDB');
     

@@ -17,7 +17,7 @@ const api = axios.create({
 api.interceptors.request.use(
   (config) => {
     // เพิ่ม authorization token ถ้ามี
-    const token = localStorage.getItem('token')
+    const token = sessionStorage.getItem('token')
     if (token) {
       config.headers.Authorization = `Bearer ${token}`
     }
@@ -62,7 +62,7 @@ api.interceptors.response.use(
       
       if (status === 401) {
         // Unauthorized - ลบ token และ redirect ไป login
-        localStorage.removeItem('token')
+        sessionStorage.removeItem('token')
         window.location.href = '/login'
       } else if (status === 403) {
         // Forbidden

@@ -97,8 +97,8 @@ const ChatRoomList = ({ currentUser, onSelectRoom, onCreatePrivateRoom }) => {
    };
 
   const handleRoomClick = async (room) => {
-    // ตรวจสอบระดับสมาชิกก่อนเข้าห้อง - SuperAdmin ข้ามการตรวจสอบ
-    if (room.type === 'private' && currentUser.role !== 'superadmin' && !canAccessPrivateChat(currentUser.membership?.tier || 'member')) {
+    // ตรวจสอบระดับสมาชิกก่อนเข้าห้อง
+    if (room.type === 'private' && !canAccessPrivateChat(currentUser.membership?.tier || 'member')) {
       alert('คุณต้องเป็นสมาชิก Gold ขึ้นไปเพื่อเข้าแชทส่วนตัว');
       return;
     }
@@ -230,7 +230,7 @@ const ChatRoomList = ({ currentUser, onSelectRoom, onCreatePrivateRoom }) => {
            </div>
            <div className="flex items-center space-x-3">
              {/* ปุ่มสร้างห้องส่วนตัวสำหรับ Platinum และ Diamond */}
-             {(currentUser.role === 'superadmin' || canCreatePrivateRoom(currentUser.membership?.tier || 'member')) && (
+             {canCreatePrivateRoom(currentUser.membership?.tier || 'member') && (
                <button
                  onClick={onCreatePrivateRoom}
                  className="flex items-center space-x-1 bg-white/20 hover:bg-white/30 text-white px-3 py-1 rounded-lg text-sm transition-colors"
@@ -242,7 +242,7 @@ const ChatRoomList = ({ currentUser, onSelectRoom, onCreatePrivateRoom }) => {
              <div className="text-sm text-right">
                <div>สมาชิก: {currentUser.membership?.tier?.toUpperCase() || 'MEMBER'}</div>
                <div className="text-xs opacity-80">
-                 {currentUser.role === 'superadmin' || canAccessPrivateChat(currentUser.membership?.tier || 'member')
+                 {canAccessPrivateChat(currentUser.membership?.tier || 'member')
                    ? 'เข้าแชทส่วนตัวได้'
                    : 'เฉพาะแชทสาธารณะ'}
                </div>
@@ -267,7 +267,7 @@ const ChatRoomList = ({ currentUser, onSelectRoom, onCreatePrivateRoom }) => {
           {[
             { key: 'all', label: 'ทั้งหมด' },
             { key: 'public', label: 'สาธารณะ' },
-            ...(currentUser.role === 'superadmin' || canAccessPrivateChat(currentUser.membership?.tier || 'member')
+            ...(canAccessPrivateChat(currentUser.membership?.tier || 'member')
               ? [{ key: 'private', label: 'ส่วนตัว' }]
               : [])
           ].map((filter) => (
@@ -297,7 +297,7 @@ const ChatRoomList = ({ currentUser, onSelectRoom, onCreatePrivateRoom }) => {
         ) : (
           filteredRooms.map((room) => {
             const canAccess = room.type === 'public' ||
-                            (room.type === 'private' && (currentUser.role === 'superadmin' || canAccessPrivateChat(currentUser.membership?.tier || 'member')));
+                            (room.type === 'private' && canAccessPrivateChat(currentUser.membership?.tier || 'member'));
             
             return (
               <div

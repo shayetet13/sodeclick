@@ -6,7 +6,7 @@ const User = require('../models/User');
 const router = express.Router();
 
 // JWT Secret
-const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key';
+const JWT_SECRET = process.env.JWT_SECRET || 'your-super-secret-jwt-key-for-development-2024';
 
 // Generate JWT Token
 const generateToken = (user) => {
@@ -269,8 +269,10 @@ router.post('/login-phone', async (req, res) => {
 router.post('/login', async (req, res) => {
   try {
     const { email, username, password } = req.body;
+    console.log('🔐 Login attempt:', { email, username, hasPassword: !!password });
 
     if (!password) {
+      console.log('❌ No password provided');
       return res.status(400).json({
         success: false,
         message: 'กรุณากรอกรหัสผ่าน'
@@ -278,6 +280,7 @@ router.post('/login', async (req, res) => {
     }
 
     if (!email && !username) {
+      console.log('❌ No email or username provided');
       return res.status(400).json({
         success: false,
         message: 'กรุณากรอกอีเมลหรือชื่อผู้ใช้'
@@ -288,11 +291,14 @@ router.post('/login', async (req, res) => {
     let user;
     if (email) {
       user = await User.findOne({ email });
+      console.log('🔍 Finding user by email:', email, 'Found:', !!user);
     } else {
       user = await User.findOne({ username });
+      console.log('🔍 Finding user by username:', username, 'Found:', !!user);
     }
 
     if (!user) {
+      console.log('❌ User not found');
       return res.status(401).json({
         success: false,
         message: 'อีเมล/ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง'
@@ -301,6 +307,7 @@ router.post('/login', async (req, res) => {
 
     // Check if user is banned
     if (user.isBanned) {
+      console.log('❌ User is banned:', user._id);
       return res.status(403).json({
         success: false,
         message: 'บัญชีของคุณถูกระงับการใช้งาน',
@@ -310,6 +317,7 @@ router.post('/login', async (req, res) => {
 
     // Check if user is active
     if (!user.isActive) {
+      console.log('❌ User is inactive:', user._id);
       return res.status(403).json({
         success: false,
         message: 'บัญชีของคุณไม่สามารถใช้งานได้'
@@ -317,8 +325,12 @@ router.post('/login', async (req, res) => {
     }
 
     // Verify password
+    console.log('🔑 Verifying password for user:', user._id);
     const isPasswordValid = await user.comparePassword(password);
+    console.log('🔑 Password valid:', isPasswordValid);
+    
     if (!isPasswordValid) {
+      console.log('❌ Invalid password for user:', user._id);
       return res.status(401).json({
         success: false,
         message: 'อีเมล/ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง'
@@ -327,6 +339,7 @@ router.post('/login', async (req, res) => {
 
     // Generate token
     const token = generateToken(user);
+    console.log('✅ Login successful for user:', user._id, 'Token generated:', !!token);
 
     // Update login history
     if (!user.loginHistory) {

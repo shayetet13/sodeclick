@@ -119,7 +119,9 @@ router.get('/ai-matches', auth, async (req, res) => {
       minAge = 18,
       maxAge = 60,
       interests = [],
-      lifestyle = []
+      lifestyle = [],
+      lat,
+      lng
     } = req.query;
 
     const userId = req.user.id;
@@ -132,51 +134,68 @@ router.get('/ai-matches', auth, async (req, res) => {
       });
     }
 
-    // สร้าง query filters
+    // สร้าง query filters - แสดงผู้ใช้ทั้งหมดในระบบ ยกเว้นตัวเอง
     const filters = {
-      _id: { $ne: userId }, // ไม่รวมตัวเอง
-      isActive: true
+      _id: { $ne: userId } // ไม่รวมตัวเอง
     };
+    
+    // ไม่กรองตาม isActive เพื่อแสดงผู้ใช้ทั้งหมด
+    // filters.isActive = true;
 
-    // กรองตามอายุ (ถ้ามี dateOfBirth)
-    if (user.dateOfBirth) {
-      const minDate = new Date();
-      minDate.setFullYear(minDate.getFullYear() - parseInt(maxAge));
-      const maxDate = new Date();
-      maxDate.setFullYear(maxDate.getFullYear() - parseInt(minAge));
-      
-      filters.dateOfBirth = { $gte: minDate, $lte: maxDate };
-    }
+    // กรองตามอายุ (ถ้ามี dateOfBirth) - ใช้ filter แบบง่ายกว่า
+    // if (user.dateOfBirth) {
+    //   const minDate = new Date();
+    //   minDate.setFullYear(minDate.getFullYear() - parseInt(maxAge));
+    //   const maxDate = new Date();
+    //   maxDate.setFullYear(maxDate.getFullYear() - parseInt(minAge));
+    //   
+    //   filters.dateOfBirth = { $gte: minDate, $lte: maxDate };
+    // }
 
-    // กรองตามความสนใจ
-    if (interests.length > 0) {
-      filters['interests.items'] = { $in: interests };
-    }
+    // กรองตามความสนใจ - ปิดไว้ก่อน
+    // if (interests.length > 0) {
+    //   filters['interests.items'] = { $in: interests };
+    // }
 
-    // กรองตามไลฟ์สไตล์
-    if (lifestyle.length > 0) {
-      const lifestyleFilters = {};
-      lifestyle.forEach(item => {
-        const [key, value] = item.split(':');
-        if (key && value) {
-          lifestyleFilters[`lifestyle.${key}`] = value;
-        }
-      });
-      if (Object.keys(lifestyleFilters).length > 0) {
-        Object.assign(filters, lifestyleFilters);
-      }
-    }
+    // กรองตามไลฟ์สไตล์ - ปิดไว้ก่อน
+    // if (lifestyle.length > 0) {
+    //   const lifestyleFilters = {};
+    //   lifestyle.forEach(item => {
+    //     const [key, value] = item.split(':');
+    //     if (key && value) {
+    //       lifestyleFilters[`lifestyle.${key}`] = value;
+    //     }
+    //   });
+    //   if (Object.keys(lifestyleFilters).length > 0) {
+    //     Object.assign(filters, lifestyleFilters);
+    //   }
+    // }
 
     // คำนวณ skip สำหรับ pagination
     const skip = (parseInt(page) - 1) * parseInt(limit);
 
-    // ดึงข้อมูลผู้ใช้ทั้งหมดที่ตรงตามเงื่อนไข
+    // ดึงข้อมูลผู้ใช้ทั้งหมดในระบบ (ยกเว้นตัวเอง)
     const allUsers = await User.find(filters)
-      .select('_id firstName lastName displayName dateOfBirth profileImages gpsLocation interests lifestyle membership bio lastActive')
-      .limit(parseInt(limit) * 3); // ดึงมากกว่าเพื่อกรองตามระยะทาง
+      .select('_id firstName lastName displayName dateOfBirth profileImages gpsLocation interests lifestyle membership bio lastActive isActive')
+      .limit(parseInt(limit) * 5); // เพิ่ม limit เพื่อดึงผู้ใช้มากขึ้น
+    
+    // ถ้าไม่พบผู้ใช้ ให้ลองดึงโดยไม่ใช้ filter
+    if (allUsers.length === 0) {
+      console.log('No users found with filters, trying without filters...');
+      const allUsersWithoutFilters = await User.find({ _id: { $ne: userId } })
+        .select('_id firstName lastName displayName dateOfBirth profileImages gpsLocation interests lifestyle membership bio lastActive')
+        .limit(parseInt(limit) * 3);
+      console.log('Users without filters:', allUsersWithoutFilters.length);
+    }
+    
+    console.log('Found users:', allUsers.length);
+    console.log('Filters:', filters);
 
+    // ใช้ตำแหน่งปัจจุบันจาก frontend หรือตำแหน่งที่เก็บไว้ในฐานข้อมูล
+    const currentLocation = lat && lng ? { lat: parseFloat(lat), lng: parseFloat(lng) } : user.gpsLocation;
+    
     // ตรวจสอบว่าผู้ใช้มีตำแหน่งหรือไม่
-    if (!user.gpsLocation) {
+    if (!currentLocation) {
       // ถ้าไม่มีตำแหน่ง ให้ส่งข้อมูลแบบไม่มีระยะทาง
       const usersWithScore = allUsers.map(match => {
         const compatibility = calculateCompatibilityScore(user, match, null);
@@ -225,18 +244,18 @@ router.get('/ai-matches', auth, async (req, res) => {
 
     // คำนวณความเข้ากันได้และระยะทาง
     const usersWithScore = allUsers.map(match => {
-      const compatibility = calculateCompatibilityScore(user, match, user.gpsLocation);
+      const compatibility = calculateCompatibilityScore(user, match, currentLocation);
       
       let distance = 0;
       let distanceText = 'ไม่ระบุ';
       
-      if (user.gpsLocation && match.gpsLocation) {
+      if (currentLocation && match.gpsLocation) {
         distance = calculateDistance(
-          user.gpsLocation.lat, user.gpsLocation.lng,
+          currentLocation.lat, currentLocation.lng,
           match.gpsLocation.lat, match.gpsLocation.lng
         );
         distanceText = distance < 1 ? `${Math.round(distance * 1000)} ม.` : `${distance.toFixed(1)} กม.`;
-      } else if (!user.gpsLocation) {
+      } else if (!currentLocation) {
         distanceText = 'คุณยังไม่ได้ตั้งค่าตำแหน่ง';
       } else if (!match.gpsLocation) {
         distanceText = 'ผู้ใช้นี้ยังไม่ได้ตั้งค่าตำแหน่ง';
@@ -259,21 +278,20 @@ router.get('/ai-matches', auth, async (req, res) => {
       };
     });
 
-    // กรองและเรียงลำดับตามคะแนน (ไม่กรองตามระยะทางถ้าไม่มี gpsLocation)
+    // แสดงผู้ใช้ทั้งหมดในระบบ (ไม่กรองตามระยะทาง)
     const filteredUsers = usersWithScore
       .filter(match => {
-        // ถ้า user ปัจจุบันไม่มี gpsLocation หรือ match ไม่มี gpsLocation ให้แสดง
-        if (!user.gpsLocation || !match.gpsLocation) {
-          return true;
-        }
-        // ถ้ามี gpsLocation ทั้งคู่ ให้กรองตามระยะทาง
-        return match.distance <= parseInt(maxDistance);
+        // แสดงผู้ใช้ทั้งหมดในระบบ (รวมผู้ใช้ที่ไม่ได้ active)
+        return true;
       })
       .sort((a, b) => b.compatibilityScore - a.compatibilityScore)
       .slice(0, parseInt(limit));
 
     // นับจำนวนทั้งหมด (แบบง่าย)
     const totalCount = allUsers.length;
+    
+    console.log('Filtered users:', filteredUsers.length);
+    console.log('Sample user:', filteredUsers[0]);
 
     res.json({
       success: true,

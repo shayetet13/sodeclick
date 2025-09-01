@@ -30,99 +30,37 @@ import { useAuth } from '../contexts/AuthContext'
 
 const PaymentGateway = ({ plan, onBack, onSuccess, onCancel }) => {
   const { user } = useAuth()
-  const [selectedMethod, setSelectedMethod] = useState('feelfreepay')
   const [processing, setProcessing] = useState(false)
   const [qrData, setQrData] = useState(null)
   const [paymentStatus, setPaymentStatus] = useState('pending')
   const [timeRemaining, setTimeRemaining] = useState(900000) // 15 นาที
-  const [formData, setFormData] = useState({
-    cardNumber: '',
-    expiryDate: '',
-    cvv: '',
-    holderName: '',
-    phone: '',
-    email: ''
-  })
+  const [currentTransaction, setCurrentTransaction] = useState(null)
+  const [paymentCheckInterval, setPaymentCheckInterval] = useState(null)
+  const [apiMode, setApiMode] = useState('production') // 'test' or 'production'
+  const [debugMode, setDebugMode] = useState(false)
 
   // FeelFreePay Configuration
   const FEELFREEPAY_CONFIG = {
+    token: 'UtKvHtno8LFfDtqisP+gO7n8srsXW+91Gzc7fU73JpTZJWSXrvvF8sHGCaUMDpXIIDfZQx8UmRaMRCrnnVYf6IwsHvYhxkuMW9XbFyrQ3wU+SN2zpBmd3WpK3iWIRWT/zZ2NHJic5iB1xjcLlkbFHd5ZvMI=',
     publicKey: 'Q3tyqDhLpeBJbR6oVRtOlDOcs670w4sg',
-    secretKey: '3BM4eKlO5N8pxq68eYYQvdIBgfrn3X8W',
+    secretKey: '3BM4eKl05N8pxq68eYYQvdIBgfrn3X8W',
     apiUrl: 'https://api.feelfreepay.com/v1',
+    testURL: 'https://api-test.feelfreepay.com/ffp/gateway/qrcode',
+    productionURL: 'https://api.feelfreepay.com/ffp/gateway/qrcode',
+    statusURL: 'https://api.feelfreepay.com/v1/check_status_txn',
     webhookUrl: '/api/payment/feelfreepay-webhook'
   }
-
-  const paymentMethods = [
-    {
-      id: 'feelfreepay',
-      name: 'FeelFreePay',
-      icon: (
-        <div className="relative">
-          <div className="w-6 h-6 bg-gradient-to-r from-blue-500 to-purple-600 rounded-lg flex items-center justify-center text-white text-xs font-bold shadow-lg">
-            FF
-          </div>
-          <div className="absolute -top-1 -right-1 w-3 h-3 bg-gradient-to-r from-pink-500 to-violet-500 rounded-full animate-pulse"></div>
-        </div>
-      ),
-      description: 'ชำระเงินผ่าน FeelFreePay Gateway',
-      popular: true,
-      color: 'from-blue-500 to-purple-600',
-      features: ['QR Code', 'Mobile Banking', 'Credit Card', 'E-Wallet'],
-      badge: 'แนะนำ'
-    },
-    {
-      id: 'credit_card',
-      name: 'บัตรเครดิต/เดบิต',
-      icon: <CreditCard className="h-5 w-5" />,
-      description: 'Visa, MasterCard, JCB',
-      popular: false,
-      color: 'from-blue-500 to-blue-600'
-    },
-    {
-      id: 'mobile_banking',
-      name: 'Mobile Banking',
-      icon: <Smartphone className="h-5 w-5" />,
-      description: 'SCB Easy, Kbank, BBL Mobile',
-      popular: false,
-      color: 'from-green-500 to-green-600'
-    },
-    {
-      id: 'qr_code',
-      name: 'QR Code Payment',
-      icon: <QrCode className="h-5 w-5" />,
-      description: 'สแกน QR ผ่านแอปธนาคาร',
-      popular: false,
-      color: 'from-purple-500 to-purple-600'
-    },
-    {
-      id: 'e_wallet',
-      name: 'E-Wallet',
-      icon: <Wallet className="h-5 w-5" />,
-      description: 'TrueMoney, Rabbit LINE Pay',
-      popular: false,
-      color: 'from-orange-500 to-orange-600'
-    },
-    {
-      id: 'internet_banking',
-      name: 'Internet Banking',
-      icon: <Building2 className="h-5 w-5" />,
-      description: 'โอนผ่านธนาคารออนไลน์',
-      popular: false,
-      color: 'from-indigo-500 to-indigo-600'
-    }
-  ]
 
   // ระดับชั้นและราคาที่ตรงกัน
   const tierPricing = {
     member: { amount: 0, currency: 'THB', name: 'สมาชิกฟรี' },
-    test: { amount: 0.1, currency: 'THB', name: 'Test Member' },
-    silver: { amount: 99, currency: 'THB', name: 'Silver Member' },
-    gold: { amount: 199, currency: 'THB', name: 'Gold Member' },
-    vip: { amount: 299, currency: 'THB', name: 'VIP Member' },
-    vip1: { amount: 499, currency: 'THB', name: 'VIP 1' },
-    vip2: { amount: 799, currency: 'THB', name: 'VIP 2' },
-    diamond: { amount: 1299, currency: 'THB', name: 'Diamond Member' },
-    platinum: { amount: 1999, currency: 'THB', name: 'Platinum Member' }
+    silver: { amount: 20, currency: 'THB', name: 'Silver Member' },
+    gold: { amount: 50, currency: 'THB', name: 'Gold Member' },
+    vip: { amount: 100, currency: 'THB', name: 'VIP Member' },
+    vip1: { amount: 150, currency: 'THB', name: 'VIP 1' },
+    vip2: { amount: 300, currency: 'THB', name: 'VIP 2' },
+    diamond: { amount: 500, currency: 'THB', name: 'Diamond Member' },
+    platinum: { amount: 1000, currency: 'THB', name: 'Platinum Member' }
   }
 
   // Timer สำหรับ QR Code
@@ -160,133 +98,199 @@ const PaymentGateway = ({ plan, onBack, onSuccess, onCancel }) => {
     }
   }, [qrData, paymentStatus, onSuccess])
 
-  // สร้าง QR อัตโนมัติเมื่อเลือกวิธี FeelFreePay
+  // สร้าง QR อัตโนมัติเมื่อ component mount
   useEffect(() => {
-    if (selectedMethod === 'feelfreepay' && !qrData) {
+    if (!qrData) {
       createFeelFreePayPayment()
     }
-  }, [selectedMethod])
+  }, [])
 
-  const handleInputChange = (e) => {
-    const { name, value } = e.target
-    setFormData(prev => ({ ...prev, [name]: value }))
-  }
-
-  const formatCardNumber = (value) => {
-    return value.replace(/\s/g, '').replace(/(\d{4})/g, '$1 ').trim()
-  }
-
-  const formatExpiryDate = (value) => {
-    return value.replace(/\D/g, '').replace(/(\d{2})(\d)/, '$1/$2')
-  }
-
-  const handleCardNumberChange = (e) => {
-    const formatted = formatCardNumber(e.target.value)
-    if (formatted.length <= 19) {
-      setFormData(prev => ({ ...prev, cardNumber: formatted }))
-    }
-  }
-
-  const handleExpiryChange = (e) => {
-    const formatted = formatExpiryDate(e.target.value)
-    if (formatted.length <= 5) {
-      setFormData(prev => ({ ...prev, expiryDate: formatted }))
-    }
-  }
-
-  // สร้าง FeelFreePay Payment
+  // สร้าง FeelFreePay Payment ด้วยวิธีใหม่จาก HTML
   const createFeelFreePayPayment = async () => {
+    feelFreePayHelpers.debugLog('=== Starting QR Code Generation ===', 'info')
     setProcessing(true)
+    
     try {
-      // สร้างข้อมูลสำหรับส่งไปยัง backend
-      const requestData = {
-        plan: plan,
-        userInfo: {
-          userId: user?._id || user?.id || 'user123',
-          name: formData.holderName || user?.displayName || 'Customer',
-          email: formData.email || user?.email || 'customer@example.com',
-          phone: formData.phone || '0800000000',
-          address: 'Bangkok, Thailand' // default address
-        }
+      // เตรียมข้อมูลการชำระเงิน
+      const paymentData = {
+        amount: plan.price.amount,
+        description: `อัปเกรดเป็น ${plan.name} - ${plan.tier}`,
+        customerName: user?.displayName || 'Customer',
+        customerEmail: user?.email || 'customer@example.com',
+        referenceNo: feelFreePayHelpers.generateReferenceId(),
+        detail: `อัปเกรดเป็น ${plan.name} - ${plan.tier}`,
+        timestamp: new Date().toISOString(),
+        currency: 'THB'
       }
-
-      // เรียก API ผ่าน backend proxy
-      const result = await feelFreePayAPI.createPayment(requestData)
-
-      // ใช้ข้อมูลจาก response
+      
+      feelFreePayHelpers.debugLog('Payment data prepared:', 'info', paymentData)
+      
+      // ตรวจสอบว่าใช้ API โดยตรงหรือผ่าน backend
+      let result
+      
+      try {
+        // ลองเรียก API โดยตรงก่อน
+        feelFreePayHelpers.debugLog('Trying direct API call...', 'info')
+        result = await feelFreePayHelpers.createQRCodeDirect(paymentData, apiMode)
+        feelFreePayHelpers.debugLog('Direct API call successful', 'success')
+      } catch (directError) {
+        // ถ้าเรียกโดยตรงไม่ได้ ใช้ backend proxy
+        feelFreePayHelpers.debugLog('Direct API failed, using backend proxy', 'warning')
+        
+        const requestData = {
+          plan: plan,
+          userInfo: {
+            userId: user?._id || user?.id || 'user123',
+            name: paymentData.customerName,
+            email: paymentData.customerEmail,
+            phone: '0800000000',
+            address: 'Bangkok, Thailand'
+          }
+        }
+        
+        result = await feelFreePayAPI.createPayment(requestData)
+      }
+      
+      // บันทึก transaction data
+      const transaction = {
+        ...paymentData,
+        ...result,
+        status: 'pending',
+        createdAt: new Date(),
+        apiMode: apiMode
+      }
+      
+      setCurrentTransaction(transaction)
+      feelFreePayHelpers.debugLog('Transaction data saved:', 'info', transaction)
+      
+      // ตั้งค่า QR Data
       setQrData({
-        qrCode: result.qrCode || 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzAwIiBoZWlnaHQ9IjMwMCIgdmlld0JveD0iMCAwIDMwMCAzMDAiIGZpbGw9Im5vbmUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+CjxyZWN0IHdpZHRoPSIzMDAiIGhlaWdodD0iMzAwIiBmaWxsPSJ3aGl0ZSIvPgo8dGV4dCB4PSIxNTAiIHk9IjE1MCIgZm9udC1mYW1pbHk9Im1vbm9zcGFjZSIgZm9udC1zaXplPSIxNCIgZmlsbD0iYmxhY2siIHRleHQtYW5jaG9yPSJtaWRkbGUiIGR5PSIuM2VtIj5GRUVMRlJFRVBBWTwvdGV4dD4KPHRleHQgeD0iMTUwIiB5PSIxNzAiIGZvbnQtZmFtaWx5PSJtb25vc3BhY2UiIGZvbnQtc2l6ZT0iMTIiIGZpbGw9ImdyYXkiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGR5PSIuM2VtIj5RUkNvZGU8L3RleHQ+Cjwvc3ZnPgo=',
-        referenceNo: result.referenceNo || `ref_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+        qrCode: result.qrCode || result.qrData || 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzAwIiBoZWlnaHQ9IjMwMCIgdmlld0JveD0iMCAwIDMwMCAzMDAiIGZpbGw9Im5vbmUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+CjxyZWN0IHdpZHRoPSIzMDAiIGhlaWdodD0iMzAwIiBmaWxsPSJ3aGl0ZSIvPgo8dGV4dCB4PSIxNTAiIHk9IjE1MCIgZm9udC1mYW1pbHk9Im1vbm9zcGFjZSIgZm9udC1zaXplPSIxNCIgZmlsbD0iYmxhY2siIHRleHQtYW5jaG9yPSJtaWRkbGUiIGR5PSIuM2VtIj5GRUVMRlJFRVBBWTwvdGV4dD4KPHRleHQgeD0iMTUwIiB5PSIxNzAiIGZvbnQtZmFtaWx5PSJtb25vc3BhY2UiIGZvbnQtc2l6ZT0iMTIiIGZpbGw9ImdyYXkiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGR5PSIuM2VtIj5RUkNvZGU8L3RleHQ+Cjwvc3ZnPgo=',
+        referenceNo: result.referenceNo || paymentData.referenceNo,
         ffpReferenceNo: result.ffpReferenceNo || 'ffp_' + result.referenceNo,
         amount: result.amount || plan.price.amount,
         expiryTime: result.expiryTime ? new Date(result.expiryTime) : new Date(Date.now() + 15 * 60 * 1000),
         paymentUrl: result.paymentUrl || `https://feelfreepay.com/pay/${result.referenceNo}`,
         isMock: result.isMock || false
       })
-              setTimeRemaining(result.timeRemaining || 15 * 60 * 1000)
-        setPaymentStatus('G') // Generate
+      
+      setTimeRemaining(result.timeRemaining || 15 * 60 * 1000)
+      setPaymentStatus('G') // Generate
+      
+      // เริ่มตรวจสอบสถานะอัตโนมัติ
+      feelFreePayHelpers.debugLog('Starting automatic status checking...', 'info')
+      startAutoCheck()
+      
+      feelFreePayHelpers.debugLog('=== QR Code Generation Completed Successfully ===', 'success')
+      
     } catch (error) {
-      console.error('FeelFreePay payment error:', error)
-      alert('เกิดข้อผิดพลาดในการสร้าง QR Code กรุณาลองใหม่อีกครั้ง')
+      feelFreePayHelpers.debugLog('QR Code generation failed:', 'error', {
+        message: error.message,
+        stack: error.stack
+      })
+      console.error('เกิดข้อผิดพลาดในการสร้าง QR Code:', error.message)
     } finally {
       setProcessing(false)
     }
   }
 
-  const handlePayment = async () => {
-    if (selectedMethod === 'feelfreepay') {
-      await createFeelFreePayPayment()
-    } else {
-      // วิธีการชำระเงินแบบเดิม
-      setProcessing(true)
-      try {
-        await new Promise(resolve => setTimeout(resolve, 3000))
-        
-        const transactionData = {
-          planId: plan._id,
-          tier: plan.tier,
-          amount: plan.price.amount,
-          currency: plan.price.currency,
-          paymentMethod: selectedMethod,
-          transactionId: `tx_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-          timestamp: new Date().toISOString(),
-          status: 'completed'
-        }
-        
-        onSuccess(transactionData)
-      } catch (error) {
-        console.error('Payment error:', error)
-        alert('เกิดข้อผิดพลาดในการชำระเงิน กรุณาลองใหม่อีกครั้ง')
-      } finally {
-        setProcessing(false)
-      }
+  // เริ่มตรวจสอบสถานะอัตโนมัติทุก 10 วินาที
+  const startAutoCheck = () => {
+    if (paymentCheckInterval) {
+      clearInterval(paymentCheckInterval)
     }
+    
+    const interval = setInterval(() => {
+      if (currentTransaction && currentTransaction.status === 'pending') {
+        checkPaymentStatusDirect()
+      }
+    }, 10000)
+    
+    setPaymentCheckInterval(interval)
+  }
+
+  // ตรวจสอบสถานะการชำระเงินโดยตรง
+  const checkPaymentStatusDirect = async () => {
+    if (!currentTransaction) {
+      feelFreePayHelpers.debugLog('No current transaction found', 'error')
+      return
+    }
+    
+    try {
+      feelFreePayHelpers.debugLog('Checking payment status...', 'info')
+      const status = await feelFreePayHelpers.checkStatusDirect(currentTransaction.referenceNo)
+      
+      feelFreePayHelpers.debugLog(`Status check result: ${status}`, 'success')
+      updatePaymentStatus(status)
+      
+    } catch (error) {
+      feelFreePayHelpers.debugLog('Status check failed', 'error', error)
+    }
+  }
+
+  // อัปเดตสถานะการชำระเงิน
+  const updatePaymentStatus = (status) => {
+    switch(status) {
+      case 'success':
+      case 'S':
+        setPaymentStatus('S')
+        if (currentTransaction) {
+          currentTransaction.status = 'success'
+        }
+        // หยุดการตรวจสอบอัตโนมัติ
+        if (paymentCheckInterval) {
+          clearInterval(paymentCheckInterval)
+          setPaymentCheckInterval(null)
+        }
+        onSuccess && onSuccess(currentTransaction)
+        break
+      case 'failed':
+      case 'D':
+        setPaymentStatus('D')
+        if (currentTransaction) {
+          currentTransaction.status = 'failed'
+        }
+        // หยุดการตรวจสอบอัตโนมัติ
+        if (paymentCheckInterval) {
+          clearInterval(paymentCheckInterval)
+          setPaymentCheckInterval(null)
+        }
+        break
+      default:
+        setPaymentStatus('G')
+    }
+  }
+
+  const handlePayment = async () => {
+    await createFeelFreePayPayment()
   }
 
   const copyToClipboard = (text) => {
     navigator.clipboard.writeText(text)
-    alert('คัดลอกแล้ว')
+    // alert('คัดลอกแล้ว') // ลบการแจ้งเตือน
+    console.log('คัดลอกแล้ว')
   }
 
   const refreshQRCode = () => {
     setQrData(null)
     setPaymentStatus('pending')
     setTimeRemaining(900000)
+    setCurrentTransaction(null)
+    if (paymentCheckInterval) {
+      clearInterval(paymentCheckInterval)
+      setPaymentCheckInterval(null)
+    }
     createFeelFreePayPayment()
   }
 
-  const isFormValid = () => {
-    if (selectedMethod === 'feelfreepay') {
-      return true // FeelFreePay ไม่ต้องการข้อมูลเพิ่มเติม
+  // Cleanup interval on unmount
+  useEffect(() => {
+    return () => {
+      if (paymentCheckInterval) {
+        clearInterval(paymentCheckInterval)
+      }
     }
-    if (selectedMethod === 'credit_card') {
-      return formData.cardNumber.replace(/\s/g, '').length === 16 &&
-             formData.expiryDate.length === 5 &&
-             formData.cvv.length >= 3 &&
-             formData.holderName.trim() !== ''
-    }
-    return formData.phone !== '' && formData.email !== ''
-  }
+  }, [paymentCheckInterval])
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-pink-50 via-white to-violet-50 relative overflow-hidden">
@@ -412,102 +416,79 @@ const PaymentGateway = ({ plan, onBack, onSuccess, onCancel }) => {
           {/* Payment Form */}
           <div className="lg:col-span-2 animate-slideInRight">
             <Card className="bg-white/90 backdrop-blur-xl border border-white/30 shadow-2xl hover:shadow-3xl transition-all duration-500">
-              <CardHeader className="bg-gradient-to-r from-green-500/10 to-blue-500/10 rounded-t-lg">
+              <CardHeader className="bg-gradient-to-r from-blue-500/10 to-purple-500/10 rounded-t-lg">
                 <CardTitle className="flex items-center text-lg">
-                  <div className="p-2 bg-gradient-to-r from-green-500 to-blue-500 rounded-lg mr-3 animate-pulse">
-                    <Shield className="h-5 w-5 text-white" />
+                  <div className="p-2 bg-gradient-to-r from-blue-500 to-purple-600 rounded-lg mr-3 animate-pulse">
+                    <div className="w-5 h-5 bg-white rounded flex items-center justify-center text-xs font-bold text-blue-600">
+                      FF
+                    </div>
                   </div>
-                  เลือกวิธีการชำระเงิน
+                  ชำระเงินผ่าน FeelFreePay Gateway
                 </CardTitle>
                 <p className="text-sm text-slate-600 flex items-center">
                   <Lock className="h-4 w-4 mr-1 text-green-500" />
-                  ข้อมูลของคุณปลอดภัยด้วยการเข้ารหัส SSL 256-bit
+                  ปลอดภัยด้วยการเข้ารหัส SSL 256-bit | รองรับทุกธนาคาร
                 </p>
               </CardHeader>
               <CardContent className="space-y-6">
-                {/* Payment Methods */}
-                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-                  {paymentMethods.map((method, index) => (
-                    <div
-                      key={method.id}
-                      onClick={() => setSelectedMethod(method.id)}
-                      className={`relative p-4 rounded-2xl border-2 cursor-pointer transition-all duration-300 hover:scale-105 hover:shadow-lg group animate-fadeIn ${
-                        selectedMethod === method.id
-                          ? 'border-pink-500 bg-gradient-to-br from-pink-50 to-violet-50 shadow-lg'
-                          : 'border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50'
-                      }`}
-                      style={{ animationDelay: `${index * 100}ms` }}
-                    >
-                      {method.popular && (
-                        <div className="absolute -top-2 -right-2 bg-gradient-to-r from-pink-500 to-violet-500 text-white text-xs px-3 py-1 rounded-full shadow-lg animate-bounce">
-                          <Sparkles className="h-3 w-3 inline mr-1" />
-                          {method.badge || 'แนะนำ'}
-                        </div>
-                      )}
-                      
-                      {selectedMethod === method.id && (
-                        <div className="absolute inset-0 bg-gradient-to-r from-pink-500/10 to-violet-500/10 rounded-2xl animate-pulse"></div>
-                      )}
-                      
-                      <div className="relative z-10 flex items-center">
-                        <div className={`p-3 rounded-xl transition-all duration-300 ${
-                          selectedMethod === method.id 
-                            ? `bg-gradient-to-r ${method.color} shadow-lg` 
-                            : 'bg-slate-100 group-hover:bg-slate-200'
-                        }`}>
-                          <div className={selectedMethod === method.id ? 'text-white' : 'text-slate-600'}>
-                            {method.icon}
+                {/* FeelFreePay Features Banner */}
+                <div className="relative overflow-hidden p-6 bg-gradient-to-r from-blue-500 to-purple-600 rounded-2xl shadow-xl">
+                  <div className="absolute inset-0 bg-white/10 backdrop-blur-sm"></div>
+                  <div className="relative z-10">
+                    <div className="flex items-center justify-between mb-4">
+                      <div>
+                        <h3 className="text-2xl font-bold text-white mb-2">FeelFreePay Gateway</h3>
+                        <p className="text-white/90 text-sm">ระบบชำระเงินที่ปลอดภัย รวดเร็ว และสะดวกสบาย</p>
+                      </div>
+                      <div className="hidden sm:block">
+                        <div className="w-16 h-16 bg-white/20 rounded-2xl flex items-center justify-center backdrop-blur-lg shadow-xl">
+                          <div className="w-12 h-12 bg-white rounded-xl flex items-center justify-center text-2xl font-bold text-blue-600">
+                            FF
                           </div>
                         </div>
-                        <div className="ml-3 flex-1">
-                          <h3 className={`font-semibold transition-colors duration-300 ${
-                            selectedMethod === method.id ? 'text-slate-900' : 'text-slate-800'
-                          }`}>
-                            {method.name}
-                          </h3>
-                          <p className="text-sm text-slate-600 mt-1">{method.description}</p>
-                          {method.features && (
-                            <div className="flex flex-wrap gap-1 mt-2">
-                              {method.features.map((feature, idx) => (
-                                <span key={idx} className="text-xs bg-slate-100 px-2 py-1 rounded-full text-slate-600">
-                                  {feature}
-                                </span>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                        
-                        {selectedMethod === method.id && (
-                          <div className="ml-2">
-                            <CheckCircle className="h-5 w-5 text-green-500 animate-scale-in" />
-                          </div>
-                        )}
                       </div>
                     </div>
-                  ))}
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                      <div className="flex items-center bg-white/20 backdrop-blur-sm rounded-lg px-3 py-2">
+                        <QrCode className="h-4 w-4 text-white mr-2" />
+                        <span className="text-white text-sm">QR Code</span>
+                      </div>
+                    </div>
+                  </div>
                 </div>
 
-                {/* FeelFreePay QR Code Display */}
-                {selectedMethod === 'feelfreepay' && qrData && (
+                {/* QR Code Display */}
+                {qrData && (
                   <div className="space-y-4">
-                    <div className="p-6 bg-gradient-to-r from-blue-50 to-purple-50 rounded-2xl border border-blue-200">
-                      <div className="text-center mb-4">
-                        <h3 className="text-lg font-bold text-slate-800 mb-2">สแกน QR Code เพื่อชำระเงิน</h3>
+                    <div className="p-6 bg-gradient-to-br from-white to-slate-50 rounded-2xl border border-slate-200 shadow-lg">
+                      <div className="text-center mb-6">
+                        <h3 className="text-xl font-bold text-slate-800 mb-2">
+                          <QrCode className="h-6 w-6 inline mr-2 text-blue-600" />
+                          สแกน QR Code เพื่อชำระเงิน
+                        </h3>
                         <p className="text-sm text-slate-600">ใช้แอปธนาคารหรือ Mobile Banking สแกน QR Code ด้านล่าง</p>
                       </div>
                       
-                      {/* QR Code */}
-                      <div className="flex justify-center mb-4">
+                      {/* QR Code Container - Full Size 453x264 */}
+                      <div className="flex justify-center mb-6">
                         <div className="relative">
-                          <img 
-                            src={qrData.qrCode} 
-                            alt="QR Code" 
-                            className="w-48 h-48 border-4 border-white shadow-lg rounded-lg"
+                          {/* QR Code Full Size without container restrictions */}
+                          <img
+                            src={qrData.qrCode}
+                            alt="QR Code"
+                            className="rounded-lg shadow-2xl"
+                            style={{
+                              width: '180px',
+                              height: '264px',
+                              maxWidth: '100%',
+                              objectFit: 'contain',
+                              imageRendering: 'crisp-edges'
+                            }}
                           />
                           {paymentStatus === 'pending' && (
-                            <div className="absolute inset-0 bg-white/80 flex items-center justify-center rounded-lg">
+                            <div className="absolute inset-0 bg-white/90 flex items-center justify-center rounded-lg">
                               <div className="text-center">
-                                <Loader2 className="h-8 w-8 animate-spin mx-auto mb-2 text-blue-500" />
+                                <Loader2 className="h-10 w-10 animate-spin mx-auto mb-2 text-blue-500" />
                                 <p className="text-sm text-slate-600">กำลังโหลด QR Code...</p>
                               </div>
                             </div>
@@ -562,13 +543,7 @@ const PaymentGateway = ({ plan, onBack, onSuccess, onCancel }) => {
                           <RefreshCw className="h-4 w-4 mr-2" />
                           รีเฟรช QR Code
                         </Button>
-                        <Button
-                          onClick={() => window.open(qrData.paymentUrl, '_blank')}
-                          className="flex-1 bg-gradient-to-r from-blue-500 to-purple-600"
-                        >
-                          <ExternalLink className="h-4 w-4 mr-2" />
-                          เปิดลิงก์ชำระเงิน
-                        </Button>
+                       
                       </div>
 
                       {/* Status */}
@@ -591,120 +566,7 @@ const PaymentGateway = ({ plan, onBack, onSuccess, onCancel }) => {
                   </div>
                 )}
 
-                {/* Payment Form Fields for other methods */}
-                {selectedMethod !== 'feelfreepay' && (
-                  selectedMethod === 'credit_card' ? (
-                    <div className="space-y-4">
-                      <div>
-                        <label className="block text-sm font-medium text-slate-700 mb-2">
-                          หมายเลขบัตร
-                        </label>
-                        <input
-                          type="text"
-                          value={formData.cardNumber}
-                          onChange={handleCardNumberChange}
-                          placeholder="1234 5678 9012 3456"
-                          className="w-full p-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent"
-                        />
-                      </div>
-                      <div className="grid grid-cols-2 gap-4">
-                        <div>
-                          <label className="block text-sm font-medium text-slate-700 mb-2">
-                            วันหมดอายุ
-                          </label>
-                          <input
-                            type="text"
-                            value={formData.expiryDate}
-                            onChange={handleExpiryChange}
-                            placeholder="MM/YY"
-                            className="w-full p-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent"
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-sm font-medium text-slate-700 mb-2">
-                            CVV
-                          </label>
-                          <input
-                            type="text"
-                            name="cvv"
-                            value={formData.cvv}
-                            onChange={handleInputChange}
-                            placeholder="123"
-                            maxLength="4"
-                            className="w-full p-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent"
-                          />
-                        </div>
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium text-slate-700 mb-2">
-                          ชื่อผู้ถือบัตร
-                        </label>
-                        <input
-                          type="text"
-                          name="holderName"
-                          value={formData.holderName}
-                          onChange={handleInputChange}
-                          placeholder="ชื่อ-นามสกุล ตามบัตร"
-                          className="w-full p-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent"
-                        />
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="space-y-4">
-                      <div>
-                        <label className="block text-sm font-medium text-slate-700 mb-2">
-                          หมายเลขโทรศัพท์
-                        </label>
-                        <input
-                          type="tel"
-                          name="phone"
-                          value={formData.phone}
-                          onChange={handleInputChange}
-                          placeholder="08X-XXX-XXXX"
-                          className="w-full p-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium text-slate-700 mb-2">
-                          อีเมล
-                        </label>
-                        <input
-                          type="email"
-                          name="email"
-                          value={formData.email}
-                          onChange={handleInputChange}
-                          placeholder="example@email.com"
-                          className="w-full p-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent"
-                        />
-                      </div>
-                      <div className="p-4 bg-blue-50 rounded-lg">
-                        <div className="flex items-start">
-                          <AlertCircle className="h-5 w-5 text-blue-500 mr-2 mt-0.5" />
-                          <div className="text-sm text-blue-700">
-                            <p className="font-medium">ขั้นตอนการชำระเงิน:</p>
-                            <ol className="list-decimal list-inside mt-1 space-y-1">
-                              <li>กดปุ่มชำระเงิน</li>
-                              <li>ระบบจะแสดง QR Code หรือลิงก์สำหรับชำระเงิน</li>
-                              <li>ทำการชำระผ่านแอปธนาคาร</li>
-                              <li>รอการยืนยันจากระบบ</li>
-                            </ol>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  )
-                )}
 
-                {/* Terms */}
-                <div className="p-4 bg-slate-50 rounded-lg">
-                  <label className="flex items-start">
-                    <input type="checkbox" className="mt-1 mr-3" defaultChecked />
-                    <span className="text-sm text-slate-600">
-                      ฉันยอมรับ <a href="#" className="text-pink-500 hover:underline">ข้อกำหนดการใช้งาน</a> และ 
-                      <a href="#" className="text-pink-500 hover:underline ml-1">นโยบายความเป็นส่วนตัว</a>
-                    </span>
-                  </label>
-                </div>
 
                 {/* Action Buttons */}
                 <div className="flex gap-4 pt-4">
@@ -719,48 +581,42 @@ const PaymentGateway = ({ plan, onBack, onSuccess, onCancel }) => {
                   </Button>
                   <Button
                     onClick={handlePayment}
-                    className="flex-1 h-12 bg-gradient-to-r from-pink-500 to-violet-500 hover:from-pink-600 hover:to-violet-600 shadow-lg hover:shadow-xl transition-all duration-300 hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"
-                    disabled={!isFormValid() || processing || (selectedMethod === 'feelfreepay' && qrData)}
+                    className={`flex-1 h-12 shadow-lg hover:shadow-xl transition-all duration-300 ${
+                      processing
+                        ? 'bg-gradient-to-r from-gray-400 to-gray-500 opacity-50 cursor-not-allowed hover:scale-100'
+                        : qrData
+                        ? 'bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 text-white cursor-default hover:scale-100'
+                        : 'bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 text-white hover:scale-105'
+                    }`}
+                    disabled={processing}
                   >
                     {processing ? (
                       <>
                         <Loader2 className="h-5 w-5 mr-2 animate-spin" />
                         กำลังประมวลผล...
                       </>
-                    ) : selectedMethod === 'feelfreepay' && qrData ? (
-                      <>
-                        <CheckCircle className="h-5 w-5 mr-2" />
-                        QR Code พร้อมใช้งาน
-                      </>
-                    ) : selectedMethod === 'feelfreepay' ? (
+                    ) : qrData ? (
                       <>
                         <div className="flex items-center justify-center w-full">
-                          <div className="flex items-center">
-                            <div className="p-1 bg-white/20 rounded-full mr-3 animate-pulse">
-                              <div className="w-5 h-5 bg-gradient-to-r from-blue-500 to-purple-600 rounded-full flex items-center justify-center text-white text-xs font-bold">
-                                FF
-                              </div>
-                            </div>
-                            <div className="flex flex-col items-start">
-                              <span className="text-sm font-medium">ชำระเงินผ่าน FeelFreePay</span>
-                              <span className="text-xs opacity-90">
-                                {membershipHelpers.formatPrice(plan.price.amount, plan.price.currency)}
-                              </span>
-                            </div>
-                          </div>
+                          <CheckCircle className="h-5 w-5 mr-2 text-white" />
+                          <span className="font-medium">QR Code พร้อมใช้งาน</span>
                         </div>
                       </>
                     ) : (
                       <>
-                        <div className="flex items-center">
-                          <div className="p-1 bg-white/20 rounded mr-2">
-                            <CreditCard className="h-4 w-4" />
-                          </div>
-                          <div className="flex flex-col items-start">
-                            <span className="text-sm font-medium">ชำระเงิน</span>
-                            <span className="text-xs opacity-90">
-                              {membershipHelpers.formatPrice(plan.price.amount, plan.price.currency)}
-                            </span>
+                        <div className="flex items-center justify-center w-full">
+                          <div className="flex items-center">
+                            <div className="p-1 bg-white/20 rounded-full mr-3 animate-pulse">
+                              <div className="w-5 h-5 bg-white rounded-full flex items-center justify-center text-xs font-bold text-blue-600">
+                                FF
+                              </div>
+                            </div>
+                            <div className="flex flex-col items-start">
+                              <span className="text-sm font-medium">สร้าง QR Code ชำระเงิน</span>
+                              <span className="text-xs opacity-90">
+                                {membershipHelpers.formatPrice(plan.price.amount, plan.price.currency)}
+                              </span>
+                            </div>
                           </div>
                         </div>
                       </>

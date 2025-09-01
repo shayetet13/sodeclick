@@ -696,34 +696,55 @@ const RealTimeChat = ({ roomId, currentUser, onBack }) => {
                     {/* Messages Area */}
        <div className="messages-container flex-1 overflow-y-auto p-4 space-y-4 bg-gray-50">
          {messages.map((message, index) => (
-           <div
-             key={message._id}
-             className={`flex ${message.sender._id === currentUser._id ? 'justify-end' : 'justify-start'} ${
-               index % 2 === 0 ? 'bg-gray-50' : 'bg-white'
-             } p-2 rounded-lg`}
-           >
-            <div className={`flex max-w-[70%] ${message.sender._id === currentUser._id ? 'flex-row-reverse' : 'flex-row'}`}>
+                     <div
+            key={message._id}
+            className={`flex ${message.sender && message.sender._id === currentUser._id ? 'justify-end' : 'justify-start'} ${
+              index % 2 === 0 ? 'bg-gray-50' : 'bg-white'
+            } p-2 rounded-lg`}
+          >
+            <div className={`flex max-w-[70%] ${message.sender && message.sender._id === currentUser._id ? 'flex-row-reverse' : 'flex-row'}`}>
               {/* Avatar */}
               <Avatar className="w-8 h-8 mx-2">
-                <AvatarImage 
-                  src={message.sender.profileImages?.[0]} 
-                  alt={message.sender.displayName || message.sender.username} 
-                />
-                <AvatarFallback className="bg-gradient-to-r from-pink-400 to-violet-400 text-white text-xs">
-                  {(message.sender.displayName || message.sender.username).charAt(0).toUpperCase()}
-                </AvatarFallback>
+                {message.sender ? (
+                  <>
+                    <AvatarImage 
+                      src={message.sender.profileImages?.[0]} 
+                      alt={message.sender.displayName || message.sender.username} 
+                    />
+                    <AvatarFallback className="bg-gradient-to-r from-pink-400 to-violet-400 text-white text-xs">
+                      {(message.sender.displayName || message.sender.username || "?").charAt(0).toUpperCase()}
+                    </AvatarFallback>
+                  </>
+                ) : (
+                  <AvatarFallback className="bg-gradient-to-r from-pink-400 to-violet-400 text-white text-xs">
+                    ?
+                  </AvatarFallback>
+                )}
               </Avatar>
 
               {/* Message Content */}
-              <div className={`flex flex-col ${message.sender._id === currentUser._id ? 'items-end' : 'items-start'}`}>
+              <div className={`flex flex-col ${message.sender && message.sender._id === currentUser._id ? 'items-end' : 'items-start'}`}>
                 {/* Sender Info */}
-                <div className={`flex items-center space-x-2 mb-1 ${message.sender._id === currentUser._id ? 'flex-row-reverse space-x-reverse' : ''}`}>
-                  <span className="text-sm font-medium text-gray-700">
-                    {message.sender.displayName || message.sender.username}
-                  </span>
-                  <Badge className={`text-xs ${getMembershipBadgeColor(message.sender.membershipTier)}`}>
-                    {message.sender.membershipTier?.toUpperCase() || 'MEMBER'}
-                  </Badge>
+                <div className={`flex items-center space-x-2 mb-1 ${message.sender && message.sender._id === currentUser._id ? 'flex-row-reverse space-x-reverse' : ''}`}>
+                  {message.sender ? (
+                    <>
+                      <span className="text-sm font-medium text-gray-700">
+                        {message.sender.displayName || message.sender.username}
+                      </span>
+                      <Badge className={`text-xs ${getMembershipBadgeColor(message.sender.membershipTier)}`}>
+                        {message.sender.membershipTier?.toUpperCase() || 'MEMBER'}
+                      </Badge>
+                    </>
+                  ) : (
+                    <>
+                      <span className="text-sm font-medium text-gray-700">
+                        Unknown User
+                      </span>
+                      <Badge className="text-xs bg-gray-100 text-gray-800">
+                        MEMBER
+                      </Badge>
+                    </>
+                  )}
                   <span className="text-xs text-gray-500">
                     {formatTime(message.createdAt)}
                   </span>
@@ -744,7 +765,7 @@ const RealTimeChat = ({ roomId, currentUser, onBack }) => {
                 {/* Message Bubble */}
                 <div
                   className={`relative rounded-2xl px-4 py-2 max-w-full break-words group ${
-                    message.sender._id === currentUser._id
+                    message.sender && message.sender._id === currentUser._id
                       ? 'bg-gray-100 text-black'
                       : 'bg-white text-black shadow-sm border'
                   }`}
@@ -788,7 +809,7 @@ const RealTimeChat = ({ roomId, currentUser, onBack }) => {
                       </button>
 
                      {/* Delete Button - แสดงเฉพาะข้อความรูปภาพที่ยังไม่เกิน 3 วินาที */}
-                     {message.messageType === 'image' && message.sender._id === currentUser._id && (
+                     {message.messageType === 'image' && message.sender && message.sender._id === currentUser._id && (
                        (() => {
                          const messageTime = new Date(message.createdAt);
                          const currentTime = new Date();

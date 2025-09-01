@@ -2,9 +2,13 @@ import { apiService } from '../config/api';
 
 // FeelFreePay Configuration
 const FEELFREEPAY_CONFIG = {
+  token: 'UtKvHtno8LFfDtqisP+gO7n8srsXW+91Gzc7fU73JpTZJWSXrvvF8sHGCaUMDpXIIDfZQx8UmRaMRCrnnVYf6IwsHvYhxkuMW9XbFyrQ3wU+SN2zpBmd3WpK3iWIRWT/zZ2NHJic5iB1xjcLlkbFHd5ZvMI=',
   publicKey: 'Q3tyqDhLpeBJbR6oVRtOlDOcs670w4sg',
-  secretKey: '3BM4eKlO5N8pxq68eYYQvdIBgfrn3X8W',
+  secretKey: '3BM4eKl05N8pxq68eYYQvdIBgfrn3X8W',
   apiUrl: 'https://api.feelfreepay.com/v1',
+  testURL: 'https://api-test.feelfreepay.com/ffp/gateway/qrcode',
+  productionURL: 'https://api.feelfreepay.com/ffp/gateway/qrcode',
+  statusURL: 'https://api.feelfreepay.com/v1/check_status_txn',
   webhookUrl: '/api/payment/feelfreepay-webhook'
 };
 
@@ -97,6 +101,21 @@ export const feelFreePayAPI = {
 
 // Helper functions สำหรับ FeelFreePay
 export const feelFreePayHelpers = {
+  // สร้าง Reference ID ตามมาตรฐาน FeelFreePay (15 หลัก)
+  generateReferenceId: () => {
+    const now = new Date();
+    const year = now.getFullYear().toString().slice(-2);
+    const month = (now.getMonth() + 1).toString().padStart(2, '0');
+    const day = now.getDate().toString().padStart(2, '0');
+    const hours = now.getHours().toString().padStart(2, '0');
+    const minutes = now.getMinutes().toString().padStart(2, '0');
+    const seconds = now.getSeconds().toString().padStart(2, '0');
+    const random = Math.floor(Math.random() * 1000).toString().padStart(3, '0');
+    
+    // รวมเป็น 15 หลัก: YYMMDDHHMMSSXXX
+    return `${year}${month}${day}${hours}${minutes}${seconds}${random}`.slice(0, 15);
+  },
+
   // สร้างข้อมูลการชำระเงินสำหรับ FeelFreePay
   createPaymentData: (plan, userInfo) => {
     return {
@@ -112,8 +131,104 @@ export const feelFreePayHelpers = {
       merchantDefined2: plan.tier,
       merchantDefined3: userInfo.userId,
       merchantDefined4: plan.name,
-      merchantDefined5: new Date().toISOString()
+      merchantDefined5: new Date().toISOString(),
+      referenceNo: feelFreePayHelpers.generateReferenceId()
     };
+  },
+
+  // Debug logger
+  debugLog: (message, type = 'info', data = null) => {
+    const timestamp = new Date().toLocaleTimeString('th-TH', {
+      hour12: false,
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit'
+    });
+    
+    const consoleMethod = type === 'error' ? 'error' : type === 'warning' ? 'warn' : 'log';
+    console[consoleMethod](`[${timestamp}] [FeelFreePay] ${message}`, data || '');
+  },
+
+  // เรียก API สร้าง QR Code โดยตรง
+  createQRCodeDirect: async (paymentData, apiMode = 'test') => {
+    const apiURL = apiMode === 'test' ? FEELFREEPAY_CONFIG.testURL : FEELFREEPAY_CONFIG.productionURL;
+    
+    try {
+      feelFreePayHelpers.debugLog('Creating QR Code direct', 'info', { apiURL, paymentData });
+      
+      const formData = new FormData();
+      formData.append('token', FEELFREEPAY_CONFIG.token);
+      formData.append('referenceNo', paymentData.referenceNo || feelFreePayHelpers.generateReferenceId());
+      formData.append('amount', paymentData.amount);
+      formData.append('detail', paymentData.detail || 'Payment');
+      formData.append('customerName', paymentData.customerName || '');
+      formData.append('customerEmail', paymentData.customerEmail || '');
+      
+      const response = await fetch(apiURL, {
+        method: 'POST',
+        body: formData
+      });
+      
+      if (!response.ok) {
+        throw new Error(`API Error: ${response.status} - ${response.statusText}`);
+      }
+      
+      // แปลง blob เป็น data URL
+      const blob = await response.blob();
+      const qrDataUrl = URL.createObjectURL(blob);
+      
+      feelFreePayHelpers.debugLog('QR Code created successfully', 'success');
+      
+      return {
+        success: true,
+        qrData: qrDataUrl,
+        referenceNo: paymentData.referenceNo,
+        amount: paymentData.amount
+      };
+      
+    } catch (error) {
+      feelFreePayHelpers.debugLog('Failed to create QR Code', 'error', error);
+      throw error;
+    }
+  },
+
+  // ตรวจสอบสถานะโดยตรง
+  checkStatusDirect: async (referenceNo) => {
+    try {
+      const authString = `${FEELFREEPAY_CONFIG.secretKey}:`;
+      const base64Auth = btoa(authString);
+      
+      const response = await fetch(FEELFREEPAY_CONFIG.statusURL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Basic ${base64Auth}`
+        },
+        body: JSON.stringify({ referenceNo })
+      });
+      
+      if (!response.ok) {
+        throw new Error(`Status API Error: ${response.status}`);
+      }
+      
+      const result = await response.json();
+      
+      if (result.resultCode === '00') {
+        if (Array.isArray(result.txn)) {
+          const latestTxn = result.txn[result.txn.length - 1];
+          return latestTxn.status === 'S' ? 'success' : 'pending';
+        } else if (result.txn) {
+          return result.txn.status === 'S' ? 'success' : 'pending';
+        }
+        return 'pending';
+      } else {
+        return 'failed';
+      }
+      
+    } catch (error) {
+      feelFreePayHelpers.debugLog('Status check failed', 'error', error);
+      throw error;
+    }
   },
 
   // ตรวจสอบสถานะการชำระเงินแบบ polling

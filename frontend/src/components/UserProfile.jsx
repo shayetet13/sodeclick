@@ -64,7 +64,8 @@ const UserProfile = ({ userId, isOwnProfile = false }) => {
   const [saving, setSaving] = useState(false);
   const [uploadingImage, setUploadingImage] = useState(false);
   const [membershipData, setMembershipData] = useState(null);
-  const { success, error: showError, ToastContainer } = useToast();
+  const [petsInput, setPetsInput] = useState('');
+  const { success, error: showError } = useToast();
 
   // ฟังก์ชันคำนวณอายุจากวันเกิด
   const getAgeFromDate = (dateOfBirth) => {
@@ -88,6 +89,8 @@ const UserProfile = ({ userId, isOwnProfile = false }) => {
       if (response.success) {
         setProfile(response.data.profile);
         setEditData(response.data.profile);
+        // เตรียมค่าเริ่มต้นของ pets สำหรับอินพุตแก้ไข
+        setPetsInput(formatPetsForInput(response.data.profile?.pets));
         console.log('Profile loaded successfully:', response.data.profile);
       } else {
         console.error('Profile API returned error:', response);
@@ -112,7 +115,7 @@ const UserProfile = ({ userId, isOwnProfile = false }) => {
   // ดึงข้อมูลสมาชิก
   const fetchMembershipData = async () => {
     try {
-      const token = localStorage.getItem('token');
+      const token = sessionStorage.getItem('token');
       const headers = {
         'Content-Type': 'application/json'
       };
@@ -149,7 +152,7 @@ const UserProfile = ({ userId, isOwnProfile = false }) => {
       console.log('Current profile:', profile);
       
       // ตรวจสอบ token ก่อน
-      const token = localStorage.getItem('token');
+      const token = sessionStorage.getItem('token');
       if (!token) {
         showError('กรุณาเข้าสู่ระบบใหม่');
         // Redirect ไปหน้า login
@@ -157,12 +160,17 @@ const UserProfile = ({ userId, isOwnProfile = false }) => {
         return;
       }
       
+      const normalizedPets = Array.isArray(editData.pets)
+        ? { hasPets: editData.pets.length > 0, petTypes: editData.pets }
+        : (editData.pets || {});
+
       const cleanData = {
         ...editData,
         // ทำความสะอาดข้อมูลก่อนส่ง
         education: editData.education || {},
-        pets: editData.pets || {},
+        pets: normalizedPets,
         lifestyle: editData.lifestyle || {},
+        interests: editData.interests || [],
         coordinates: editData.coordinates || { type: 'Point', coordinates: [0, 0] },
         membership: editData.membership || {}
       };
@@ -170,19 +178,27 @@ const UserProfile = ({ userId, isOwnProfile = false }) => {
       console.log('Cleaned profile data:', cleanData);
       console.log('Religion field:', cleanData.religion);
       console.log('Languages field:', cleanData.languages);
+      console.log('Interests field:', cleanData.interests);
       
       const response = await profileAPI.updateUserProfile(userId, cleanData);
+      console.log('Response from backend:', response);
+      console.log('Updated profile:', response.data.profile);
+      console.log('Interests data:', response.data.profile?.interests);
+      
       setProfile(response.data.profile);
       setEditData(response.data.profile);
+      setPetsInput(formatPetsForInput(response.data.profile?.pets));
       setEditMode(false);
       success('อัปเดตโปรไฟล์สำเร็จ');
     } catch (err) {
       console.error('Error saving profile:', err);
       
       // จัดการ error ตามประเภท
-      if (err.message.includes('Session expired') || err.message.includes('Authentication token not found')) {
-        showError('เซสชันหมดอายุ กรุณาเข้าสู่ระบบใหม่');
-        // Redirect ไปหน้า login
+      if (err.message.includes('Session expired') || err.message.includes('Authentication token not found') || err.message.includes('Token ไม่ถูกต้อง')) {
+        showError('Token ไม่ถูกต้อง กรุณาเข้าสู่ระบบใหม่');
+        // ล้างข้อมูลและ redirect ไปหน้า login
+        sessionStorage.removeItem('token');
+        sessionStorage.removeItem('user');
         setTimeout(() => {
           window.location.href = '/';
         }, 2000);
@@ -218,6 +234,7 @@ const UserProfile = ({ userId, isOwnProfile = false }) => {
     setEditData({ ...profile });
     setEditMode(true);
     console.log('editMode set to true');
+    setPetsInput(formatPetsForInput(profile?.pets));
   };
 
   // ยกเลิกการแก้ไข
@@ -227,6 +244,7 @@ const UserProfile = ({ userId, isOwnProfile = false }) => {
     setEditData({ ...profile });
     setEditMode(false);
     console.log('editMode set to false');
+    setPetsInput(formatPetsForInput(profile?.pets));
   };
 
   // อัปโหลดรูปภาพ
@@ -275,28 +293,36 @@ const UserProfile = ({ userId, isOwnProfile = false }) => {
     }
   }, [userId]);
 
-  // ฟังก์ชันแปลงข้อมูลการศึกษา
+  // ฟังก์ชันแปลงข้อมูลการศึกษา (รองรับทั้งค่าจากฟอร์มและจากฐานข้อมูล)
   const getEducationLabel = (level) => {
     const educationLevels = {
       'high_school': 'มัธยมศึกษา',
       'bachelor': 'ปริญญาตรี',
       'master': 'ปริญญาโท',
       'phd': 'ปริญญาเอก',
+      'doctorate': 'ปริญญาเอก',
       'vocational': 'อาชีวศึกษา',
+      'diploma': 'ปวส./อนุปริญญา',
       'other': 'อื่นๆ'
     };
     return educationLevels[level] || level;
   };
 
-  // ฟังก์ชันแปลงข้อมูลศาสนา
+  // ฟังก์ชันแปลงข้อมูลศาสนา (รองรับทั้งค่าจากฟอร์มและค่าที่บันทึกในฐานข้อมูล)
   const getReligionLabel = (religion) => {
     const religions = {
+      // values saved in DB
+      'buddhist': 'พุทธ',
+      'christian': 'คริสต์',
+      'muslim': 'อิสลาม',
+      'hindu': 'ฮินดู',
+      'other': 'อื่นๆ',
+      'none': 'ไม่มีศาสนา',
+      // values from form select (pre-mapping)
       'buddhism': 'พุทธ',
       'christianity': 'คริสต์',
       'islam': 'อิสลาม',
-      'hinduism': 'ฮินดู',
-      'other': 'อื่นๆ',
-      'none': 'ไม่มีศาสนา'
+      'hinduism': 'ฮินดู'
     };
     return religions[religion] || religion;
   };
@@ -314,39 +340,62 @@ const UserProfile = ({ userId, isOwnProfile = false }) => {
     return languages[lang] || lang;
   };
 
-  // ฟังก์ชันแปลงข้อมูลไลฟ์สไตล์
+  // ฟังก์ชันแปลงข้อมูลไลฟ์สไตล์ (รองรับทั้งค่าจากฟอร์มและจากฐานข้อมูล)
   const getLifestyleLabel = (category, value) => {
     const lifestyleLabels = {
       smoking: {
+        // form values
         'yes': 'สูบบุหรี่',
         'no': 'ไม่สูบบุหรี่',
         'occasionally': 'สูบเป็นครั้งคราว',
-        'quit': 'เลิกสูบแล้ว'
+        'quit': 'เลิกสูบแล้ว',
+        // db values
+        'regularly': 'สูบบุหรี่',
+        'never': 'ไม่สูบบุหรี่',
+        'trying_to_quit': 'เลิกสูบแล้ว'
       },
       drinking: {
+        // form values
         'yes': 'ดื่มสุรา',
         'no': 'ไม่ดื่มสุรา',
         'socially': 'ดื่มในงานสังคม',
-        'quit': 'เลิกดื่มแล้ว'
+        'occasionally': 'ดื่มเป็นครั้งคราว',
+        'quit': 'ไม่ดื่มสุรา',
+        // db values
+        'regularly': 'ดื่มสุรา',
+        'never': 'ไม่ดื่มสุรา'
       },
       exercise: {
+        // form values
         'daily': 'ออกกำลังกายทุกวัน',
         'weekly': 'ออกกำลังกายสัปดาห์ละ 2-3 ครั้ง',
         'monthly': 'ออกกำลังกายเป็นครั้งคราว',
-        'never': 'ไม่ค่อยออกกำลังกาย'
+        'never': 'ไม่ค่อยออกกำลังกาย',
+        // db values
+        'regularly': 'ออกกำลังกายสม่ำเสมอ',
+        'sometimes': 'ออกกำลังกายเป็นครั้งคราว',
+        'rarely': 'แทบไม่ออกกำลังกาย'
       },
       diet: {
+        // form values
         'regular': 'ทานอาหารทั่วไป',
         'vegetarian': 'มังสวิรัติ',
         'vegan': 'วีแกน',
         'halal': 'ฮาลาล',
-        'other': 'อื่นๆ'
+        'other': 'อื่นๆ',
+        // db values
+        'omnivore': 'ทานอาหารทั่วไป'
       },
       sleep: {
+        // legacy form values
         'early': 'นอนเร็ว (ก่อน 22:00)',
         'normal': 'นอนปกติ (22:00-24:00)',
         'late': 'นอนดึก (หลัง 24:00)',
-        'irregular': 'นอนไม่เป็นเวลา'
+        'irregular': 'นอนไม่เป็นเวลา',
+        // db values (sleepSchedule)
+        'early_bird': 'นอนเร็ว ตื่นเช้า',
+        'night_owl': 'นอนดึก ตื่นสาย',
+        'flexible': 'ยืดหยุ่น'
       }
     };
     return lifestyleLabels[category]?.[value] || value;
@@ -371,6 +420,67 @@ const UserProfile = ({ userId, isOwnProfile = false }) => {
       other: <Star className="h-4 w-4" />
     };
     return icons[category] || <Star className="h-4 w-4" />;
+  };
+
+  // ฟังก์ชันแปลงประเภทสัตว์เลี้ยง
+  const getPetTypeLabel = (type) => {
+    const map = {
+      dog: 'สุนัข',
+      cat: 'แมว',
+      bird: 'นก',
+      fish: 'ปลา',
+      rabbit: 'กระต่าย',
+      hamster: 'แฮมสเตอร์',
+      other: 'อื่นๆ'
+    };
+    return map[type] || type;
+  };
+
+  const normalizePetsInputToTypes = (input) => {
+    if (!input) return [];
+    const tokenToEnum = {
+      'สุนัข': 'dog', 'หมา': 'dog', 'dog': 'dog',
+      'แมว': 'cat', 'cat': 'cat',
+      'นก': 'bird', 'bird': 'bird',
+      'ปลา': 'fish', 'fish': 'fish',
+      'กระต่าย': 'rabbit', 'rabbit': 'rabbit',
+      'แฮมสเตอร์': 'hamster', 'hamster': 'hamster',
+    };
+    const normalizeToken = (raw) => {
+      if (!raw) return '';
+      // remove counts like '1 ตัว', spaces around, and punctuation
+      const cleaned = raw
+        .replace(/\d+/g, '') // numbers
+        .replace(/ตัว/g, '')
+        .replace(/จำนวน/g, '')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .toLowerCase();
+      return cleaned;
+    };
+    return input
+      .split(',')
+      .map(segment => segment.trim())
+      .filter(Boolean)
+      .flatMap(segment => {
+        // extract count if provided (e.g., 'แมว 2 ตัว')
+        const countMatch = segment.match(/(\d+)/);
+        const count = countMatch ? Math.max(1, parseInt(countMatch[1], 10)) : 1;
+        const token = normalizeToken(segment);
+        const enumVal = tokenToEnum[token] || 'other';
+        return Array(count).fill(enumVal);
+      });
+  };
+
+  const formatPetsForInput = (pets) => {
+    const petArray = Array.isArray(pets) ? pets : (pets?.petTypes || []);
+    if (!petArray || petArray.length === 0) return '';
+    const counter = petArray.reduce((acc, t) => {
+      acc[t] = (acc[t] || 0) + 1; return acc;
+    }, {});
+    return Object.entries(counter)
+      .map(([type, count]) => `${getPetTypeLabel(type)} ${count} ตัว`)
+      .join(', ');
   };
 
   if (loading) {
@@ -457,7 +567,7 @@ const UserProfile = ({ userId, isOwnProfile = false }) => {
             </div>
           </div>
           
-          {isOwnProfile && localStorage.getItem('token') && (
+          {isOwnProfile && sessionStorage.getItem('token') && (
             <Button
               onClick={startEdit}
               variant="outline"
@@ -488,7 +598,7 @@ const UserProfile = ({ userId, isOwnProfile = false }) => {
                 </span>
               )}
             </h3>
-            {isOwnProfile && localStorage.getItem('token') && (
+            {isOwnProfile && sessionStorage.getItem('token') && (
               <div className="relative">
                 <input
                   type="file"
@@ -530,7 +640,7 @@ const UserProfile = ({ userId, isOwnProfile = false }) => {
                     `;
                   }}
                 />
-                {isOwnProfile && localStorage.getItem('token') && (
+                {isOwnProfile && sessionStorage.getItem('token') && (
                   <button
                     onClick={() => deleteImage(index)}
                     className="absolute top-2 right-2 bg-red-500 text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity"
@@ -546,11 +656,31 @@ const UserProfile = ({ userId, isOwnProfile = false }) => {
 
       {/* Profile Details Tabs */}
       <Tabs defaultValue="basic" className="w-full">
-        <TabsList className="grid w-full grid-cols-4">
-          <TabsTrigger value="basic">ข้อมูลพื้นฐาน</TabsTrigger>
-          <TabsTrigger value="lifestyle">ไลฟ์สไตล์</TabsTrigger>
-          <TabsTrigger value="interests">ความสนใจ</TabsTrigger>
-          <TabsTrigger value="prompts">คำถามพิเศษ</TabsTrigger>
+        <TabsList className="grid w-full grid-cols-4 bg-white border rounded-lg p-1 text-gray-700 shadow-sm">
+          <TabsTrigger 
+            value="basic"
+            className="text-gray-700 data-[state=active]:bg-pink-50 data-[state=active]:text-pink-600"
+          >
+            ข้อมูลพื้นฐาน
+          </TabsTrigger>
+          <TabsTrigger 
+            value="lifestyle"
+            className="text-gray-700 data-[state=active]:bg-pink-50 data-[state=active]:text-pink-600"
+          >
+            ไลฟ์สไตล์
+          </TabsTrigger>
+          <TabsTrigger 
+            value="interests"
+            className="text-gray-700 data-[state=active]:bg-pink-50 data-[state=active]:text-pink-600"
+          >
+            ความสนใจ
+          </TabsTrigger>
+          <TabsTrigger 
+            value="prompts"
+            className="text-gray-700 data-[state=active]:bg-pink-50 data-[state=active]:text-pink-600"
+          >
+            คำถามพิเศษ
+          </TabsTrigger>
         </TabsList>
 
         {/* Basic Information */}
@@ -563,82 +693,91 @@ const UserProfile = ({ userId, isOwnProfile = false }) => {
             
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               {/* Occupation */}
-              {profile.occupation && (profile.occupation.job || profile.occupation.company) && (
-                <div className="flex items-center space-x-3">
-                  <Briefcase className="h-5 w-5 text-gray-500" />
-                  <div>
-                    <p className="font-medium">{profile.occupation.job || 'ไม่ระบุ'}</p>
-                    {profile.occupation.company && (
-                      <p className="text-sm text-gray-600">{profile.occupation.company}</p>
-                    )}
-                  </div>
+              <div className="flex items-center space-x-3">
+                <Briefcase className="h-5 w-5 text-gray-500" />
+                <div>
+                  <p className="font-medium">อาชีพ</p>
+                  <p className="text-sm text-gray-600">{profile.occupation?.job || 'ยังไม่ได้ระบุ'}</p>
+                  {profile.occupation?.company && (
+                    <p className="text-sm text-gray-600">{profile.occupation.company}</p>
+                  )}
                 </div>
-              )}
+              </div>
 
               {/* Education */}
-              {profile.education && profile.education.level && (
-                <div className="flex items-center space-x-3">
-                  <GraduationCap className="h-5 w-5 text-gray-500" />
-                  <div>
-                    <p className="font-medium">{getEducationLabel(profile.education.level)}</p>
-                    {profile.education.institution && (
-                      <p className="text-sm text-gray-600">{profile.education.institution}</p>
-                    )}
-                  </div>
+              <div className="flex items-center space-x-3">
+                <GraduationCap className="h-5 w-5 text-gray-500" />
+                <div>
+                  <p className="font-medium">จบสถาบันศึกษา</p>
+                  <p className="text-sm text-gray-600">{profile.education?.institution || 'ยังไม่ได้ระบุ'}</p>
+                  {profile.education?.level && (
+                    <p className="text-xs text-gray-500">ระดับ: {getEducationLabel(profile.education.level)}</p>
+                  )}
                 </div>
-              )}
+              </div>
 
               {/* Physical Attributes */}
-              {profile.physicalAttributes && (profile.physicalAttributes.height || profile.physicalAttributes.weight) && (
-                <div className="flex items-center space-x-3">
-                  <Ruler className="h-5 w-5 text-gray-500" />
-                  <div>
-                    <p className="font-medium">ร่างกาย</p>
-                    <p className="text-sm text-gray-600">
-                      {profile.physicalAttributes.height && `${profile.physicalAttributes.height} ซม.`}
-                      {profile.physicalAttributes.height && profile.physicalAttributes.weight && ' / '}
-                      {profile.physicalAttributes.weight && `${profile.physicalAttributes.weight} กก.`}
-                    </p>
-                  </div>
+              <div className="flex items-center space-x-3">
+                <Ruler className="h-5 w-5 text-gray-500" />
+                <div>
+                  <p className="font-medium">ร่างกาย</p>
+                  <p className="text-sm text-gray-600">
+                    {profile.physicalAttributes?.height || profile.physicalAttributes?.weight ? (
+                      <>
+                        {profile.physicalAttributes?.height ? `${profile.physicalAttributes.height} ซม.` : ''}
+                        {profile.physicalAttributes?.height && profile.physicalAttributes?.weight ? ' / ' : ''}
+                        {profile.physicalAttributes?.weight ? `${profile.physicalAttributes.weight} กก.` : ''}
+                      </>
+                    ) : (
+                      'ยังไม่ได้ระบุ'
+                    )}
+                  </p>
                 </div>
-              )}
+              </div>
 
               {/* Religion */}
-              {profile.religion && (
-                <div className="flex items-center space-x-3">
-                  <Church className="h-5 w-5 text-gray-500" />
-                  <div>
-                    <p className="font-medium">ศาสนา</p>
-                    <p className="text-sm text-gray-600">{getReligionLabel(profile.religion)}</p>
-                  </div>
+              <div className="flex items-center space-x-3">
+                <Church className="h-5 w-5 text-gray-500" />
+                <div>
+                  <p className="font-medium">ศาสนา</p>
+                  <p className="text-sm text-gray-600">{profile.religion ? getReligionLabel(profile.religion) : 'ยังไม่ได้ระบุ'}</p>
                 </div>
-              )}
+              </div>
 
               {/* Languages */}
-              {profile.languages && profile.languages.length > 0 && (
-                <div className="flex items-center space-x-3">
-                  <Languages className="h-5 w-5 text-gray-500" />
-                  <div>
-                    <p className="font-medium">ภาษา</p>
-                    <p className="text-sm text-gray-600">
-                      {profile.languages.map(lang => getLanguageLabel(lang)).join(', ')}
-                    </p>
-                  </div>
+              <div className="flex items-center space-x-3">
+                <Languages className="h-5 w-5 text-gray-500" />
+                <div>
+                  <p className="font-medium">ภาษา</p>
+                  <p className="text-sm text-gray-600">
+                    {Array.isArray(profile.languages) && profile.languages.length > 0
+                      ? profile.languages.join(', ')
+                      : 'ยังไม่ได้ระบุ'}
+                  </p>
                 </div>
-              )}
+              </div>
 
               {/* Pets */}
-              {profile.pets && profile.pets.length > 0 && (
-                <div className="flex items-center space-x-3">
-                  <Dog className="h-5 w-5 text-gray-500" />
-                  <div>
-                    <p className="font-medium">สัตว์เลี้ยง</p>
-                    <p className="text-sm text-gray-600">
-                      {profile.pets.map(pet => pet.type).join(', ')}
-                    </p>
-                  </div>
+              <div className="flex items-center space-x-3">
+                <Dog className="h-5 w-5 text-gray-500" />
+                <div>
+                  <p className="font-medium">สัตว์เลี้ยง</p>
+                  <p className="text-sm text-gray-600">
+                    {(() => {
+                      const petArray = Array.isArray(profile.pets)
+                        ? profile.pets
+                        : (profile.pets?.petTypes || []);
+                      if (!petArray || petArray.length === 0) return 'ยังไม่ได้ระบุ';
+                      const counter = petArray.reduce((acc, t) => {
+                        acc[t] = (acc[t] || 0) + 1; return acc;
+                      }, {});
+                      return Object.entries(counter)
+                        .map(([type, count]) => `${getPetTypeLabel(type)} ${count} ตัว`)
+                        .join(', ');
+                    })()}
+                  </p>
                 </div>
-              )}
+              </div>
             </div>
           </Card>
         </TabsContent>
@@ -651,61 +790,41 @@ const UserProfile = ({ userId, isOwnProfile = false }) => {
               ไลฟ์สไตล์
             </h3>
             
-            {profile.lifestyle ? (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                {profile.lifestyle.smoking && (
-                  <div className="flex items-center space-x-3">
-                    <Cigarette className="h-5 w-5 text-gray-500" />
-                    <div>
-                      <p className="font-medium">การสูบบุหรี่</p>
-                      <p className="text-sm text-gray-600">{getLifestyleLabel('smoking', profile.lifestyle.smoking)}</p>
-                    </div>
-                  </div>
-                )}
-
-                {profile.lifestyle.drinking && (
-                  <div className="flex items-center space-x-3">
-                    <Wine className="h-5 w-5 text-gray-500" />
-                    <div>
-                      <p className="font-medium">การดื่มสุรา</p>
-                      <p className="text-sm text-gray-600">{getLifestyleLabel('drinking', profile.lifestyle.drinking)}</p>
-                    </div>
-                  </div>
-                )}
-
-                {profile.lifestyle.exercise && (
-                  <div className="flex items-center space-x-3">
-                    <Dumbbell className="h-5 w-5 text-gray-500" />
-                    <div>
-                      <p className="font-medium">การออกกำลังกาย</p>
-                      <p className="text-sm text-gray-600">{getLifestyleLabel('exercise', profile.lifestyle.exercise)}</p>
-                    </div>
-                  </div>
-                )}
-
-                {profile.lifestyle.diet && (
-                  <div className="flex items-center space-x-3">
-                    <Utensils className="h-5 w-5 text-gray-500" />
-                    <div>
-                      <p className="font-medium">อาหาร</p>
-                      <p className="text-sm text-gray-600">{getLifestyleLabel('diet', profile.lifestyle.diet)}</p>
-                    </div>
-                  </div>
-                )}
-
-                {profile.lifestyle.sleep && (
-                  <div className="flex items-center space-x-3">
-                    <Clock className="h-5 w-5 text-gray-500" />
-                    <div>
-                      <p className="font-medium">เวลานอน</p>
-                      <p className="text-sm text-gray-600">{getLifestyleLabel('sleep', profile.lifestyle.sleep)}</p>
-                    </div>
-                  </div>
-                )}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="flex items-center space-x-3">
+                <Cigarette className="h-5 w-5 text-gray-500" />
+                <div>
+                  <p className="font-medium">การสูบบุหรี่</p>
+                  <p className="text-sm text-gray-600">{profile.lifestyle?.smoking ? getLifestyleLabel('smoking', profile.lifestyle.smoking) : 'ยังไม่ได้ระบุ'}</p>
+                </div>
               </div>
-            ) : (
-              <p className="text-gray-500 text-center py-8">ยังไม่ได้ระบุไลฟ์สไตล์</p>
-            )}
+
+              <div className="flex items-center space-x-3">
+                <Wine className="h-5 w-5 text-gray-500" />
+                <div>
+                  <p className="font-medium">การดื่มสุรา</p>
+                  <p className="text-sm text-gray-600">{profile.lifestyle?.drinking ? getLifestyleLabel('drinking', profile.lifestyle.drinking) : 'ยังไม่ได้ระบุ'}</p>
+                </div>
+              </div>
+
+              <div className="flex items-center space-x-3">
+                <Dumbbell className="h-5 w-5 text-gray-500" />
+                <div>
+                  <p className="font-medium">การออกกำลังกาย</p>
+                  <p className="text-sm text-gray-600">{profile.lifestyle?.exercise ? getLifestyleLabel('exercise', profile.lifestyle.exercise) : 'ยังไม่ได้ระบุ'}</p>
+                </div>
+              </div>
+
+              <div className="flex items-center space-x-3">
+                <Utensils className="h-5 w-5 text-gray-500" />
+                <div>
+                  <p className="font-medium">อาหาร</p>
+                  <p className="text-sm text-gray-600">{profile.lifestyle?.diet ? getLifestyleLabel('diet', profile.lifestyle.diet) : 'ยังไม่ได้ระบุ'}</p>
+                </div>
+              </div>
+
+              
+            </div>
           </Card>
         </TabsContent>
 
@@ -717,23 +836,40 @@ const UserProfile = ({ userId, isOwnProfile = false }) => {
               ความสนใจ
             </h3>
             
-            {profile.interests && profile.interests.length > 0 ? (
-              <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-                {profile.interests.map((interest, index) => (
-                  <div key={index} className="flex items-center space-x-2 p-3 bg-gray-50 rounded-lg">
-                    {getInterestIcon(interest.category)}
-                    <div>
-                      <p className="font-medium text-sm">{interest.category}</p>
-                      {interest.description && (
-                        <p className="text-xs text-gray-600">{interest.description}</p>
+            <div className="grid grid-cols-1 gap-4">
+              {[
+                { key: 'sports', label: 'กิจกรรมที่ชอบ', testData: 'ดูหนัง, ฟังเพลง, เล่นเกม' },
+                { key: 'music', label: 'เพลงที่ชอบ', testData: 'Hello Goodbye - The Beatles' },
+                { key: 'movies', label: 'หนังที่ชอบ', testData: 'Interstellar, Oppenheimer' }
+              ].map((item) => {
+                // ใช้ข้อมูลจาก sessionStorage ชั่วคราว
+                const savedData = sessionStorage.getItem(`interest_${item.key}`) || '';
+                const description = savedData || item.testData || '';
+                
+                return (
+                  <div key={item.key} className="p-4 bg-gray-50 rounded-lg">
+                    <h4 className="font-medium text-gray-800 mb-2">{item.label}</h4>
+                    <div className="text-sm text-gray-600">
+                      {description ? (
+                        description.includes(',') ? (
+                          <div className="space-y-1">
+                            {description.split(',').map((desc, index) => (
+                              <div key={index} className="inline-block bg-blue-100 text-blue-800 px-2 py-1 rounded-md mr-2 mb-1">
+                                {desc.trim()}
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <p>{description}</p>
+                        )
+                      ) : (
+                        <p className="text-gray-500">ยังไม่ได้ระบุ</p>
                       )}
                     </div>
                   </div>
-                ))}
-              </div>
-            ) : (
-              <p className="text-gray-500 text-center py-8">ยังไม่ได้ระบุความสนใจ</p>
-            )}
+                );
+              })}
+            </div>
           </Card>
         </TabsContent>
 
@@ -745,35 +881,40 @@ const UserProfile = ({ userId, isOwnProfile = false }) => {
               คำถามพิเศษ
             </h3>
             
-            {profile.promptAnswers && profile.promptAnswers.length > 0 ? (
-              <div className="space-y-4">
-                {profile.promptAnswers.map((prompt, index) => {
-                  const questionLabels = {
-                    'my_special_talent': 'ความสามารถพิเศษของฉันคือ...',
-                    'way_to_win_my_heart': 'วิธีชนะใจฉันคือ...',
-                    'dream_destination': 'สถานที่ในฝันที่อยากไปคือ...',
-                    'last_laugh_until_tears': 'ครั้งล่าสุดที่หัวเราะจนน้ำตาไหลคือ...',
-                    'perfect_first_date': 'เดทแรกในฝันของฉันคือ...',
-                    'life_motto': 'คติประจำใจของฉันคือ...',
-                    'favorite_memory': 'ความทรงจำที่ชื่นชอบที่สุดคือ...',
-                    'biggest_fear': 'สิ่งที่กลัวที่สุดคือ...',
-                    'dream_job': 'งานในฝันของฉันคือ...',
-                    'guilty_pleasure': 'ความผิดที่ชอบทำคือ...'
-                  };
-                  
-                  return (
-                    <div key={index} className="border rounded-lg p-4">
-                      <h4 className="font-medium text-gray-800 mb-2">
-                        {questionLabels[prompt.question] || prompt.question}
-                      </h4>
-                      <p className="text-gray-600">{prompt.answer}</p>
-                    </div>
-                  );
-                })}
-              </div>
-            ) : (
-              <p className="text-gray-500 text-center py-8">ยังไม่ได้ตอบคำถามพิเศษ</p>
-            )}
+            <div className="space-y-4">
+              {[
+                'my_special_talent',
+                'way_to_win_my_heart',
+                'dream_destination',
+                'last_laugh_until_tears',
+                'perfect_first_date',
+                'life_motto',
+                'favorite_memory',
+                'biggest_fear',
+                'dream_job',
+                'guilty_pleasure'
+              ].map((qKey) => {
+                const labels = {
+                  'my_special_talent': 'ความสามารถพิเศษของฉันคือ...',
+                  'way_to_win_my_heart': 'วิธีชนะใจฉันคือ...',
+                  'dream_destination': 'สถานที่ในฝันที่อยากไปคือ...',
+                  'last_laugh_until_tears': 'ครั้งล่าสุดที่หัวเราะจนน้ำตาไหลคือ...',
+                  'perfect_first_date': 'เดทแรกในฝันของฉันคือ...',
+                  'life_motto': 'คติประจำใจของฉันคือ...',
+                  'favorite_memory': 'ความทรงจำที่ชื่นชอบที่สุดคือ...',
+                  'biggest_fear': 'สิ่งที่กลัวที่สุดคือ...',
+                  'dream_job': 'งานในฝันของฉันคือ...',
+                  'guilty_pleasure': 'ความผิดที่ชอบทำคือ...'
+                };
+                const matched = (profile.promptAnswers || []).find(p => p.question === qKey);
+                return (
+                  <div key={qKey} className="border rounded-lg p-4">
+                    <h4 className="font-medium text-gray-800 mb-2">{labels[qKey]}</h4>
+                    <p className="text-gray-600">{matched?.answer || 'ยังไม่ได้ตอบ'}</p>
+                  </div>
+                );
+              })}
+            </div>
           </Card>
         </TabsContent>
       </Tabs>
@@ -795,7 +936,9 @@ const UserProfile = ({ userId, isOwnProfile = false }) => {
           <div className="space-y-6">
             {/* Basic Info */}
             <div className="space-y-4">
-              <h4 className="font-medium text-lg">ข้อมูลพื้นฐาน</h4>
+              <h4 className="font-semibold text-lg text-blue-600 flex items-center">
+                📋 ข้อมูลพื้นฐาน
+              </h4>
               
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
@@ -819,7 +962,7 @@ const UserProfile = ({ userId, isOwnProfile = false }) => {
                 </div>
               </div>
 
-              {/* Occupation */}
+              {/* Occupation + Education Level */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <Label htmlFor="job">อาชีพ</Label>
@@ -834,22 +977,6 @@ const UserProfile = ({ userId, isOwnProfile = false }) => {
                   />
                 </div>
                 
-                <div>
-                  <Label htmlFor="company">บริษัท/สถานศึกษา</Label>
-                  <Input
-                    id="company"
-                    value={editData.occupation?.company || ''}
-                    onChange={(e) => setEditData({
-                      ...editData, 
-                      occupation: { ...(editData.occupation || {}), company: e.target.value }
-                    })}
-                    placeholder="บริษัทหรือสถานศึกษา"
-                  />
-                </div>
-              </div>
-
-              {/* Education */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <Label htmlFor="education_level">ระดับการศึกษา</Label>
                   <select
@@ -869,19 +996,6 @@ const UserProfile = ({ userId, isOwnProfile = false }) => {
                     <option value="vocational">อาชีวศึกษา</option>
                     <option value="other">อื่นๆ</option>
                   </select>
-                </div>
-                
-                <div>
-                  <Label htmlFor="institution">สถาบันการศึกษา</Label>
-                  <Input
-                    id="institution"
-                    value={editData.education?.institution || ''}
-                    onChange={(e) => setEditData({
-                      ...editData, 
-                      education: { ...(editData.education || {}), institution: e.target.value }
-                    })}
-                    placeholder="ชื่อสถาบันการศึกษา"
-                  />
                 </div>
               </div>
 
@@ -916,7 +1030,35 @@ const UserProfile = ({ userId, isOwnProfile = false }) => {
                 </div>
               </div>
 
-              {/* Religion & Languages */}
+              {/* Institution + Languages (same row) */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <Label htmlFor="institution">สถาบันการศึกษา</Label>
+                  <Input
+                    id="institution"
+                    value={editData.education?.institution || ''}
+                    onChange={(e) => setEditData({
+                      ...editData, 
+                      education: { ...(editData.education || {}), institution: e.target.value }
+                    })}
+                    placeholder="ชื่อสถาบันการศึกษา"
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="languages">ภาษาที่พูดได้</Label>
+                  <Input
+                    id="languages"
+                    value={editData.languages?.join(', ') || ''}
+                    onChange={(e) => setEditData({
+                      ...editData, 
+                      languages: e.target.value.split(',').map(lang => lang.trim()).filter(lang => lang)
+                    })}
+                    placeholder="ตัวอย่าง: ไทย, อังกฤษ, จีน"
+                  />
+                </div>
+              </div>
+
+              {/* Religion + Pets (same row) */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <Label htmlFor="religion">ศาสนา</Label>
@@ -927,53 +1069,61 @@ const UserProfile = ({ userId, isOwnProfile = false }) => {
                     className="w-full p-3 border rounded-lg"
                   >
                     <option value="">เลือกศาสนา</option>
-                    <option value="buddhism">พุทธ</option>
-                    <option value="christianity">คริสต์</option>
-                    <option value="islam">อิสลาม</option>
-                    <option value="hinduism">ฮินดู</option>
+                    <option value="buddhist">พุทธ</option>
+                    <option value="christian">คริสต์</option>
+                    <option value="muslim">อิสลาม</option>
+                    <option value="hindu">ฮินดู</option>
                     <option value="other">อื่นๆ</option>
                     <option value="none">ไม่มีศาสนา</option>
                   </select>
                 </div>
-                
                 <div>
-                  <Label htmlFor="languages">ภาษาที่พูดได้</Label>
+                  <Label htmlFor="pets">สัตว์เลี้ยง</Label>
                   <Input
-                    id="languages"
-                    value={editData.languages?.join(', ') || ''}
-                    onChange={(e) => setEditData({
-                      ...editData, 
-                      languages: e.target.value.split(',').map(lang => lang.trim()).filter(lang => lang)
-                    })}
-                    placeholder="เช่น ไทย, อังกฤษ, จีน"
+                    id="pets"
+                    value={petsInput}
+                    onChange={(e) => {
+                      const value = e.target.value;
+                      setPetsInput(value);
+                      setEditData({
+                        ...editData,
+                        pets: normalizePetsInputToTypes(value)
+                      });
+                    }}
+                    placeholder="แมว 1 ตัว, สนุก 1 ตัว"
                   />
                 </div>
               </div>
-            </div>
 
-            {/* Bio */}
-            <div className="space-y-4">
-              <h4 className="font-medium text-lg">เกี่ยวกับฉัน</h4>
-              
-              <div>
-                <Label htmlFor="bio">Bio / About Me</Label>
-                <textarea
-                  id="bio"
-                  value={editData.bio || ''}
-                  onChange={(e) => setEditData({...editData, bio: e.target.value})}
-                  placeholder="เล่าเกี่ยวกับตัวเอง... จุดเด่น สิ่งที่ชอบทำ สิ่งที่กำลังเรียนรู้ สิ่งที่มองหา"
-                  className="w-full p-3 border rounded-lg resize-none h-32"
-                  maxLength={1000}
-                />
-                <p className="text-sm text-gray-500 mt-1">
-                  {editData.bio?.length || 0}/1000 ตัวอักษร
-                </p>
+              {/* Bio */}
+              <div className="space-y-4">
+                <h4 className="font-semibold text-lg text-indigo-600 flex items-center">
+                  💬 เกี่ยวกับฉัน
+                </h4>
+                
+                <div>
+                  <Label htmlFor="bio">Bio / About Me</Label>
+                  <textarea
+                    id="bio"
+                    value={editData.bio || ''}
+                    onChange={(e) => setEditData({...editData, bio: e.target.value})}
+                    placeholder="เล่าเกี่ยวกับตัวเอง... จุดเด่น สิ่งที่ชอบทำ สิ่งที่กำลังเรียนรู้ สิ่งที่มองหา"
+                    className="w-full p-3 border rounded-lg resize-none h-32"
+                    maxLength={1000}
+                  />
+                  <p className="text-sm text-gray-500 mt-1">
+                    {editData.bio?.length || 0}/1000 ตัวอักษร
+                  </p>
+                </div>
               </div>
+
             </div>
 
             {/* Lifestyle */}
             <div className="space-y-4">
-              <h4 className="font-medium text-lg">ไลฟ์สไตล์</h4>
+              <h4 className="font-semibold text-lg text-green-600 flex items-center">
+                🌟 ไลฟ์สไตล์
+              </h4>
               
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
@@ -988,10 +1138,10 @@ const UserProfile = ({ userId, isOwnProfile = false }) => {
                     className="w-full p-3 border rounded-lg"
                   >
                     <option value="">เลือก</option>
-                    <option value="no">ไม่สูบบุหรี่</option>
-                    <option value="yes">สูบบุหรี่</option>
+                    <option value="never">ไม่สูบบุหรี่</option>
+                    <option value="regularly">สูบบุหรี่</option>
                     <option value="occasionally">สูบเป็นครั้งคราว</option>
-                    <option value="quit">เลิกสูบแล้ว</option>
+                    <option value="trying_to_quit">เลิกสูบแล้ว</option>
                   </select>
                 </div>
                 
@@ -1007,10 +1157,10 @@ const UserProfile = ({ userId, isOwnProfile = false }) => {
                     className="w-full p-3 border rounded-lg"
                   >
                     <option value="">เลือก</option>
-                    <option value="no">ไม่ดื่มสุรา</option>
-                    <option value="yes">ดื่มสุรา</option>
+                    <option value="never">ไม่ดื่มสุรา</option>
+                    <option value="regularly">ดื่มสุรา</option>
                     <option value="socially">ดื่มในงานสังคม</option>
-                    <option value="quit">เลิกดื่มแล้ว</option>
+                    <option value="occasionally">ดื่มเป็นครั้งคราว</option>
                   </select>
                 </div>
                 
@@ -1027,8 +1177,9 @@ const UserProfile = ({ userId, isOwnProfile = false }) => {
                   >
                     <option value="">เลือก</option>
                     <option value="daily">ออกกำลังกายทุกวัน</option>
-                    <option value="weekly">ออกกำลังกายสัปดาห์ละ 2-3 ครั้ง</option>
-                    <option value="monthly">ออกกำลังกายเป็นครั้งคราว</option>
+                    <option value="regularly">ออกกำลังกายสม่ำเสมอ</option>
+                    <option value="sometimes">ออกกำลังกายเป็นครั้งคราว</option>
+                    <option value="rarely">แทบไม่ออกกำลังกาย</option>
                     <option value="never">ไม่ค่อยออกกำลังกาย</option>
                   </select>
                 </div>
@@ -1045,13 +1196,114 @@ const UserProfile = ({ userId, isOwnProfile = false }) => {
                     className="w-full p-3 border rounded-lg"
                   >
                     <option value="">เลือก</option>
-                    <option value="regular">ทานอาหารทั่วไป</option>
+                    <option value="omnivore">ทานอาหารทั่วไป</option>
                     <option value="vegetarian">มังสวิรัติ</option>
                     <option value="vegan">วีแกน</option>
-                    <option value="halal">ฮาลาล</option>
                     <option value="other">อื่นๆ</option>
                   </select>
                 </div>
+              </div>
+            </div>
+
+            {/* Interests (editable) */}
+            <div className="space-y-2 mt-6">
+              <h4 className="font-semibold text-lg text-orange-600 flex items-center">
+                🎯 ความสนใจ
+              </h4>
+              <div className="grid grid-cols-1 gap-4">
+                {[
+                  { key: 'sports', label: 'กิจกรรมที่ชอบ' },
+                  { key: 'music', label: 'เพลงที่ชอบ' },
+                  { key: 'movies', label: 'หนังที่ชอบ' }
+                ].map((item) => {
+                  const currentList = Array.isArray(editData.interests) ? editData.interests : [];
+                  const existing = currentList.find(i => i.category === item.key);
+                  const savedData = sessionStorage.getItem(`interest_${item.key}`) || '';
+                  const value = existing?.description || savedData || '';
+                  return (
+                    <div key={item.key}>
+                      <Label htmlFor={`interest-${item.key}`}>
+                        {item.label}
+                      </Label>
+                      <Input
+                        id={`interest-${item.key}`}
+                        value={value}
+                        onChange={(e) => {
+                          const desc = e.target.value;
+                          
+                          // บันทึกใน sessionStorage ชั่วคราว
+                          if (desc.trim()) {
+                            sessionStorage.setItem(`interest_${item.key}`, desc);
+                          } else {
+                            sessionStorage.removeItem(`interest_${item.key}`);
+                          }
+                          
+                          const updated = [...currentList];
+                          const idx = updated.findIndex(i => i.category === item.key);
+                          if (desc.trim() === '') {
+                            if (idx !== -1) updated.splice(idx, 1);
+                          } else {
+                            if (idx === -1) updated.push({ category: item.key, description: desc });
+                            else updated[idx] = { ...updated[idx], description: desc };
+                          }
+                          setEditData({ ...editData, interests: updated });
+                        }}
+                        placeholder={
+                          item.key === 'sports' ? 'ดูหนัง, ฟังเพลง, เล่นเกม' :
+                          item.key === 'music' ? 'เพลงโปรดของคุณ....' :
+                          'หนังโปรดของคุณคือ....'
+                        }
+                      />
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Special Questions */}
+            <div className="space-y-4 mt-6">
+              <h4 className="font-bold text-xl text-purple-600 flex items-center">
+                ✨ คำถามพิเศษ ⭐
+              </h4>
+              <div className="grid grid-cols-1 gap-4">
+                {[
+                  'my_special_talent',
+                  'way_to_win_my_heart',
+                  'dream_destination',
+                  'last_laugh_until_tears',
+                  'perfect_first_date',
+                  'life_motto',
+                  'favorite_memory',
+                  'biggest_fear',
+                  'dream_job',
+                  'guilty_pleasure'
+                ].map((qKey) => {
+                  const currentList = Array.isArray(editData.promptAnswers) ? editData.promptAnswers : [];
+                  const existing = currentList.find(p => p.question === qKey);
+                  const value = existing?.answer || '';
+                  return (
+                    <div key={qKey}>
+                      <Label htmlFor={`prompt-${qKey}`}>{profileHelpers.getPromptQuestionLabel(qKey)}</Label>
+                      <Input
+                        id={`prompt-${qKey}`}
+                        value={value}
+                        onChange={(e) => {
+                          const answer = e.target.value;
+                          const updated = [...currentList];
+                          const idx = updated.findIndex(p => p.question === qKey);
+                          if (answer.trim() === '') {
+                            if (idx !== -1) updated.splice(idx, 1);
+                          } else {
+                            if (idx === -1) updated.push({ question: qKey, answer: answer });
+                            else updated[idx] = { ...updated[idx], answer: answer };
+                          }
+                          setEditData({ ...editData, promptAnswers: updated });
+                        }}
+                        placeholder={`ตอบคำถาม: ${profileHelpers.getPromptQuestionLabel(qKey)}`}
+                      />
+                    </div>
+                  );
+                })}
               </div>
             </div>
 
@@ -1080,7 +1332,6 @@ const UserProfile = ({ userId, isOwnProfile = false }) => {
         </DialogContent>
       </Dialog>
 
-      <ToastContainer />
     </div>
   );
 };

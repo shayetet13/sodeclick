@@ -2,7 +2,7 @@ const mongoose = require('mongoose');
 const User = require('../models/User');
 require('dotenv').config();
 
-const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/sodeclick';
+const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/love';
 
 async function createUserProfile() {
   try {

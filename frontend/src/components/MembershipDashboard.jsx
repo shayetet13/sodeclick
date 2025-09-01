@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { Button } from './ui/button'
 import { membershipAPI, membershipHelpers } from '../services/membershipAPI'
 import { useToast } from './ui/toast'
@@ -25,10 +25,10 @@ const MembershipDashboard = ({ userId }) => {
   const [actionLoading, setActionLoading] = useState({})
   const [error, setError] = useState(null)
   const [timeRemaining, setTimeRemaining] = useState('')
-  const { success, error: showError, ToastContainer } = useToast()
+  const { success, error: showError } = useToast()
 
   // ดึงข้อมูลสมาชิก
-  const fetchMembershipData = async () => {
+  const fetchMembershipData = useCallback(async () => {
     if (!userId) {
       setLoading(false)
       setError('กรุณาเข้าสู่ระบบก่อน')
@@ -50,7 +50,7 @@ const MembershipDashboard = ({ userId }) => {
     } finally {
       setLoading(false)
     }
-  }
+  }, [userId])
 
   // รับโบนัสรายวัน
   const claimDailyBonus = async () => {
@@ -125,7 +125,7 @@ const MembershipDashboard = ({ userId }) => {
     const interval = setInterval(updateTimeRemaining, 1000)
 
     return () => clearInterval(interval)
-  }, [membershipData?.membershipExpiry, membershipData?.membershipTier])
+  }, [membershipData?.membershipExpiry, membershipData?.membershipTier, fetchMembershipData])
 
   useEffect(() => {
     fetchMembershipData()
@@ -207,14 +207,17 @@ const MembershipDashboard = ({ userId }) => {
                      </>
                    );
                  } else {
-                   // กรณี Premium Member ที่ยังไม่หมดอายุ - แสดงเฉพาะจำนวนวันที่เหลือ
+                   // กรณี Premium Member ที่ยังไม่หมดอายุ - แสดงการนับถอยหลังแบบ real-time
                    return (
                      <>
                        <div className="flex items-center text-slate-600">
                          <Calendar className="h-4 w-4 mr-1" />
-                         <span className="font-mono">
+                         <span className="font-mono font-semibold">
                            {timeRemaining || membershipHelpers.getTimeRemaining(membershipExpiry, membershipTier)}
                          </span>
+                       </div>
+                       <div className="text-sm text-slate-500 mt-1">
+                         ระยะเวลา: {membershipHelpers.getMembershipDuration(membershipTier)}
                        </div>
                      </>
                    );
@@ -433,7 +436,6 @@ const MembershipDashboard = ({ userId }) => {
            </div>
         </div>
       </div>
-      <ToastContainer />
     </div>
   )
 }

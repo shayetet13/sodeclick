@@ -47,7 +47,16 @@ import {
   X,
   ArrowLeft,
   Users,
-  Crown
+  Crown,
+  RefreshCw,
+  Briefcase,
+  Ruler,
+  Languages,
+  GraduationCap,
+  Building,
+  PawPrint,
+  Dumbbell,
+  Wine
 } from 'lucide-react'
 
 type PublicUser = {
@@ -329,10 +338,14 @@ function App() {
       try {
         setIsLoadingPremium(true)
         const base = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000'
-        const res = await fetch(`${base}/api/profile/premium?limit=20`, {
+        const token = sessionStorage.getItem('token');
+        console.log('🔑 Frontend - Sending token:', token ? 'Present' : 'Not present');
+        console.log('👤 Frontend - Current user:', user);
+        
+        const res = await fetch(`${base}/api/profile/premium?limit=50`, {
           headers: {
             'Content-Type': 'application/json',
-            ...(localStorage.getItem('token') ? { 'Authorization': `Bearer ${localStorage.getItem('token')}` } : {})
+            ...(token ? { 'Authorization': `Bearer ${token}` } : {})
           }
         })
         if (!res.ok) return
@@ -345,7 +358,7 @@ function App() {
             const bi = premiumTierOrder.indexOf((b?.membership?.tier || '') as string)
             return ai - bi
           })
-          .slice(0, 20)
+          .slice(0, 50)
         if (!isCancelled) setPremiumUsers(sorted)
       } catch (_) {
         // ignore errors for this section
@@ -356,6 +369,91 @@ function App() {
     loadPremium()
     return () => { isCancelled = true }
   }, [])
+
+  // Load all users for Discover Amazing People section
+  const [allUsers, setAllUsers] = useState<PublicUser[]>([])
+  const [isLoadingAllUsers, setIsLoadingAllUsers] = useState(false)
+  const [currentPage, setCurrentPage] = useState(1)
+  const [hasMoreUsers, setHasMoreUsers] = useState(true)
+  const [isLoadingMore, setIsLoadingMore] = useState(false)
+  const [visibleCount, setVisibleCount] = useState(8)
+  const [filters, setFilters] = useState({
+    gender: '',
+    ageMin: 18,
+    ageMax: 100,
+    province: '',
+    lookingFor: '',
+    relationship: '',
+    otherRelationship: '',
+    distanceKm: '',
+    lat: '',
+    lng: ''
+  })
+  const [filtersOpen, setFiltersOpen] = useState(false)
+
+  useEffect(() => {
+    let isCancelled = false
+    const loadAllUsers = async () => {
+      try {
+        setIsLoadingAllUsers(true)
+        const base = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000'
+        const res = await fetch(`${base}/api/profile/all?limit=20&page=1`, {
+          headers: {
+            'Content-Type': 'application/json',
+            ...(sessionStorage.getItem('token') ? { 'Authorization': `Bearer ${sessionStorage.getItem('token')}` } : {})
+          }
+        })
+        if (!res.ok) return
+        const data = await res.json()
+        const users: PublicUser[] = data?.data?.users || []
+        const pagination = data?.data?.pagination || {}
+        
+        if (!isCancelled) {
+          setAllUsers(users)
+          setHasMoreUsers(pagination.page < pagination.pages)
+          setCurrentPage(1)
+          const allowed = ['member','silver','gold','vip','vip1','vip2']
+          const allowedLen = users.filter(u => allowed.includes((u?.membership?.tier || 'member') as string)).length
+          setVisibleCount(Math.min(8, allowedLen))
+        }
+      } catch (_) {
+        // ignore errors for this section
+      } finally {
+        if (!isCancelled) setIsLoadingAllUsers(false)
+      }
+    }
+    loadAllUsers()
+    return () => { isCancelled = true }
+  }, [])
+
+  // Load more users function
+  const loadMoreUsers = async () => {
+    if (isLoadingMore || !hasMoreUsers) return
+    
+    try {
+      setIsLoadingMore(true)
+      const nextPage = currentPage + 1
+      const base = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000'
+      const res = await fetch(`${base}/api/profile/all?limit=20&page=${nextPage}`, {
+        headers: {
+          'Content-Type': 'application/json',
+          ...(sessionStorage.getItem('token') ? { 'Authorization': `Bearer ${sessionStorage.getItem('token')}` } : {})
+        }
+      })
+      if (!res.ok) return
+      const data = await res.json()
+      const newUsers: PublicUser[] = data?.data?.users || []
+      const pagination = data?.data?.pagination || {}
+      
+      setAllUsers(prev => [...prev, ...newUsers])
+      setHasMoreUsers(pagination.page < pagination.pages)
+      setCurrentPage(nextPage)
+    } catch (_) {
+      // ignore errors for this section
+    } finally {
+      setIsLoadingMore(false)
+    }
+  }
   
   // Load user profile image for header avatar
   useEffect(() => {
@@ -366,7 +464,7 @@ function App() {
           const res = await fetch(`${base}/api/profile/${user._id}`, {
             headers: {
               'Content-Type': 'application/json',
-              ...(localStorage.getItem('token') ? { 'Authorization': `Bearer ${localStorage.getItem('token')}` } : {})
+              ...(sessionStorage.getItem('token') ? { 'Authorization': `Bearer ${sessionStorage.getItem('token')}` } : {})
             }
           })
           if (res.ok) {
@@ -401,7 +499,7 @@ function App() {
             const res = await fetch(`${base}/api/profile/${user._id}`, {
               headers: {
                 'Content-Type': 'application/json',
-                ...(localStorage.getItem('token') ? { 'Authorization': `Bearer ${localStorage.getItem('token')}` } : {})
+                ...(sessionStorage.getItem('token') ? { 'Authorization': `Bearer ${sessionStorage.getItem('token')}` } : {})
               }
             })
             if (res.ok) {
@@ -724,11 +822,470 @@ function App() {
             </div>
             {/* Discover Tab */}
             <TabsContent value="discover" className="p-8">
-              <div className="flex justify-end items-center mb-10">
-                <Button variant="outline" size="lg" className="gap-3 border-pink-200 hover:border-pink-300 text-pink-600 hover:text-pink-700 hover:bg-pink-50 transition-all duration-300 px-6 py-3 rounded-xl font-semibold">
-                  <Filter className="h-5 w-5" />
-                  Filters
-                </Button>
+              {/* Advanced Filters Section */}
+              <div className="mb-8 modern-card rounded-3xl shadow-2xl border border-white/30 overflow-hidden backdrop-blur-lg">
+                {/* Filter Header */}
+                <div className="bg-gradient-to-br from-pink-50/90 via-violet-50/90 to-blue-50/90 backdrop-blur-xl p-8 border-b border-white/30">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-4">
+                      <div className="relative">
+                        <div className="w-14 h-14 bg-gradient-to-br from-pink-500 via-rose-500 to-violet-600 rounded-2xl flex items-center justify-center shadow-xl transform rotate-3 hover:rotate-6 transition-all duration-300">
+                          <Filter className="h-7 w-7 text-white" />
+                        </div>
+                        <div className="absolute -top-1 -right-1 w-4 h-4 bg-gradient-to-r from-yellow-400 to-orange-500 rounded-full animate-pulse"></div>
+                      </div>
+                      <div>
+                        <h3 className="text-2xl font-bold bg-gradient-to-r from-pink-600 via-rose-600 to-violet-600 bg-clip-text text-transparent">
+                          ตัวกรองขั้นสูง ✨
+                        </h3>
+                        <p className="text-base text-gray-600 mt-1 font-medium">ค้นหาคู่แท้ของคุณด้วยฟิลเตอร์ที่ตรงใจ 💕</p>
+                      </div>
+                    </div>
+                    <Button
+                      variant="ghost"
+                      size="lg"
+                      onClick={() => setFiltersOpen(v => !v)}
+                      className="flex items-center gap-3 hover:bg-white/60 transition-all duration-300 rounded-2xl px-8 py-4 text-gray-700 font-semibold border-2 border-transparent hover:border-pink-200 shadow-lg hover:shadow-xl transform hover:scale-105"
+                    >
+                      <span className="text-lg">{filtersOpen ? '🔼 ซ่อนตัวกรอง' : '🔽 เปิดตัวกรอง'}</span>
+                      <ChevronRight className={`h-6 w-6 transition-all duration-500 ${filtersOpen ? 'rotate-90 text-pink-600' : 'text-gray-500'}`} />
+                    </Button>
+                  </div>
+                </div>
+                {filtersOpen && (
+                  <div className="p-8 bg-gradient-to-br from-white/95 to-slate-50/95 backdrop-blur-sm border-t border-white/50">
+                    <div className="space-y-10">
+                      {/* Basic Filters */}
+                      <div className="relative">
+                        <div className="absolute -left-4 top-0 w-1 h-full bg-gradient-to-b from-pink-500 to-violet-500 rounded-full"></div>
+                        <h4 className="text-xl font-bold text-gray-800 mb-6 flex items-center gap-3 pl-4">
+                          <div className="w-8 h-8 bg-gradient-to-r from-blue-500 to-cyan-500 rounded-xl flex items-center justify-center">
+                            <User className="h-5 w-5 text-white" />
+                          </div>
+                          ข้อมูลพื้นฐาน
+                        </h4>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-8 pl-4">
+                          <div className="space-y-3">
+                            <label className="text-sm font-bold text-gray-700 flex items-center gap-2">
+                              <span className="text-pink-500 text-lg">👥</span>
+                              เพศ
+                            </label>
+                            <select
+                              value={filters.gender}
+                              onChange={e => setFilters(f => ({...f, gender: e.target.value}))}
+                              className="w-full p-4 border-2 border-gray-200 rounded-2xl bg-white/90 backdrop-blur-sm focus:ring-4 focus:ring-pink-500/20 focus:border-pink-500 transition-all duration-300 shadow-lg hover:shadow-xl text-gray-700 font-medium"
+                            >
+                              <option value="">✨ ทั้งหมด</option>
+                              <option value="male">👨 ชาย</option>
+                              <option value="female">👩 หญิง</option>
+                              <option value="other">🌈 อื่นๆ</option>
+                            </select>
+                          </div>
+                          <div className="space-y-3">
+                            <label className="text-sm font-bold text-gray-700 flex items-center gap-2">
+                              <span className="text-violet-500 text-lg">🔍</span>
+                              กำลังมองหา
+                            </label>
+                            <select
+                              value={filters.lookingFor}
+                              onChange={e => setFilters(f => ({...f, lookingFor: e.target.value}))}
+                              className="w-full p-4 border-2 border-gray-200 rounded-2xl bg-white/90 backdrop-blur-sm focus:ring-4 focus:ring-violet-500/20 focus:border-violet-500 transition-all duration-300 shadow-lg hover:shadow-xl text-gray-700 font-medium"
+                            >
+                              <option value="">✨ ทั้งหมด</option>
+                              <option value="male">👨 ชาย</option>
+                              <option value="female">👩 หญิง</option>
+                              <option value="both">💕 ทั้งคู่</option>
+                            </select>
+                          </div>
+                          <div className="space-y-3">
+                            <label className="text-sm font-bold text-gray-700 flex items-center gap-2">
+                              <span className="text-green-500 text-lg">📍</span>
+                              จังหวัด
+                            </label>
+                            <select
+                              value={filters.province}
+                              onChange={e => setFilters(f => ({...f, province: e.target.value}))}
+                              className="w-full p-4 border-2 border-gray-200 rounded-2xl bg-white/90 backdrop-blur-sm focus:ring-4 focus:ring-green-500/20 focus:border-green-500 transition-all duration-300 shadow-lg hover:shadow-xl text-gray-700 font-medium"
+                            >
+                              <option value="">🗺️ ทุกจังหวัด</option>
+                              {[
+                                'กระบี่','กรุงเทพมหานคร','กาญจนบุรี','กาฬสินธุ์','กำแพงเพชร','ขอนแก่น','จันทบุรี','ฉะเชิงเทรา','ชลบุรี','ชัยนาท','ชัยภูมิ','ชุมพร','เชียงราย','เชียงใหม่','ตรัง','ตราด','ตาก','นครนายก','นครปฐม','นครพนม','นครราชสีมา','นครศรีธรรมราช','นครสวรรค์','นนทบุรี','นราธิวาส','น่าน','บึงกาฬ','บุรีรัมย์','ปทุมธานี','ประจวบคีรีขันธ์','ปราจีนบุรี','ปัตตานี','พระนครศรีอยุธยา','พะเยา','พังงา','พัทลุง','พิจิตร','พิษณุโลก','เพชรบุรี','เพชรบูรณ์','แพร่','ภูเก็ต','มหาสารคาม','มุกดาหาร','แม่ฮ่องสอน','ยโสธร','ยะลา','ร้อยเอ็ด','ระนอง','ระยอง','ราชบุรี','ลพบุรี','ลำปาง','ลำพูน','ศรีสะเกษ','สกลนคร','สงขลา','สตูล','สมุทรปราการ','สมุทรสงคราม','สมุทรสาคร','สระแก้ว','สระบุรี','สิงห์บุรี','สุโขทัย','สุพรรณบุรี','สุราษฎร์ธานี','สุรินทร์','หนองคาย','หนองบัวลำภู','อ่างทอง','อำนาจเจริญ','อุดรธานี','อุตรดิตถ์','อุทัยธานี','อุบลราชธานี'
+                              ].sort((a,b)=>a.localeCompare(b,'th')).map(p => (
+                                <option key={p} value={p}>📍 {p}</option>
+                              ))}
+                            </select>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Age Range */}
+                      <div className="relative">
+                        <div className="absolute -left-4 top-0 w-1 h-full bg-gradient-to-b from-orange-500 to-red-500 rounded-full"></div>
+                        <h4 className="text-xl font-bold text-gray-800 mb-6 flex items-center gap-3 pl-4">
+                          <div className="w-8 h-8 bg-gradient-to-r from-orange-500 to-red-500 rounded-xl flex items-center justify-center">
+                            <Calendar className="h-5 w-5 text-white" />
+                          </div>
+                          ช่วงอายุ
+                        </h4>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-8 pl-4">
+                          <div className="space-y-3">
+                            <label className="text-sm font-bold text-gray-700 flex items-center gap-2">
+                              <span className="text-orange-500 text-lg">🎂</span>
+                              อายุต่ำสุด
+                            </label>
+                            <input
+                              type="number"
+                              min={18}
+                              max={100}
+                              value={filters.ageMin}
+                              onChange={e => setFilters(f => ({...f, ageMin: Number(e.target.value)}))}
+                              className="w-full p-4 border-2 border-gray-200 rounded-2xl bg-white/90 backdrop-blur-sm focus:ring-4 focus:ring-orange-500/20 focus:border-orange-500 transition-all duration-300 shadow-lg hover:shadow-xl text-gray-700 font-medium"
+                              placeholder="18 ปี"
+                            />
+                          </div>
+                          <div className="space-y-3">
+                            <label className="text-sm font-bold text-gray-700 flex items-center gap-2">
+                              <span className="text-red-500 text-lg">🎉</span>
+                              อายุมากสุด
+                            </label>
+                            <input
+                              type="number"
+                              min={18}
+                              max={100}
+                              value={filters.ageMax}
+                              onChange={e => setFilters(f => ({...f, ageMax: Number(e.target.value)}))}
+                              className="w-full p-4 border-2 border-gray-200 rounded-2xl bg-white/90 backdrop-blur-sm focus:ring-4 focus:ring-red-500/20 focus:border-red-500 transition-all duration-300 shadow-lg hover:shadow-xl text-gray-700 font-medium"
+                              placeholder="100 ปี"
+                            />
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Relationship & Distance */}
+                      <div className="relative">
+                        <div className="absolute -left-4 top-0 w-1 h-full bg-gradient-to-b from-pink-500 to-purple-500 rounded-full"></div>
+                        <h4 className="text-xl font-bold text-gray-800 mb-6 flex items-center gap-3 pl-4">
+                          <div className="w-8 h-8 bg-gradient-to-r from-pink-500 to-purple-500 rounded-xl flex items-center justify-center">
+                            <Heart className="h-5 w-5 text-white" />
+                          </div>
+                          ความสัมพันธ์ & ระยะทาง
+                        </h4>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-8 pl-4">
+                          <div className="space-y-3">
+                            <label className="text-sm font-bold text-gray-700 flex items-center gap-2">
+                              <span className="text-pink-500 text-lg">💕</span>
+                              ความสัมพันธ์ที่ต้องการ
+                            </label>
+                            <select
+                              value={filters.relationship}
+                              onChange={e => setFilters(f => ({...f, relationship: e.target.value}))}
+                              className="w-full p-4 border-2 border-gray-200 rounded-2xl bg-white/90 backdrop-blur-sm focus:ring-4 focus:ring-pink-500/20 focus:border-pink-500 transition-all duration-300 shadow-lg hover:shadow-xl text-gray-700 font-medium"
+                            >
+                              <option value="">💫 เลือกประเภทความสัมพันธ์</option>
+                              <option value="fwd">🎯 FWD</option>
+                              <option value="overnight">🌙 ค้างคืน</option>
+                              <option value="temporary">⏰ ชั่วคราว</option>
+                              <option value="other">✨ อื่นๆ</option>
+                            </select>
+                          </div>
+                          {filters.relationship === 'other' && (
+                            <div className="space-y-3">
+                              <label className="text-sm font-bold text-gray-700 flex items-center gap-2">
+                                <span className="text-purple-500 text-lg">💭</span>
+                                ระบุความสัมพันธ์ที่ต้องการ
+                              </label>
+                              <input
+                                value={filters.otherRelationship || ''}
+                                onChange={e => setFilters(f => ({...f, otherRelationship: e.target.value}))}
+                                className="w-full p-4 border-2 border-gray-200 rounded-2xl bg-white/90 backdrop-blur-sm focus:ring-4 focus:ring-purple-500/20 focus:border-purple-500 transition-all duration-300 shadow-lg hover:shadow-xl text-gray-700 font-medium"
+                                placeholder="💬 ระบุความสัมพันธ์ที่ต้องการ..."
+                              />
+                            </div>
+                          )}
+                          <div className="space-y-3">
+                            <label className="text-sm font-bold text-gray-700 flex items-center gap-2">
+                              <span className="text-blue-500 text-lg">📏</span>
+                              ระยะทาง (กิโลเมตร)
+                            </label>
+                            <input
+                              type="number"
+                              value={filters.distanceKm}
+                              onChange={e => setFilters(f => ({...f, distanceKm: e.target.value}))}
+                              className="w-full p-4 border-2 border-gray-200 rounded-2xl bg-white/90 backdrop-blur-sm focus:ring-4 focus:ring-blue-500/20 focus:border-blue-500 transition-all duration-300 shadow-lg hover:shadow-xl text-gray-700 font-medium"
+                              placeholder="🎯 เช่น 50 กม."
+                            />
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Location Coordinates */}
+                      <div className="relative">
+                        <div className="absolute -left-4 top-0 w-1 h-full bg-gradient-to-b from-cyan-500 to-teal-500 rounded-full"></div>
+                        <h4 className="text-xl font-bold text-gray-800 mb-6 flex items-center gap-3 pl-4">
+                          <div className="w-8 h-8 bg-gradient-to-r from-cyan-500 to-teal-500 rounded-xl flex items-center justify-center">
+                            <MapPin className="h-5 w-5 text-white" />
+                          </div>
+                          พิกัดตำแหน่ง
+                        </h4>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-8 pl-4">
+                          <div className="space-y-3">
+                            <label className="text-sm font-bold text-gray-700 flex items-center gap-2">
+                              <span className="text-cyan-500 text-lg">🌐</span>
+                              ละติจูด (Latitude)
+                            </label>
+                            <input
+                              value={filters.lat}
+                              onChange={e => setFilters(f => ({...f, lat: e.target.value}))}
+                              className="w-full p-4 border-2 border-gray-200 rounded-2xl bg-white/90 backdrop-blur-sm focus:ring-4 focus:ring-cyan-500/20 focus:border-cyan-500 transition-all duration-300 shadow-lg hover:shadow-xl text-gray-700 font-medium"
+                              placeholder="🗺️ เช่น 13.7563"
+                            />
+                          </div>
+                          <div className="space-y-3">
+                            <label className="text-sm font-bold text-gray-700 flex items-center gap-2">
+                              <span className="text-teal-500 text-lg">🗺️</span>
+                              ลองจิจูด (Longitude)
+                            </label>
+                            <input
+                              value={filters.lng}
+                              onChange={e => setFilters(f => ({...f, lng: e.target.value}))}
+                              className="w-full p-4 border-2 border-gray-200 rounded-2xl bg-white/90 backdrop-blur-sm focus:ring-4 focus:ring-teal-500/20 focus:border-teal-500 transition-all duration-300 shadow-lg hover:shadow-xl text-gray-700 font-medium"
+                              placeholder="📍 เช่น 100.5018"
+                            />
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Action Buttons */}
+                      <div className="flex flex-wrap gap-6 justify-center pt-8 border-t-2 border-gradient-to-r from-pink-200 to-violet-200">
+                        <Button
+                          variant="outline"
+                          onClick={() => {
+                            // Use browser location
+                            if (navigator.geolocation) {
+                              alert('📍 กำลังขอตำแหน่งปัจจุบัน...')
+                              navigator.geolocation.getCurrentPosition(
+                                (pos) => {
+                                  setFilters(f => ({
+                                    ...f, 
+                                    lat: String(pos.coords.latitude), 
+                                    lng: String(pos.coords.longitude)
+                                  }))
+                                  alert(`✅ ได้ตำแหน่งแล้ว!\nละติจูด: ${pos.coords.latitude.toFixed(6)}\nลองจิจูด: ${pos.coords.longitude.toFixed(6)}`)
+                                },
+                                (error) => {
+                                  console.error('❌ Geolocation error:', error)
+                                  switch(error.code) {
+                                    case error.PERMISSION_DENIED:
+                                      alert('❌ ถูกปฏิเสธการเข้าถึงตำแหน่ง กรุณาอนุญาตการเข้าถึงตำแหน่งในเบราว์เซอร์')
+                                      break
+                                    case error.POSITION_UNAVAILABLE:
+                                      alert('❌ ไม่สามารถระบุตำแหน่งได้ กรุณาลองใหม่อีกครั้ง')
+                                      break
+                                    case error.TIMEOUT:
+                                      alert('❌ การขอตำแหน่งหมดเวลา กรุณาลองใหม่อีกครั้ง')
+                                      break
+                                    default:
+                                      alert('❌ เกิดข้อผิดพลาดในการขอตำแหน่ง')
+                                  }
+                                },
+                                {
+                                  enableHighAccuracy: true,
+                                  timeout: 10000,
+                                  maximumAge: 60000
+                                }
+                              )
+                            } else {
+                              alert('❌ เบราว์เซอร์ของคุณไม่รองรับการระบุตำแหน่ง')
+                            }
+                          }}
+                          className="flex items-center gap-3 px-8 py-4 rounded-2xl border-2 border-blue-300 text-blue-700 hover:bg-blue-50 hover:border-blue-400 transition-all duration-300 shadow-lg hover:shadow-xl font-bold text-base transform hover:scale-105"
+                        >
+                          <MapPin className="h-6 w-6" />
+                          📍 ใช้ตำแหน่งปัจจุบัน
+                        </Button>
+                        <Button
+                          onClick={async () => {
+                            // Show loading state
+                            setIsLoadingAllUsers(true)
+                            
+                            const base = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000'
+                            const params = new URLSearchParams()
+                            
+                            // Add filters to params
+                            if (filters.gender) params.set('gender', filters.gender)
+                            if (filters.lookingFor) params.set('lookingFor', filters.lookingFor)
+                            if (filters.province) params.set('province', filters.province)
+                            if (filters.ageMin && filters.ageMin > 0) params.set('ageMin', String(filters.ageMin))
+                            if (filters.ageMax && filters.ageMax > 0) params.set('ageMax', String(filters.ageMax))
+                            
+                            // Handle relationship filter
+                            if (filters.relationship) {
+                              if (filters.relationship === 'other' && filters.otherRelationship) {
+                                params.set('relationship', filters.otherRelationship)
+                              } else {
+                                params.set('relationship', filters.relationship)
+                              }
+                            }
+                            
+                            // Handle distance filter
+                            if (filters.distanceKm && filters.lat && filters.lng) {
+                              params.set('distanceKm', String(filters.distanceKm))
+                              params.set('lat', String(filters.lat))
+                              params.set('lng', String(filters.lng))
+                            }
+                            
+                            params.set('page', '1')
+                            params.set('limit', '50') // เพิ่มจำนวนผลลัพธ์
+                            
+                            try {
+                              console.log('🔍 Searching with filters:', Object.fromEntries(params))
+                              
+                              const res = await fetch(`${base}/api/profile/search?${params.toString()}`, {
+                                headers: { 
+                                  'Content-Type': 'application/json', 
+                                  ...(sessionStorage.getItem('token') ? { 'Authorization': `Bearer ${sessionStorage.getItem('token')}` } : {}) 
+                                }
+                              })
+                              
+                              if (!res.ok) {
+                                throw new Error(`HTTP error! status: ${res.status}`)
+                              }
+                              
+                              const data = await res.json()
+                              console.log('📊 Search results:', data)
+                              
+                              if (data.success) {
+                                const users: PublicUser[] = data?.data?.users || []
+                                console.log(`✅ Found ${users.length} users`)
+                                
+                                setAllUsers(users)
+                                setCurrentPage(1)
+                                
+                                // Filter for allowed tiers
+                                const allowed = ['member','silver','gold','vip','vip1','vip2']
+                                const allowedUsers = users.filter(u => allowed.includes((u?.membership?.tier || 'member') as string))
+                                const allowedLen = allowedUsers.length
+                                
+                                setVisibleCount(Math.min(8, allowedLen))
+                                setHasMoreUsers(allowedLen > 8)
+                                
+                                // Show success message
+                                if (allowedLen > 0) {
+                                  alert(`✅ พบผู้ใช้ ${allowedLen} คนที่ตรงกับเงื่อนไขของคุณ!`)
+                                } else {
+                                  alert('❌ ไม่พบผู้ใช้ที่ตรงกับเงื่อนไข กรุณาลองปรับตัวกรองใหม่')
+                                }
+                              } else {
+                                console.error('❌ Search failed:', data.message)
+                                alert(`❌ การค้นหาล้มเหลว: ${data.message}`)
+                              }
+                            } catch (error) {
+                              console.error('❌ Search error:', error)
+                              alert(`❌ เกิดข้อผิดพลาดในการค้นหา: ${error.message}`)
+                            } finally {
+                              setIsLoadingAllUsers(false)
+                            }
+                          }}
+                          className={`flex items-center gap-4 px-10 py-4 rounded-2xl bg-gradient-to-r from-pink-500 via-rose-500 to-violet-600 text-white hover:from-pink-600 hover:via-rose-600 hover:to-violet-700 transition-all duration-300 shadow-2xl hover:shadow-pink-500/50 font-bold text-lg transform hover:scale-110 hover:-translate-y-1 ${isLoadingAllUsers ? 'opacity-75 cursor-not-allowed' : ''}`}
+                          disabled={isLoadingAllUsers}
+                        >
+                          {isLoadingAllUsers ? (
+                            <>
+                              <RefreshCw className="h-6 w-6 animate-spin" />
+                              🔄 กำลังค้นหา...
+                            </>
+                          ) : (
+                            <>
+                              <Search className="h-6 w-6" />
+                              🔍 ค้นหาด้วยตัวกรอง
+                            </>
+                          )}
+                        </Button>
+                        <Button
+                          variant="outline"
+                          onClick={async () => {
+                            // Reset filters
+                            setFilters({ 
+                              gender: '', 
+                              ageMin: 18, 
+                              ageMax: 100, 
+                              province: '', 
+                              lookingFor: '', 
+                              relationship: '', 
+                              otherRelationship: '', 
+                              distanceKm: '', 
+                              lat: '', 
+                              lng: '' 
+                            })
+                            
+                            // Show loading state
+                            setIsLoadingAllUsers(true)
+                            
+                            const base = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000'
+                            
+                            try {
+                              console.log('🔄 Resetting filters and reloading users...')
+                              
+                              const res = await fetch(`${base}/api/profile/all?limit=50&page=1`, {
+                                headers: { 
+                                  'Content-Type': 'application/json', 
+                                  ...(sessionStorage.getItem('token') ? { 'Authorization': `Bearer ${sessionStorage.getItem('token')}` } : {}) 
+                                }
+                              })
+                              
+                              if (!res.ok) {
+                                throw new Error(`HTTP error! status: ${res.status}`)
+                              }
+                              
+                              const data = await res.json()
+                              console.log('📊 Reset results:', data)
+                              
+                              if (data.success) {
+                                const users: PublicUser[] = data?.data?.users || []
+                                console.log(`✅ Reset: Found ${users.length} users`)
+                                
+                                setAllUsers(users)
+                                setCurrentPage(1)
+                                
+                                // Filter for allowed tiers
+                                const allowed = ['member','silver','gold','vip','vip1','vip2']
+                                const allowedUsers = users.filter(u => allowed.includes((u?.membership?.tier || 'member') as string))
+                                const allowedLen = allowedUsers.length
+                                
+                                setVisibleCount(Math.min(8, allowedLen))
+                                setHasMoreUsers(allowedLen > 8)
+                                
+                                alert(`✅ รีเซ็ตตัวกรองเรียบร้อย! แสดงผู้ใช้ ${allowedLen} คน`)
+                              } else {
+                                console.error('❌ Reset failed:', data.message)
+                                alert(`❌ การรีเซ็ตล้มเหลว: ${data.message}`)
+                              }
+                            } catch (error) {
+                              console.error('❌ Reset error:', error)
+                              alert(`❌ เกิดข้อผิดพลาดในการรีเซ็ต: ${error.message}`)
+                            } finally {
+                              setIsLoadingAllUsers(false)
+                            }
+                          }}
+                          className={`flex items-center gap-3 px-8 py-4 rounded-2xl border-2 border-gray-300 text-gray-700 hover:bg-gray-50 hover:border-gray-400 transition-all duration-300 shadow-lg hover:shadow-xl font-bold text-base transform hover:scale-105 ${isLoadingAllUsers ? 'opacity-75 cursor-not-allowed' : ''}`}
+                          disabled={isLoadingAllUsers}
+                        >
+                          {isLoadingAllUsers ? (
+                            <>
+                              <RefreshCw className="h-6 w-6 animate-spin" />
+                              🔄 กำลังรีเซ็ต...
+                            </>
+                          ) : (
+                            <>
+                              <RefreshCw className="h-6 w-6" />
+                              🗑️ ล้างตัวกรองทั้งหมด
+                            </>
+                          )}
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
               {/* Premium Member Exclusive */}
               <div className="mb-10">
@@ -816,63 +1373,244 @@ function App() {
               <div className="flex justify-between items-center mb-6 mt-12">
                 <div>
                   <h2 className="text-3xl font-bold gradient-text mb-2">Discover Amazing People ✨</h2>
-                  <p className="text-gray-600">Find your perfect match from verified singles</p>
+                  <p className="text-gray-600">
+                    Find your perfect match from verified singles 
+                    {!isLoadingAllUsers && allUsers.length > 0 && (
+                      <span className="ml-2 text-pink-600 font-semibold">
+                        (สุ่มแสดง {allUsers.length} คนจากทั้งหมดในระบบ)
+                      </span>
+                    )}
+                  </p>
                 </div>
+                <Button 
+                  variant="outline" 
+                  size="sm"
+                  onClick={() => {
+                    setIsLoadingAllUsers(true)
+                    setCurrentPage(1)
+                    setHasMoreUsers(true)
+                    // Trigger reload
+                    const base = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000'
+                    fetch(`${base}/api/profile/all?limit=20&page=1`, {
+                      headers: {
+                        'Content-Type': 'application/json',
+                        ...(sessionStorage.getItem('token') ? { 'Authorization': `Bearer ${sessionStorage.getItem('token')}` } : {})
+                      }
+                    })
+                    .then(res => res.json())
+                    .then(data => {
+                      if (data.success) {
+                        setAllUsers(data.data.users)
+                        setHasMoreUsers(data.data.pagination.page < data.data.pagination.pages)
+                        setCurrentPage(1)
+                      }
+                    })
+                    .catch(() => {})
+                    .finally(() => setIsLoadingAllUsers(false))
+                  }}
+                  disabled={isLoadingAllUsers}
+                  className="flex items-center gap-2"
+                >
+                  <RefreshCw className={`w-4 h-4 ${isLoadingAllUsers ? 'animate-spin' : ''}`} />
+                  รีเฟรช
+                </Button>
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 md:gap-8">
-                {profiles.map(profile => (
-                  <div key={profile.id} className="modern-card rounded-2xl overflow-hidden shadow-xl hover:shadow-2xl hover:shadow-pink-100/50 transition-all duration-500 hover:-translate-y-2 cursor-pointer group floating-hearts" onClick={() => openProfileModal(profile)}>
-                    <div className="h-72 overflow-hidden relative">
-                      <img 
-                        src={profile.images[0]} 
-                        alt={profile.name} 
-                        className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
-                      />
-                      <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent"></div>
-                      {profile.verified && (
-                        <div className="absolute top-4 left-4">
-                          <div className="w-8 h-8 bg-gradient-to-r from-blue-500 to-cyan-500 rounded-full flex items-center justify-center shadow-xl">
-                            <CheckCircle className="h-5 w-5 text-white" fill="white" />
-                          </div>
+                {isLoadingAllUsers ? (
+                  // Loading skeleton
+                  Array.from({ length: 8 }).map((_, i) => (
+                    <div key={i} className="modern-card rounded-2xl overflow-hidden shadow-xl animate-pulse">
+                      <div className="h-72 bg-gray-200"></div>
+                      <div className="p-6">
+                        <div className="h-4 bg-gray-200 rounded mb-2"></div>
+                        <div className="h-3 bg-gray-200 rounded mb-4"></div>
+                        <div className="flex gap-2">
+                          <div className="h-6 bg-gray-200 rounded-full w-16"></div>
+                          <div className="h-6 bg-gray-200 rounded-full w-20"></div>
+                          <div className="h-6 bg-gray-200 rounded-full w-14"></div>
                         </div>
-                      )}
-                      {profile.online && (
-                        <div className="absolute top-4 right-4">
-                          <div className="w-4 h-4 bg-green-500 rounded-full border-3 border-white shadow-lg animate-pulse"></div>
-                        </div>
-                      )}
-                      <div className="absolute bottom-4 left-4 right-4 text-white">
-                        <div className="flex justify-between items-end">
-                          <div>
-                            <h3 className="text-xl font-bold">{profile.name}, {profile.age}</h3>
-                            <div className="flex items-center text-white/90 text-sm">
-                              <MapPin className="h-4 w-4 mr-1" />
-                              <span>{profile.location} • {profile.distance}</span>
+                      </div>
+                    </div>
+                  ))
+                ) : allUsers.length > 0 ? (
+                  allUsers
+                    .filter(user => {
+                      const tier = (user?.membership?.tier || 'member') as string
+                      const allowed = ['member','silver','gold','vip','vip1','vip2']
+                      return allowed.includes(tier)
+                    })
+                    .slice(0, visibleCount)
+                    .map(user => {
+                    const baseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000'
+                    const profileImage = user.profileImages && user.profileImages.length > 0 
+                      ? `${baseUrl}/uploads/profiles/${user.profileImages[0]}`
+                      : 'https://placehold.co/500x600/6366f1/ffffff?text=No+Image'
+                    
+                    const displayName = user.nickname || user.firstName || user.username || 'Unknown'
+                    const age = user.age || 'N/A'
+                    const location = user.location || 'Unknown'
+                    const bio = user.bio || 'No bio available'
+                    const interests = user.interests?.map(i => i.category || i) || []
+                    
+                    return (
+                      <div key={user._id} className="modern-card rounded-2xl overflow-hidden shadow-xl hover:shadow-2xl hover:shadow-pink-100/50 transition-all duration-500 hover:-translate-y-2 cursor-pointer group floating-hearts" onClick={() => openProfileModal({
+                        id: user._id,
+                        name: displayName,
+                        age: age,
+                        location: location,
+                        bio: bio,
+                        interests: interests,
+                        images: [profileImage],
+                        verified: user.isVerified,
+                        online: user.isOnline
+                      })}>
+                        <div className="h-72 overflow-hidden relative">
+                          <img 
+                            src={profileImage} 
+                            alt={displayName} 
+                            className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
+                            onError={(e) => {
+                              e.target.src = 'https://placehold.co/500x600/6366f1/ffffff?text=No+Image'
+                            }}
+                          />
+                          <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent"></div>
+                          {user.isVerified && (
+                            <div className="absolute top-4 left-4">
+                              <div className="w-8 h-8 bg-gradient-to-r from-blue-500 to-cyan-500 rounded-full flex items-center justify-center shadow-xl">
+                                <CheckCircle className="h-5 w-5 text-white" fill="white" />
+                              </div>
+                            </div>
+                          )}
+                          {user.isOnline && (
+                            <div className="absolute top-4 right-4">
+                              <div className="w-4 h-4 bg-green-500 rounded-full border-3 border-white shadow-lg animate-pulse"></div>
+                            </div>
+                          )}
+                          <div className="absolute bottom-4 left-4 right-4 text-white">
+                            <div className="flex justify-between items-end">
+                              <div>
+                                <h3 className="text-xl font-bold">{displayName}, {age}</h3>
+                                <div className="flex items-center text-white/90 text-sm">
+                                  <MapPin className="h-4 w-4 mr-1" />
+                                  <span>{location}</span>
+                                </div>
+                              </div>
+                              <Button size="icon" variant="ghost" className="rounded-full text-white hover:text-pink-300 hover:bg-white/20 transition-all duration-300 heart-beat hover:scale-110">
+                                <Heart className="h-5 w-5" />
+                              </Button>
                             </div>
                           </div>
-                          <Button size="icon" variant="ghost" className="rounded-full text-white hover:text-pink-300 hover:bg-white/20 transition-all duration-300 heart-beat hover:scale-110">
-                            <Heart className="h-5 w-5" />
-                          </Button>
+                        </div>
+                        <div className="p-6">
+                          <p className="text-gray-600 text-sm line-clamp-2 mb-4 leading-relaxed">{bio}</p>
+                          <div className="flex flex-wrap gap-2">
+                            {interests.slice(0, 3).map((interest, i) => (
+                              <span key={i} className="px-3 py-1.5 bg-gradient-to-r from-pink-100 to-violet-100 text-pink-700 rounded-full text-xs font-semibold hover:from-pink-200 hover:to-violet-200 transition-all duration-300 shadow-sm">
+                                {interest}
+                              </span>
+                            ))}
+                            {interests.length > 3 && (
+                              <span className="px-3 py-1.5 bg-gradient-to-r from-gray-100 to-gray-200 text-gray-700 rounded-full text-xs font-semibold">
+                                +{interests.length - 3} more
+                              </span>
+                            )}
+                          </div>
                         </div>
                       </div>
-                    </div>
-                    <div className="p-6">
-                      <p className="text-gray-600 text-sm line-clamp-2 mb-4 leading-relaxed">{profile.bio}</p>
-                      <div className="flex flex-wrap gap-2">
-                        {profile.interests.slice(0, 3).map((interest, i) => (
-                          <span key={i} className="px-3 py-1.5 bg-gradient-to-r from-pink-100 to-violet-100 text-pink-700 rounded-full text-xs font-semibold hover:from-pink-200 hover:to-violet-200 transition-all duration-300 shadow-sm">
-                            {interest}
-                          </span>
-                        ))}
-                        {profile.interests.length > 3 && (
-                          <span className="px-3 py-1.5 bg-gradient-to-r from-gray-100 to-gray-200 text-gray-700 rounded-full text-xs font-semibold">
-                            +{profile.interests.length - 3} more
-                          </span>
-                        )}
-                      </div>
+                    )
+                  })
+                ) : (
+                  <div className="col-span-full text-center py-12">
+                    <Users className="h-16 w-16 text-gray-400 mx-auto mb-4" />
+                    <p className="text-gray-500 mb-2">ไม่พบผู้ใช้ในระบบ</p>
+                    <p className="text-gray-400 text-sm">อาจเป็นเพราะยังไม่มีผู้ใช้อื่นในระบบ หรือเกิดข้อผิดพลาดในการโหลดข้อมูล</p>
+                    <Button 
+                      onClick={() => {
+                        setIsLoadingAllUsers(true)
+                        setCurrentPage(1)
+                        setHasMoreUsers(true)
+                        // Trigger reload
+                        const base = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000'
+                        fetch(`${base}/api/profile/all?limit=20&page=1`, {
+                          headers: {
+                            'Content-Type': 'application/json',
+                            ...(sessionStorage.getItem('token') ? { 'Authorization': `Bearer ${sessionStorage.getItem('token')}` } : {})
+                          }
+                        })
+                        .then(res => res.json())
+                        .then(data => {
+                          if (data.success) {
+                            setAllUsers(data.data.users)
+                            setHasMoreUsers(data.data.pagination.page < data.data.pagination.pages)
+                            setCurrentPage(1)
+                          }
+                        })
+                        .catch(() => {})
+                        .finally(() => setIsLoadingAllUsers(false))
+                      }}
+                      disabled={isLoadingAllUsers}
+                      className="mt-4 bg-gradient-to-r from-pink-500 to-violet-500 hover:from-pink-600 hover:to-violet-600 text-white"
+                    >
+                      <RefreshCw className={`w-4 h-4 mr-2 ${isLoadingAllUsers ? 'animate-spin' : ''}`} />
+                      ลองใหม่
+                    </Button>
+                  </div>
+                )}
+                
+                {/* Load More Button */}
+                {!isLoadingAllUsers && allUsers.length > 0 && (
+                  <div className="col-span-full text-center py-8">
+                    <Button
+                      onClick={async () => {
+                        const allowed = ['member','silver','gold','vip','vip1','vip2']
+                        const filteredLen = allUsers.filter(u => allowed.includes((u?.membership?.tier || 'member') as string)).length
+                        const nextCount = Math.min(visibleCount + 8, filteredLen)
+                        if (visibleCount < filteredLen) {
+                          setVisibleCount(nextCount)
+                        } else if (hasMoreUsers && !isLoadingMore) {
+                          await loadMoreUsers()
+                          setVisibleCount(prev => prev + 8)
+                        }
+                      }}
+                      disabled={isLoadingMore}
+                      variant="outline"
+                      size="lg"
+                      className="bg-gradient-to-r from-pink-500 to-violet-500 hover:from-pink-600 hover:to-violet-600 text-white border-0 shadow-lg hover:shadow-xl transition-all duration-300"
+                    >
+                      {isLoadingMore ? (
+                        <>
+                          <RefreshCw className="w-5 h-5 mr-2 animate-spin" />
+                          กำลังโหลด...
+                        </>
+                      ) : (
+                        <>
+                          <Users className="w-5 h-5 mr-2" />
+                          โหลดต่อ
+                        </>
+                      )}
+                    </Button>
+                    {(() => {
+                      const allowed = ['member','silver','gold','vip','vip1','vip2']
+                      const filteredLen = allUsers.filter(u => allowed.includes((u?.membership?.tier || 'member') as string)).length
+                      return hasMoreUsers || visibleCount < filteredLen
+                    })() && (
+                      <p className="text-gray-500 text-sm mt-2">
+                        หน้า {currentPage} • โหลดเพิ่ม 20 คนต่อครั้ง
+                      </p>
+                    )}
+                  </div>
+                )}
+                
+                {/* No More Users */}
+                {!isLoadingAllUsers && allUsers.length > 0 && !hasMoreUsers && (
+                  <div className="col-span-full text-center py-8">
+                    <div className="bg-gradient-to-r from-green-50 to-blue-50 rounded-xl p-6 border border-green-200">
+                      <CheckCircle className="w-12 h-12 text-green-500 mx-auto mb-3" />
+                      <p className="text-green-700 font-semibold">แสดงครบทุกคนแล้ว!</p>
+                      <p className="text-green-600 text-sm">คุณได้ดูผู้ใช้ทั้งหมดที่สุ่มแสดงแล้ว - กดปุ่มรีเฟรชเพื่อสุ่มใหม่</p>
                     </div>
                   </div>
-                ))}
+                )}
               </div>
             </TabsContent>
             {/* Matches Tab */}
@@ -1012,23 +1750,23 @@ function App() {
       {/* Profile Modal */}
       {selectedProfile && (
         <Dialog open={showProfileModal} onOpenChange={setShowProfileModal}>
-          <DialogContent className="sm:max-w-4xl bg-white/90 backdrop-blur-md border border-white/20 shadow-2xl rounded-2xl p-0 overflow-hidden">
+          <DialogContent className="max-w-none bg-white/90 backdrop-blur-md border border-white/20 shadow-2xl rounded-2xl p-0 overflow-hidden" style={{ width: '1400px', height: '900px', minWidth: '1400px', minHeight: '900px' }}>
             <VisuallyHidden>
               <DialogTitle>Profile of {selectedProfile.name}</DialogTitle>
               <DialogDescription>
                 View detailed profile information for {selectedProfile.name}, age {selectedProfile.age} from {selectedProfile.location}
               </DialogDescription>
             </VisuallyHidden>
-            <div className="flex flex-col md:flex-row h-[70vh] max-h-[80vh]">
+            <div className="flex h-full">
               {/* Image Gallery */}
-              <div className="md:w-1/2 relative">
+              <div className="w-1/2 relative">
                 <button
                   onClick={() => setShowProfileModal(false)}
-                  className="absolute top-4 right-4 z-10 bg-black/50 hover:bg-black/70 text-white rounded-full p-2 transition-colors"
+                  className="absolute top-3 right-3 z-10 bg-black/50 hover:bg-black/70 text-white rounded-full p-1.5 transition-colors"
                 >
-                  <X className="h-5 w-5" />
+                  <X className="h-4 w-4" />
                 </button>
-                <div className="relative h-64 md:h-full">
+                <div className="relative w-full h-full">
                   <img
                     src={selectedProfile.images[activeImageIndex]}
                     alt={selectedProfile.name}
@@ -1036,12 +1774,12 @@ function App() {
                   />
                   <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent"></div>
                   {/* Profile Info Overlay */}
-                  <div className="absolute bottom-6 left-6 right-6 text-white">
+                  <div className="absolute bottom-4 left-4 right-4 text-white">
                     <div className="flex justify-between items-end mb-2">
                       <div>
-                        <h3 className="text-2xl font-medium">{selectedProfile.name}, {selectedProfile.age}</h3>
-                        <div className="flex items-center text-white/90">
-                          <MapPin className="h-4 w-4 mr-1" />
+                        <h3 className="text-lg font-medium">{selectedProfile.name}, {selectedProfile.age}</h3>
+                        <div className="flex items-center text-white/90 text-sm">
+                          <MapPin className="h-3 w-3 mr-1" />
                           <span>{selectedProfile.location}</span>
                           <span className="mx-2">•</span>
                           <span>{selectedProfile.distance}</span>
@@ -1051,16 +1789,16 @@ function App() {
                         <Button
                           size="icon"
                           variant="ghost"
-                          className="rounded-full text-white hover:text-pink-300 hover:bg-white/10"
+                          className="rounded-full text-white hover:text-pink-300 hover:bg-white/10 h-8 w-8"
                         >
-                          <MessageSquare className="h-5 w-5" />
+                          <MessageSquare className="h-4 w-4" />
                         </Button>
                         <Button
                           size="icon"
                           variant="ghost"
-                          className="rounded-full text-white hover:text-pink-300 hover:bg-white/10"
+                          className="rounded-full text-white hover:text-pink-300 hover:bg-white/10 h-8 w-8"
                         >
-                          <Heart className="h-5 w-5" />
+                          <Heart className="h-4 w-4" />
                         </Button>
                       </div>
                     </div>
@@ -1082,84 +1820,148 @@ function App() {
                 </div>
               </div>
               {/* Profile Details */}
-              <div className="md:w-1/2 p-6 overflow-y-auto bg-white">
-                <div className="flex items-center mb-4">
-                  <h4 className="text-xl font-medium text-slate-800">{selectedProfile.name}</h4>
+              <div className="w-1/2 p-6 overflow-y-auto bg-white flex flex-col">
+
+                
+                <div className="flex items-center mb-8">
+                  <h4 className="text-4xl font-semibold text-slate-800">{selectedProfile.name}</h4>
                   {selectedProfile.verified && (
-                    <div className="ml-2 flex items-center text-blue-500 text-sm">
-                      <CheckCircle className="h-4 w-4 mr-1" fill="currentColor" />
+                    <div className="ml-4 flex items-center text-blue-500 text-lg">
+                      <CheckCircle className="h-7 w-7 mr-2" fill="currentColor" />
                       <span>Verified</span>
                     </div>
                   )}
                   {selectedProfile.online && (
-                    <div className="ml-2 flex items-center text-green-500 text-sm">
-                      <div className="w-2 h-2 bg-green-500 rounded-full mr-1"></div>
+                    <div className="ml-4 flex items-center text-green-500 text-lg">
+                      <div className="w-4 h-4 bg-green-500 rounded-full mr-2"></div>
                       <span>Online</span>
                     </div>
                   )}
                 </div>
-                <p className="text-slate-600 mb-6 leading-relaxed">{selectedProfile.bio}</p>
-                {/* Quick Facts */}
-                <div className="grid grid-cols-2 gap-4 mb-6">
-                  <div className="bg-slate-50 p-3 rounded-lg">
-                    <div className="text-xs text-slate-500">Height</div>
-                    <div className="font-medium text-slate-800">{selectedProfile.height}</div>
+                <p className="text-slate-600 mb-10 leading-relaxed text-xl">{selectedProfile.bio}</p>
+                {/* Personal Information - ข้อมูลส่วนตัว */}
+                <div className="bg-white border border-slate-200 rounded-lg p-4 mb-6">
+                  <div className="flex items-center mb-4">
+                    <User className="h-5 w-5 mr-2 text-blue-600" />
+                    <h5 className="text-lg font-semibold text-slate-800">ข้อมูลส่วนตัว</h5>
                   </div>
-                  <div className="bg-slate-50 p-3 rounded-lg">
-                    <div className="text-xs text-slate-500">Education</div>
-                    <div className="font-medium text-slate-800">{selectedProfile.education}</div>
-                  </div>
-                  <div className="bg-slate-50 p-3 rounded-lg">
-                    <div className="text-xs text-slate-500">Occupation</div>
-                    <div className="font-medium text-slate-800">{selectedProfile.job}</div>
-                  </div>
-                  <div className="bg-slate-50 p-3 rounded-lg">
-                    <div className="text-xs text-slate-500">Looking for</div>
-                    <div className="font-medium text-slate-800">{selectedProfile.lookingFor}</div>
+                  <div className="grid grid-cols-2 gap-6">
+                    {/* Left Column */}
+                    <div className="space-y-4">
+                      <div className="flex items-start">
+                        <Briefcase className="h-5 w-5 mr-3 mt-0.5 text-slate-600" />
+                        <div>
+                          <div className="text-sm text-slate-500">อาชีพ</div>
+                          <div className="font-medium text-slate-800">{selectedProfile.job || 'ไม่ระบุ'}</div>
+                        </div>
+                      </div>
+                      <div className="flex items-start">
+                        <Ruler className="h-5 w-5 mr-3 mt-0.5 text-slate-600" />
+                        <div>
+                          <div className="text-sm text-slate-500">ร่างกาย</div>
+                          <div className="font-medium text-slate-800">{selectedProfile.height || 'ไม่ระบุ'}</div>
+                        </div>
+                      </div>
+                      <div className="flex items-start">
+                        <Languages className="h-5 w-5 mr-3 mt-0.5 text-slate-600" />
+                        <div>
+                          <div className="text-sm text-slate-500">ภาษา</div>
+                          <div className="font-medium text-slate-800">
+                            {selectedProfile.languages && selectedProfile.languages.length > 0 ? selectedProfile.languages.join(', ') : 'ไม่ระบุ'}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                    {/* Right Column */}
+                    <div className="space-y-4">
+                      <div className="flex items-start">
+                        <GraduationCap className="h-5 w-5 mr-3 mt-0.5 text-slate-600" />
+                        <div>
+                          <div className="text-sm text-slate-500">จบสถาบันศึกษา</div>
+                          <div className="font-medium text-slate-800">{selectedProfile.education || 'ไม่ระบุ'}</div>
+                          <div className="text-xs text-slate-500">ระดับ: ปริญญาตรี</div>
+                        </div>
+                      </div>
+                      <div className="flex items-start">
+                        <Building className="h-5 w-5 mr-3 mt-0.5 text-slate-600" />
+                        <div>
+                          <div className="text-sm text-slate-500">ศาสนา</div>
+                          <div className="font-medium text-slate-800">พุทธ</div>
+                        </div>
+                      </div>
+                      <div className="flex items-start">
+                        <PawPrint className="h-5 w-5 mr-3 mt-0.5 text-slate-600" />
+                        <div>
+                          <div className="text-sm text-slate-500">สัตว์เลี้ยง</div>
+                          <div className="font-medium text-slate-800">แมว 2 ตัว</div>
+                        </div>
+                      </div>
+                    </div>
                   </div>
                 </div>
-                {/* Interests */}
-                <div className="mb-6">
-                  <h5 className="text-sm font-medium text-slate-800 mb-3 flex items-center">
-                    <Heart className="h-4 w-4 mr-2 text-pink-500" />
-                    Interests
-                  </h5>
-                  <div className="flex flex-wrap gap-2">
-                    {selectedProfile.interests.map((interest, i) => (
-                      <span key={i} className="px-3 py-1.5 bg-gradient-to-r from-slate-100 to-slate-200 text-slate-700 rounded-full text-sm font-medium">
-                        {interest}
-                      </span>
-                    ))}
+                {/* Interests - แสดงเฉพาะเมื่อมีข้อมูล */}
+                {selectedProfile.interests && selectedProfile.interests.length > 0 && (
+                  <div className="mb-6">
+                    <h5 className="text-lg font-semibold text-slate-800 mb-3 flex items-center">
+                      <Heart className="h-5 w-5 mr-2 text-pink-500" />
+                      Interests
+                    </h5>
+                    <div className="flex flex-wrap gap-3">
+                      {selectedProfile.interests.map((interest, i) => (
+                        <span key={i} className="px-3 py-2 bg-gradient-to-r from-slate-100 to-slate-200 text-slate-700 rounded-full text-base font-medium">
+                          {interest}
+                        </span>
+                      ))}
+                    </div>
                   </div>
-                </div>
-                {/* Lifestyle */}
-                <div className="mb-6">
-                  <h5 className="text-sm font-medium text-slate-800 mb-3">Lifestyle</h5>
-                  <div className="bg-slate-50 p-4 rounded-lg">
-                    <div className="flex items-center mb-2">
-                      <Coffee className="h-4 w-4 mr-2 text-slate-500" />
-                      <span className="text-sm text-slate-700">{selectedProfile.lifestyle}</span>
+                )}
+                {/* Lifestyle - ไลฟ์สไตล์ */}
+                <div className="bg-white border border-slate-200 rounded-lg p-4 mb-6">
+                  <div className="flex items-center mb-4">
+                    <Heart className="h-5 w-5 mr-2 text-green-600" />
+                    <h5 className="text-lg font-semibold text-slate-800">ไลฟ์สไตล์</h5>
+                  </div>
+                  <div className="grid grid-cols-2 gap-6">
+                    {/* Left Column */}
+                    <div className="space-y-4">
+                      <div className="flex items-start">
+                        <X className="h-5 w-5 mr-3 mt-0.5 text-slate-600" />
+                        <div>
+                          <div className="text-sm text-slate-500">การสูบบุหรี่</div>
+                          <div className="font-medium text-slate-800">ไม่สูบบุหรี่</div>
+                        </div>
+                      </div>
+                      <div className="flex items-start">
+                        <Dumbbell className="h-5 w-5 mr-3 mt-0.5 text-slate-600" />
+                        <div>
+                          <div className="text-sm text-slate-500">การออกกำลังกาย</div>
+                          <div className="font-medium text-slate-800">ออกกำลังกายทุกวัน</div>
+                        </div>
+                      </div>
                     </div>
-                    <div className="flex items-center mb-2">
-                      <Clock className="h-4 w-4 mr-2 text-slate-500" />
-                      <span className="text-sm text-slate-700">Last active: {selectedProfile.lastActive}</span>
-                    </div>
-                    <div className="flex items-center">
-                      <span className="text-sm text-slate-500">Languages:</span>
-                      <div className="flex ml-2 space-x-2">
-                        {(selectedProfile.languages || []).map((lang, i) => (
-                          <span key={i} className="px-2 py-1 bg-white text-slate-600 rounded text-xs">
-                            {lang}
-                          </span>
-                        ))}
+                    {/* Right Column */}
+                    <div className="space-y-4">
+                      <div className="flex items-start">
+                        <Wine className="h-5 w-5 mr-3 mt-0.5 text-slate-600" />
+                        <div>
+                          <div className="text-sm text-slate-500">การดื่มสุรา</div>
+                          <div className="font-medium text-slate-800">ไม่ดื่มสุรา</div>
+                        </div>
+                      </div>
+                      <div className="flex items-start">
+                        <Utensils className="h-5 w-5 mr-3 mt-0.5 text-slate-600" />
+                        <div>
+                          <div className="text-sm text-slate-500">อาหาร</div>
+                          <div className="font-medium text-slate-800">ทานอาหารทั่วไป</div>
+                        </div>
                       </div>
                     </div>
                   </div>
                 </div>
                 {/* Action Buttons */}
-                <div className="flex space-x-3">
-                  <Button className="flex-1 bg-gradient-to-r from-pink-500 to-violet-500 hover:from-pink-600 hover:to-violet-600 text-white shadow-lg hover:shadow-xl transition-all duration-200 h-12">
-                    <MessageSquare className="h-5 w-5 mr-2" />
+                <div className="flex space-x-4 mt-auto pt-6">
+                  <Button className="flex-1 bg-gradient-to-r from-pink-500 to-violet-500 hover:from-pink-600 hover:to-violet-600 text-white shadow-lg hover:shadow-xl transition-all duration-200 h-12 text-lg font-medium">
+                    <MessageSquare className="h-5 w-5 mr-3" />
                     Send Message
                   </Button>
                   <Button variant="outline" size="icon" className="h-12 w-12 border-slate-200 hover:bg-slate-50">

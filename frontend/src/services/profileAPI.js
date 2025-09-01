@@ -7,9 +7,9 @@ class ProfileAPI {
 
   // Helper method to get auth headers
   getAuthHeaders() {
-    const token = localStorage.getItem('token');
+    const token = sessionStorage.getItem('token');
     if (!token) {
-      console.error('No token found in localStorage');
+      console.error('No token found in sessionStorage');
       throw new Error('Authentication token not found');
     }
     return {
@@ -21,7 +21,7 @@ class ProfileAPI {
   // ดึงข้อมูลโปรไฟล์ผู้ใช้
   async getUserProfile(userId) {
     try {
-      const token = localStorage.getItem('token');
+      const token = sessionStorage.getItem('token');
       const headers = {
         'Content-Type': 'application/json'
       };
@@ -53,7 +53,7 @@ class ProfileAPI {
       console.log('ProfileAPI: Sending data to backend:', profileData);
       
       // ตรวจสอบ token ก่อน
-      const token = localStorage.getItem('token');
+      const token = sessionStorage.getItem('token');
       if (!token) {
         throw new Error('Authentication token not found. Please login again.');
       }
@@ -75,14 +75,16 @@ class ProfileAPI {
         // จัดการ error ตาม status code
         if (response.status === 401) {
           // Unauthorized -> ล้าง token และให้ผู้ใช้เข้าสู่ระบบใหม่
-          localStorage.removeItem('token');
-          localStorage.removeItem('user');
+          sessionStorage.removeItem('token');
+          sessionStorage.removeItem('user');
           throw new Error('Session expired. Please login again.');
         }
 
         if (response.status === 403) {
-          // Forbidden -> แจ้งสิทธิ์ไม่พอ แต่ไม่ต้อง logout
-          throw new Error(responseData.message || 'ไม่มีสิทธิ์แก้ไขโปรไฟล์นี้');
+          // Forbidden -> ล้าง token และให้ผู้ใช้เข้าสู่ระบบใหม่
+          sessionStorage.removeItem('token');
+          sessionStorage.removeItem('user');
+          throw new Error('Token ไม่ถูกต้อง กรุณาเข้าสู่ระบบใหม่');
         }
         
         // แสดง validation errors ถ้ามี
@@ -109,7 +111,7 @@ class ProfileAPI {
       const formData = new FormData();
       formData.append('profileImage', imageFile);
 
-      const token = localStorage.getItem('token');
+      const token = sessionStorage.getItem('token');
       const response = await fetch(`${this.baseURL}/${userId}/upload-image`, {
         method: 'POST',
         headers: {
@@ -132,7 +134,7 @@ class ProfileAPI {
   // ลบรูปภาพโปรไฟล์
   async deleteProfileImage(userId, imageIndex) {
     try {
-      const token = localStorage.getItem('token');
+      const token = sessionStorage.getItem('token');
       const response = await fetch(`${this.baseURL}/${userId}/image/${imageIndex}`, {
         method: 'DELETE',
         headers: {

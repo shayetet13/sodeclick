@@ -130,12 +130,16 @@ export const membershipHelpers = {
     const hours = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
     const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
     
-    // ปัดเศษขึ้นไป: ถ้ามีชั่วโมงหรือนาที ให้ปัดขึ้นเป็นวัน
-    if (hours > 0 || minutes > 0) {
-      return `เหลือ ${days + 1} วัน`;
+    if (days > 0) {
+      return `เหลือ ${days} วัน ${hours} ชั่วโมง`;
+    } else if (hours > 0) {
+      return `เหลือ ${hours} ชั่วโมง ${minutes} นาที`;
+    } else if (minutes > 0) {
+      return `เหลือ ${minutes} นาที`;
     }
     
-    return `เหลือ ${days} วัน`;
+    const seconds = Math.floor((diff % (1000 * 60)) / 1000);
+    return `เหลือ ${seconds} วินาที`;
   },
 
   // คำนวณเวลาที่เหลือแบบละเอียด (สำหรับการนับถอยหลัง)
@@ -160,19 +164,13 @@ export const membershipHelpers = {
     const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
     const seconds = Math.floor((diff % (1000 * 60)) / 1000);
     
-    // ปัดเศษขึ้นไป: ถ้ามีชั่วโมงหรือนาที ให้ปัดขึ้นเป็นวัน
-    let displayDays = days;
-    if (hours > 0 || minutes > 0) {
-      displayDays = days + 1;
-    }
-    
     let text = '';
-    if (displayDays > 0) {
-      text = `เหลือ ${displayDays} วัน`;
+    if (days > 0) {
+      text = `เหลือ ${days} วัน ${hours} ชั่วโมง`;
     } else if (hours > 0) {
-      text = `เหลือ ${hours} ชั่วโมง`;
+      text = `เหลือ ${hours} ชั่วโมง ${minutes} นาที`;
     } else if (minutes > 0) {
-      text = `เหลือ ${minutes} นาที`;
+      text = `เหลือ ${minutes} นาที ${seconds} วินาที`;
     } else {
       text = `เหลือ ${seconds} วินาที`;
     }

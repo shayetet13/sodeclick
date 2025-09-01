@@ -84,11 +84,12 @@ router.get('/premium/stats', requireAdmin, async (req, res) => {
     const membershipTiers = ['platinum', 'diamond', 'vip2', 'vip1', 'vip', 'gold', 'silver'];
     const stats = {};
 
-    // Count users by membership tier
+    // Count users by membership tier (ไม่รวม SuperAdmin)
     for (const tier of membershipTiers) {
       const count = await User.countDocuments({
         'membership.tier': tier,
-        isActive: true
+        isActive: true,
+        role: { $ne: 'superadmin' } // ไม่รวม SuperAdmin ในสถิติ
       });
       stats[tier] = count;
     }
@@ -362,6 +363,8 @@ router.patch('/users/:id/ban-duration', requireAdmin, async (req, res) => {
 // Create new user (admin only)
 router.post('/users', requireAdmin, async (req, res) => {
   try {
+    console.log('Creating user with data:', req.body);
+    
     const { 
       username, 
       email, 
@@ -376,6 +379,30 @@ router.post('/users', requireAdmin, async (req, res) => {
       membership = { tier: 'member' }
     } = req.body;
 
+    // Validate required fields
+    if (!username || !email || !password || !firstName || !lastName || !dateOfBirth || !gender || !lookingFor || !location) {
+      return res.status(400).json({ 
+        message: 'Missing required fields',
+        required: ['username', 'email', 'password', 'firstName', 'lastName', 'dateOfBirth', 'gender', 'lookingFor', 'location']
+      });
+    }
+
+    // Validate email format
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      return res.status(400).json({ 
+        message: 'Invalid email format' 
+      });
+    }
+
+    // Validate date format
+    const parsedDate = new Date(dateOfBirth);
+    if (isNaN(parsedDate.getTime())) {
+      return res.status(400).json({ 
+        message: 'Invalid date format for dateOfBirth' 
+      });
+    }
+
     // Check if user already exists
     const existingUser = await User.findOne({ 
       $or: [{ email }, { username }] 
@@ -387,34 +414,80 @@ router.post('/users', requireAdmin, async (req, res) => {
       });
     }
 
-    // Create new user
+    // Hash password
+    const bcrypt = require('bcryptjs');
+    const hashedPassword = await bcrypt.hash(password, 12);
+
+    // Create new user with proper data structure
     const newUser = new User({
-      username,
-      email,
-      password,
-      firstName,
-      lastName,
-      dateOfBirth,
+      username: username.trim(),
+      email: email.toLowerCase().trim(),
+      password: hashedPassword,
+      firstName: firstName.trim(),
+      lastName: lastName.trim(),
+      displayName: `${firstName} ${lastName}`,
+      dateOfBirth: parsedDate,
       gender,
       lookingFor,
-      location,
+      location: location.trim(),
       role,
-      membership,
+      membership: {
+        tier: membership.tier || 'member',
+        startDate: new Date(),
+        endDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30 days from now
+        isActive: true
+      },
+      isActive: true,
+      isBanned: false,
+      gpsLocation: {
+        lat: 13.7563, // Default to Bangkok
+        lng: 100.5018
+      },
       coordinates: {
         type: 'Point',
-        coordinates: [0, 0] // Default coordinates
-      }
+        coordinates: [100.5018, 13.7563]
+      },
+      lastActive: new Date(),
+      createdAt: new Date(),
+      updatedAt: new Date()
     });
 
+    console.log('Saving user:', newUser);
     await newUser.save();
 
     const userResponse = await User.findById(newUser._id)
       .select('-password -phoneVerificationCode -phoneVerificationExpires')
       .populate('membership.planId');
 
+    console.log('User created successfully:', userResponse._id);
     res.status(201).json(userResponse);
   } catch (error) {
-    res.status(500).json({ message: 'Server error', error: error.message });
+    console.error('Error creating user:', error);
+    // Duplicate key (email/username) error
+    if (error && (error.code === 11000 || error.code === 'E11000')) {
+      const dupField = Object.keys(error.keyValue || {})[0] || 'field'
+      return res.status(400).json({
+        message: 'Duplicate value',
+        error: `${dupField} already exists`,
+        keyValue: error.keyValue
+      });
+    }
+    // Mongoose validation error details
+    if (error && error.name === 'ValidationError') {
+      const details = Object.keys(error.errors || {}).map(k => ({
+        field: k,
+        message: error.errors[k]?.message
+      }))
+      return res.status(400).json({
+        message: 'Validation failed',
+        errors: details
+      });
+    }
+    // Default
+    res.status(500).json({ 
+      message: 'Server error', 
+      error: error.message
+    });
   }
 });
 
@@ -545,8 +618,8 @@ router.delete('/users/:id', requireSuperAdmin, async (req, res) => {
 // Get dashboard statistics
 router.get('/stats', requireAdmin, async (req, res) => {
   try {
-    // 1. ผู้ใช้ทั้งหมด
-    const totalUsers = await User.countDocuments();
+    // 1. ผู้ใช้ทั้งหมด (ไม่รวม SuperAdmin)
+    const totalUsers = await User.countDocuments({ role: { $ne: 'superadmin' } });
     
     // 2. ข้อความทั้งหมด (จาก chat messages)
     const totalMessages = await User.aggregate([
@@ -558,21 +631,26 @@ router.get('/stats', requireAdmin, async (req, res) => {
       }
     ]);
     
-    // 3. ผู้ใช้ออนไลน์ (ผู้ใช้ที่ active และไม่ถูกแบน)
+    // 3. ผู้ใช้ออนไลน์ (ผู้ใช้ที่ active และไม่ถูกแบน) - ไม่รวม SuperAdmin
     const onlineUsers = await User.countDocuments({ 
       isActive: true, 
-      isBanned: false 
+      isBanned: false,
+      role: { $ne: 'superadmin' }
     });
     
-    // 4. สมาชิก Premium (ผู้ใช้ที่มี membership tier เป็น premium หรือสูงกว่า)
+    // 4. สมาชิก Premium (ผู้ใช้ที่มี membership tier เป็น premium หรือสูงกว่า) - ไม่รวม SuperAdmin
     const premiumUsers = await User.countDocuments({
       'membership.tier': { $in: ['premium', 'vip', 'diamond'] },
       isActive: true,
-      isBanned: false
+      isBanned: false,
+      role: { $ne: 'superadmin' }
     });
 
-    // สถิติตามระดับชั้นสมาชิก
+    // สถิติตามระดับชั้นสมาชิก (ไม่รวม SuperAdmin)
     const membershipStats = await User.aggregate([
+      {
+        $match: { role: { $ne: 'superadmin' } }
+      },
       {
         $group: {
           _id: '$membership.tier',
@@ -584,8 +662,11 @@ router.get('/stats', requireAdmin, async (req, res) => {
       }
     ]);
 
-    // สถิติตาม role
+    // สถิติตาม role (ไม่รวม SuperAdmin)
     const roleStats = await User.aggregate([
+      {
+        $match: { role: { $ne: 'superadmin' } }
+      },
       {
         $group: {
           _id: '$role',
@@ -594,26 +675,34 @@ router.get('/stats', requireAdmin, async (req, res) => {
       }
     ]);
 
-    // ผู้ใช้ที่ถูกแบน
-    const bannedUsers = await User.countDocuments({ isBanned: true });
+    // ผู้ใช้ที่ถูกแบน (ไม่รวม SuperAdmin)
+    const bannedUsers = await User.countDocuments({ 
+      isBanned: true,
+      role: { $ne: 'superadmin' }
+    });
     
-    // ผู้ใช้ที่ยืนยันแล้ว
-    const verifiedUsers = await User.countDocuments({ isVerified: true });
+    // ผู้ใช้ที่ยืนยันแล้ว (ไม่รวม SuperAdmin)
+    const verifiedUsers = await User.countDocuments({ 
+      isVerified: true,
+      role: { $ne: 'superadmin' }
+    });
 
-    // ผู้ใช้ใหม่ในเดือนนี้
+    // ผู้ใช้ใหม่ในเดือนนี้ (ไม่รวม SuperAdmin)
     const currentMonth = new Date();
     currentMonth.setDate(1);
     currentMonth.setHours(0, 0, 0, 0);
     
     const newUsersThisMonth = await User.countDocuments({
-      createdAt: { $gte: currentMonth }
+      createdAt: { $gte: currentMonth },
+      role: { $ne: 'superadmin' }
     });
 
-    // ผู้ใช้ที่ active ในเดือนนี้
+    // ผู้ใช้ที่ active ในเดือนนี้ (ไม่รวม SuperAdmin)
     const activeUsersThisMonth = await User.countDocuments({
       isActive: true,
       isBanned: false,
-      lastLoginAt: { $gte: currentMonth }
+      lastLoginAt: { $gte: currentMonth },
+      role: { $ne: 'superadmin' }
     });
 
     res.json({
@@ -1212,22 +1301,25 @@ router.get('/analytics', requireAdmin, async (req, res) => {
       const monthStart = new Date(month.date.getFullYear(), month.date.getMonth(), 1);
       const monthEnd = new Date(month.date.getFullYear(), month.date.getMonth() + 1, 0, 23, 59, 59);
 
-      // Users count for this month
+      // Users count for this month (ไม่รวม SuperAdmin)
       const usersCount = await User.countDocuments({
         createdAt: { $gte: monthStart, $lte: monthEnd },
-        isActive: true
+        isActive: true,
+        role: { $ne: 'superadmin' }
       });
 
-      // Total users up to this month
+      // Total users up to this month (ไม่รวม SuperAdmin)
       const totalUsers = await User.countDocuments({
         createdAt: { $lte: monthEnd },
-        isActive: true
+        isActive: true,
+        role: { $ne: 'superadmin' }
       });
 
-      // Revenue calculation (mock data for now - should connect to real payment system)
+      // Revenue calculation (mock data for now - should connect to real payment system) - ไม่รวม SuperAdmin
       const premiumUsers = await User.countDocuments({
         'membership.tier': { $in: ['platinum', 'diamond', 'vip2', 'vip1', 'vip', 'gold', 'silver'] },
-        'membership.updatedAt': { $gte: monthStart, $lte: monthEnd }
+        'membership.updatedAt': { $gte: monthStart, $lte: monthEnd },
+        role: { $ne: 'superadmin' }
       });
       
       // Mock revenue calculation (replace with real payment data)
@@ -1255,17 +1347,22 @@ router.get('/analytics', requireAdmin, async (req, res) => {
       });
     }
 
-    // Calculate summary statistics
-    const totalUsers = await User.countDocuments({ isActive: true });
+    // Calculate summary statistics (ไม่รวม SuperAdmin)
+    const totalUsers = await User.countDocuments({ 
+      isActive: true,
+      role: { $ne: 'superadmin' }
+    });
     const premiumUsers = await User.countDocuments({
-      'membership.tier': { $in: ['platinum', 'diamond', 'vip2', 'vip1', 'vip', 'gold', 'silver'] }
+      'membership.tier': { $in: ['platinum', 'diamond', 'vip2', 'vip1', 'vip', 'gold', 'silver'] },
+      role: { $ne: 'superadmin' }
     });
     const newUsersThisMonth = await User.countDocuments({
       createdAt: { 
         $gte: new Date(now.getFullYear(), now.getMonth(), 1),
         $lte: now
       },
-      isActive: true
+      isActive: true,
+      role: { $ne: 'superadmin' }
     });
 
     // Mock total revenue (replace with real payment data)
@@ -1304,8 +1401,8 @@ router.get('/activities', requireAdmin, async (req, res) => {
     // ดึงข้อมูลกิจกรรมล่าสุดแบบง่าย
     const allActivities = [];
 
-    // 1. Recent registrations
-    const recentUsers = await User.find()
+    // 1. Recent registrations (ไม่รวม SuperAdmin)
+    const recentUsers = await User.find({ role: { $ne: 'superadmin' } })
       .sort({ createdAt: -1 })
       .limit(5)
       .select('firstName lastName createdAt');
@@ -1320,9 +1417,10 @@ router.get('/activities', requireAdmin, async (req, res) => {
       });
     });
 
-    // 2. Premium users
+    // 2. Premium users (ไม่รวม SuperAdmin)
     const premiumUsers = await User.find({
-      'membership.tier': { $in: ['platinum', 'diamond', 'vip2', 'vip1', 'vip', 'gold', 'silver'] }
+      'membership.tier': { $in: ['platinum', 'diamond', 'vip2', 'vip1', 'vip', 'gold', 'silver'] },
+      role: { $ne: 'superadmin' }
     })
       .sort({ 'membership.updatedAt': -1 })
       .limit(5)
@@ -1340,8 +1438,11 @@ router.get('/activities', requireAdmin, async (req, res) => {
       }
     });
 
-    // 3. Banned users
-    const bannedUsers = await User.find({ isBanned: true })
+    // 3. Banned users (ไม่รวม SuperAdmin)
+    const bannedUsers = await User.find({ 
+      isBanned: true,
+      role: { $ne: 'superadmin' }
+    })
       .sort({ updatedAt: -1 })
       .limit(5)
       .select('firstName lastName banReason updatedAt');

@@ -80,8 +80,8 @@ const LoginModal = ({ isOpen, onClose, onLoginSuccess }) => {
 
       if (data.success) {
         setSuccess('เข้าสู่ระบบสำเร็จ!')
-        localStorage.setItem('token', data.data.token)
-        localStorage.setItem('user', JSON.stringify(data.data.user))
+        sessionStorage.setItem('token', data.data.token)
+        sessionStorage.setItem('user', JSON.stringify(data.data.user))
         onLoginSuccess(data.data)
         setTimeout(() => onClose(), 1000)
       } else {
@@ -129,8 +129,8 @@ const LoginModal = ({ isOpen, onClose, onLoginSuccess }) => {
 
       if (data.success) {
         setSuccess('เข้าสู่ระบบสำเร็จ!')
-        localStorage.setItem('token', data.data.token)
-        localStorage.setItem('user', JSON.stringify(data.data.user))
+        sessionStorage.setItem('token', data.data.token)
+        sessionStorage.setItem('user', JSON.stringify(data.data.user))
         onLoginSuccess(data.data)
         setTimeout(() => onClose(), 1000)
       } else {
@@ -215,8 +215,8 @@ const LoginModal = ({ isOpen, onClose, onLoginSuccess }) => {
 
       if (data.success) {
         setSuccess('ลงทะเบียนสำเร็จ!')
-        localStorage.setItem('token', data.data.token)
-        localStorage.setItem('user', JSON.stringify(data.data.user))
+        sessionStorage.setItem('token', data.data.token)
+        sessionStorage.setItem('user', JSON.stringify(data.data.user))
         onLoginSuccess(data.data)
         setTimeout(() => onClose(), 1000)
       } else {
@@ -288,8 +288,8 @@ const LoginModal = ({ isOpen, onClose, onLoginSuccess }) => {
 
       if (data.success) {
         setSuccess('ลงทะเบียนสำเร็จ!')
-        localStorage.setItem('token', data.data.token)
-        localStorage.setItem('user', JSON.stringify(data.data.user))
+        sessionStorage.setItem('token', data.data.token)
+        sessionStorage.setItem('user', JSON.stringify(data.data.user))
         onLoginSuccess(data.data)
         setTimeout(() => onClose(), 1000)
       } else {

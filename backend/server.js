@@ -4,14 +4,17 @@ const cors = require('cors');
 const path = require('path');
 const http = require('http');
 const socketIo = require('socket.io');
-require('dotenv').config();
+// Load environment variables based on NODE_ENV
+const NODE_ENV = process.env.NODE_ENV || 'development';
+require('dotenv').config({
+  path: path.join(__dirname, `env.${NODE_ENV}`)
+});
 
 const app = express();
 const server = http.createServer(app);
 
 // Environment Variables
 const PORT = process.env.PORT || 5000;
-const NODE_ENV = process.env.NODE_ENV || 'development';
 const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/sodeclick';
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
 
@@ -21,12 +24,18 @@ const corsOptions = {
     // อนุญาตให้ requests ที่ไม่มี origin (เช่น mobile apps, postman)
     if (!origin) return callback(null, true);
     
-    // แปลง FRONTEND_URL string เป็น array
-    const allowedOrigins = FRONTEND_URL.split(',').map(url => url.trim());
+    // อนุญาต localhost ทั้ง port 5173 และ 5174 (กรณี port เปลี่ยน)
+    const allowedOrigins = [
+      'http://localhost:5173',
+      'http://localhost:5174',
+      'http://127.0.0.1:5173',
+      'http://127.0.0.1:5174'
+    ];
     
     if (allowedOrigins.indexOf(origin) !== -1) {
       callback(null, true);
     } else {
+      console.log('🚫 CORS blocked origin:', origin);
       callback(new Error('Not allowed by CORS'));
     }
   },
@@ -37,6 +46,20 @@ const corsOptions = {
 
 // Middleware
 app.use(cors(corsOptions));
+
+// Error handling for CORS
+app.use((err, req, res, next) => {
+  if (err.message === 'Not allowed by CORS') {
+    console.log('🚫 CORS Error:', req.headers.origin);
+    return res.status(403).json({
+      success: false,
+      message: 'CORS Error: Origin not allowed',
+      origin: req.headers.origin
+    });
+  }
+  next(err);
+});
+
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
@@ -92,6 +115,9 @@ const shopRoutes = require('./routes/shop');
 const adminRoutes = require('./routes/admin');
 const paymentRoutes = require('./routes/payment');
 const matchingRoutes = require('./routes/matching');
+
+// Preflight OPTIONS handling
+app.options('*', cors(corsOptions));
 
 // Basic Routes
 app.get('/', (req, res) => {

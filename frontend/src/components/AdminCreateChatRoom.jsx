@@ -81,7 +81,7 @@ const AdminCreateChatRoom = () => {
     setIsLoading(true);
 
     try {
-      const token = localStorage.getItem('token');
+      const token = sessionStorage.getItem('token');
       const apiUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000';
 
       const res = await fetch(`${apiUrl}/api/admin/chatrooms/create`, {
@@ -128,11 +128,11 @@ const AdminCreateChatRoom = () => {
         });
       } else {
         const error = await res.json();
-        alert(error.message || 'Failed to create chat room');
+        console.error('Failed to create chat room:', error.message);
       }
     } catch (error) {
       console.error('Error creating chat room:', error);
-      alert('เกิดข้อผิดพลาดในการสร้างห้องแชท');
+              console.error('เกิดข้อผิดพลาดในการสร้างห้องแชท');
     } finally {
       setIsLoading(false);
     }
@@ -147,7 +147,7 @@ const AdminCreateChatRoom = () => {
         setTimeout(() => setCopiedLink(false), 2000);
       } catch (error) {
         console.error('Failed to copy link:', error);
-        alert('ไม่สามารถคัดลอกลิงก์ได้');
+        console.error('ไม่สามารถคัดลอกลิงก์ได้');
       }
     }
   };

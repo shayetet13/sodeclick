@@ -147,7 +147,8 @@ const userSchema = new mongoose.Schema({
   },
   languages: [{
     type: String,
-    enum: ['thai', 'english', 'chinese', 'japanese', 'korean', 'french', 'german', 'spanish', 'other']
+    trim: true,
+    maxlength: 50
   }],
   pets: {
     hasPets: { type: Boolean, default: false },

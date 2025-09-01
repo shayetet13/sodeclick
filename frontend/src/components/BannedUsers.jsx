@@ -36,7 +36,7 @@ const BannedUsers = () => {
   const fetchBannedUsers = async () => {
     try {
       setLoading(true);
-      const token = localStorage.getItem('token');
+      const token = sessionStorage.getItem('token');
       const params = new URLSearchParams({
         page: currentPage,
         limit: 10,
@@ -71,7 +71,7 @@ const BannedUsers = () => {
   const handleUnban = async (userId) => {
     try {
       setUnbanLoading(true);
-      const token = localStorage.getItem('token');
+      const token = sessionStorage.getItem('token');
       
       const res = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/admin/users/${userId}/ban`, {
         method: 'PATCH',
@@ -133,7 +133,7 @@ const BannedUsers = () => {
     const colors = {
       user: 'bg-blue-100 text-blue-800',
       admin: 'bg-orange-100 text-orange-800',
-      superadmin: 'bg-red-100 text-red-800'
+      // superadmin: 'bg-red-100 text-red-800' // ซ่อน SuperAdmin
     };
     return colors[role] || 'bg-gray-100 text-gray-800';
   };

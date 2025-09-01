@@ -1,0 +1,918 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FeelFreePay QR Code Payment Test</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+            overflow: hidden;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+
+        .header h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+        }
+
+        .header p {
+            font-size: 1.1em;
+            opacity: 0.9;
+        }
+
+        .content {
+            padding: 40px;
+        }
+
+        .form-group {
+            margin-bottom: 25px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 600;
+            color: #333;
+        }
+
+        input, select, textarea {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #e0e0e0;
+            border-radius: 10px;
+            font-size: 16px;
+            transition: border-color 0.3s;
+        }
+
+        input:focus, select:focus, textarea:focus {
+            outline: none;
+            border-color: #4facfe;
+        }
+
+        .btn {
+            background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+            color: white;
+            border: none;
+            padding: 15px 30px;
+            font-size: 16px;
+            border-radius: 10px;
+            cursor: pointer;
+            transition: transform 0.2s;
+            margin: 10px 5px;
+        }
+
+        .btn:hover {
+            transform: translateY(-2px);
+        }
+
+        .btn:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .qr-container {
+            text-align: center;
+            margin: 30px 0;
+            padding: 20px;
+            background: #f8f9fa;
+            border-radius: 15px;
+        }
+
+        .qr-code {
+            margin: 20px auto;
+            padding: 20px;
+            background: white;
+            border-radius: 10px;
+            display: inline-block;
+        }
+
+        .status {
+            padding: 15px;
+            border-radius: 10px;
+            margin: 20px 0;
+            font-weight: 600;
+        }
+
+        .status.success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+
+        .status.error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+
+        .status.info {
+            background: #d1ecf1;
+            color: #0c5460;
+            border: 1px solid #bee5eb;
+        }
+
+        .transaction-details {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 15px;
+            margin: 20px 0;
+        }
+
+        .detail-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 10px 0;
+            border-bottom: 1px solid #e0e0e0;
+        }
+
+        .detail-row:last-child {
+            border-bottom: none;
+        }
+
+        .loading {
+            display: none;
+            text-align: center;
+            padding: 20px;
+        }
+
+        .spinner {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #4facfe;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 2s linear infinite;
+            margin: 0 auto 20px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .debug-panel {
+            background: #1a1a1a;
+            color: #00ff00;
+            padding: 20px;
+            border-radius: 15px;
+            margin: 20px 0;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            max-height: 400px;
+            overflow-y: auto;
+            border: 2px solid #333;
+        }
+
+        .debug-panel h4 {
+            color: #00ffff;
+            margin-bottom: 15px;
+            border-bottom: 1px solid #333;
+            padding-bottom: 5px;
+        }
+
+        .debug-log {
+            margin: 5px 0;
+            padding: 5px;
+            border-left: 3px solid #00ff00;
+            padding-left: 10px;
+        }
+
+        .debug-error {
+            color: #ff4444;
+            border-left-color: #ff4444;
+        }
+
+        .debug-warning {
+            color: #ffaa00;
+            border-left-color: #ffaa00;
+        }
+
+        .debug-info {
+            color: #00aaff;
+            border-left-color: #00aaff;
+        }
+
+        .debug-success {
+            color: #44ff44;
+            border-left-color: #44ff44;
+        }
+
+        .json-viewer {
+            background: #2a2a2a;
+            padding: 10px;
+            border-radius: 5px;
+            margin: 10px 0;
+            white-space: pre-wrap;
+            font-size: 11px;
+        }
+
+        .clear-debug {
+            background: #ff4444;
+            color: white;
+            border: none;
+            padding: 5px 15px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 12px;
+            margin-bottom: 10px;
+        }
+
+        input[type="checkbox"] {
+            width: auto;
+            margin-right: 10px;
+        }
+
+        .hidden {
+            display: none;
+        }
+
+        @media (max-width: 768px) {
+            .container {
+                margin: 10px;
+                border-radius: 15px;
+            }
+            
+            .content {
+                padding: 20px;
+            }
+            
+            .header h1 {
+                font-size: 2em;
+            }
+
+            .debug-panel {
+                font-size: 10px;
+                max-height: 300px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🎯 FeelFreePay QR Test</h1>
+            <p>ระบบทดสอบการชำระเงินผ่าน QR Code</p>
+        </div>
+        
+        <div class="content">
+            <div id="paymentForm">
+                <div class="form-group">
+                    <label for="amount">จำนวนเงิน (บาท)</label>
+                    <input type="number" id="amount" placeholder="0.00" min="0.01" step="0.01" required>
+                </div>
+                
+                <div class="form-group">
+                    <label for="description">รายละเอียด</label>
+                    <input type="text" id="description" placeholder="ชำระค่าสินค้า" required>
+                </div>
+                
+                <div class="form-group">
+                    <label for="customerName">ชื่อลูกค้า</label>
+                    <input type="text" id="customerName" placeholder="ชื่อ-นามสกุล">
+                </div>
+                
+                <div class="form-group">
+                    <label for="customerEmail">อีเมลลูกค้า</label>
+                    <input type="email" id="customerEmail" placeholder="customer@email.com">
+                </div>
+                
+                <div class="form-group">
+                    <label for="referenceId">Reference ID (อัตโนมัติ)</label>
+                    <input type="text" id="referenceId" readonly>
+                </div>
+                
+                <div class="form-group">
+                    <label for="apiMode">โหมด API</label>
+                    <select id="apiMode">
+                        <option value="test">Test Environment</option>
+                        <option value="production">Production Environment</option>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label>
+                        <input type="checkbox" id="debugMode" checked> 
+                        เปิด Debug Mode (แสดงรายละเอียดการทำงาน)
+                    </label>
+                </div>
+                
+                <button class="btn" onclick="generateQR()">สร้าง QR Code</button>
+                <button class="btn" onclick="resetForm()">รีเซ็ต</button>
+            </div>
+            
+            <div class="loading" id="loading">
+                <div class="spinner"></div>
+                <p>กำลังสร้าง QR Code...</p>
+            </div>
+            
+            <div id="statusMessage"></div>
+
+            <!-- Debug Panel -->
+            <div class="debug-panel hidden" id="debugPanel">
+                <button class="clear-debug" onclick="clearDebugLog()">🗑️ Clear Debug Log</button>
+                <h4>🔍 Debug Log & API Details</h4>
+                <div id="debugLog"></div>
+            </div>
+            
+            <div class="qr-container hidden" id="qrContainer">
+                <h3>🎯 QR Code สำหรับชำระเงิน</h3>
+                <div class="qr-code" id="qrCode"></div>
+                <p>สแกน QR Code เพื่อชำระเงิน</p>
+                
+                <div class="transaction-details" id="transactionDetails"></div>
+                
+                <button class="btn" onclick="checkPaymentStatus()">ตรวจสอบสถานะการชำระเงิน</button>
+                <button class="btn" onclick="simulatePayment()">จำลองการชำระเงินสำเร็จ</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcode/1.5.3/qrcode.min.js"></script>
+    <script>
+        // FeelFreePay API Configuration
+        const FEELFREEPAY_CONFIG = {
+            token: 'UtKvHtno8LFfDtqisP+gO7n8srsXW+91Gzc7fU73JpTZJWSXrvvF8sHGCaUMDpXIIDfZQx8UmRaMRCrnnVYf6IwsHvYhxkuMW9XbFyrQ3wU+SN2zpBmd3WpK3iWIRWT/zZ2NHJic5iB1xjcLlkbFHd5ZvMI=',
+            secretKey: '3BM4eKl05N8pxq68eYYQvdIBgfrn3X8W',
+            testURL: 'https://api-test.feelfreepay.com/ffp/gateway/qrcode',
+            productionURL: 'https://api.feelfreepay.com/ffp/gateway/qrcode',
+            statusURL: 'https://api.feelfreepay.com/v1/check_status_txn'
+        };
+
+        let currentTransaction = null;
+        let paymentCheckInterval = null;
+        let debugLogs = [];
+
+        // Debug Logger System
+        function debugLog(message, type = 'info', data = null) {
+            const isDebugMode = document.getElementById('debugMode').checked;
+            if (!isDebugMode) return;
+
+            const timestamp = new Date().toLocaleTimeString('th-TH', { 
+                hour12: false, 
+                hour: '2-digit', 
+                minute: '2-digit', 
+                second: '2-digit',
+                timeZoneName: 'short'
+            });
+            
+            const logEntry = {
+                timestamp,
+                message,
+                type,
+                data: data ? JSON.stringify(data, null, 2) : null
+            };
+            
+            debugLogs.push(logEntry);
+            updateDebugPanel();
+            
+            // Console log สำหรับ Developer Tools
+            const consoleMethod = type === 'error' ? 'error' : type === 'warning' ? 'warn' : 'log';
+            console[consoleMethod](`[${timestamp}] ${message}`, data || '');
+        }
+
+        // อัพเดต Debug Panel
+        function updateDebugPanel() {
+            const debugPanel = document.getElementById('debugPanel');
+            const debugLogDiv = document.getElementById('debugLog');
+            const isDebugMode = document.getElementById('debugMode').checked;
+            
+            if (!isDebugMode) {
+                debugPanel.classList.add('hidden');
+                return;
+            }
+            
+            debugPanel.classList.remove('hidden');
+            
+            debugLogDiv.innerHTML = debugLogs.slice(-50).map(log => {
+                const dataHtml = log.data ? `<div class="json-viewer">${log.data}</div>` : '';
+                return `
+                    <div class="debug-log debug-${log.type}">
+                        <strong>[${log.timestamp}]</strong> ${log.message}
+                        ${dataHtml}
+                    </div>
+                `;
+            }).join('');
+            
+            debugLogDiv.scrollTop = debugLogDiv.scrollHeight;
+        }
+
+        // ล้าง Debug Log
+        function clearDebugLog() {
+            debugLogs = [];
+            updateDebugPanel();
+            debugLog('Debug log cleared', 'info');
+        }
+
+        // สร้าง Reference ID อัตโนมัติ
+        function generateReferenceId() {
+            // สร้าง referenceNo ตาม format ของ FeelFreePay (ตัวเลข 15 หลัก)
+            const now = new Date();
+            const year = now.getFullYear().toString().slice(-2); // 2 หลักสุดท้ายของปี
+            const month = (now.getMonth() + 1).toString().padStart(2, '0');
+            const day = now.getDate().toString().padStart(2, '0');
+            const hours = now.getHours().toString().padStart(2, '0');
+            const minutes = now.getMinutes().toString().padStart(2, '0');
+            const seconds = now.getSeconds().toString().padStart(2, '0');
+            const random = Math.floor(Math.random() * 1000).toString().padStart(3, '0');
+            
+            // รวมเป็น 15 หลัก: YYMMDDHHMMSSXXX
+            return `${year}${month}${day}${hours}${minutes}${seconds}${random}`.slice(0, 15);
+        }
+
+        // เริ่มต้น Reference ID และ Debug Mode
+        document.addEventListener('DOMContentLoaded', function() {
+            document.getElementById('referenceId').value = generateReferenceId();
+            
+            // ตรวจสอบการเปลี่ยน Debug Mode
+            document.getElementById('debugMode').addEventListener('change', function() {
+                updateDebugPanel();
+                debugLog(`Debug mode ${this.checked ? 'enabled' : 'disabled'}`, 'info');
+            });
+            
+            debugLog('Application initialized', 'success');
+            debugLog('FeelFreePay API Configuration:', 'info', FEELFREEPAY_CONFIG);
+        });
+
+        // แสดงข้อความสถานะ
+        function showStatus(message, type) {
+            const statusDiv = document.getElementById('statusMessage');
+            statusDiv.innerHTML = `<div class="status ${type}">${message}</div>`;
+            
+            // Debug log
+            debugLog(`Status: ${message}`, type);
+            
+            setTimeout(() => {
+                statusDiv.innerHTML = '';
+            }, 5000);
+        }
+
+        // สร้าง QR Code
+        async function generateQR() {
+            debugLog('=== Starting QR Code Generation ===', 'info');
+            
+            const amount = document.getElementById('amount').value;
+            const description = document.getElementById('description').value;
+            const customerName = document.getElementById('customerName').value;
+            const customerEmail = document.getElementById('customerEmail').value;
+            const referenceId = document.getElementById('referenceId').value;
+            const apiMode = document.getElementById('apiMode').value;
+
+            debugLog('Form data collected:', 'info', {
+                amount,
+                description,
+                customerName,
+                customerEmail,
+                referenceId,
+                apiMode
+            });
+
+            // Validation
+            debugLog('Starting form validation...', 'info');
+            if (!amount || !description) {
+                debugLog('Validation failed: Missing amount or description', 'error');
+                showStatus('กรุณากรอกจำนวนเงินและรายละเอียด', 'error');
+                return;
+            }
+
+            if (amount <= 0) {
+                debugLog('Validation failed: Amount less than or equal to 0', 'error');
+                showStatus('จำนวนเงินต้องมากกว่า 0 บาท', 'error');
+                return;
+            }
+
+            debugLog('Form validation passed', 'success');
+
+            // แสดง Loading
+            debugLog('Showing loading screen...', 'info');
+            document.getElementById('loading').style.display = 'block';
+            document.getElementById('paymentForm').style.display = 'none';
+
+            try {
+                // เตรียมข้อมูลสำหรับส่งไป API
+                const paymentData = {
+                    amount: parseFloat(amount).toFixed(2),
+                    description: description,
+                    customerName: customerName,
+                    customerEmail: customerEmail,
+                    referenceId: referenceId,
+                    timestamp: new Date().toISOString(),
+                    currency: 'THB'
+                };
+
+                debugLog('Payment data prepared:', 'info', paymentData);
+
+                // เรียก FeelFreePay API
+                debugLog('Calling FeelFreePay API...', 'info');
+                const qrResponse = await callFeelFreePayAPI(paymentData, apiMode);
+                debugLog('API call completed:', 'success', qrResponse);
+                
+                // แสดง QR Code จากข้อมูลที่ได้รับ
+                debugLog('Displaying QR Code...', 'info');
+                displayQRCode(qrResponse.qrData);
+                debugLog('QR Code displayed successfully', 'success');
+
+                // บันทึกข้อมูล transaction
+                currentTransaction = {
+                    ...paymentData,
+                    ...qrResponse,
+                    status: 'pending',
+                    createdAt: new Date(),
+                    apiMode: apiMode
+                };
+
+                debugLog('Transaction data saved:', 'info', currentTransaction);
+
+                // แสดงผลลัพธ์
+                debugLog('Displaying transaction details...', 'info');
+                displayTransaction(currentTransaction);
+                
+                showStatus('สร้าง QR Code สำเร็จ! กรุณาสแกนเพื่อชำระเงิน', 'success');
+
+                // เริ่มตรวจสอบสถานะอัตโนมัติ
+                debugLog('Starting automatic status checking...', 'info');
+                startAutoCheck();
+
+                debugLog('=== QR Code Generation Completed Successfully ===', 'success');
+
+            } catch (error) {
+                debugLog('QR Code generation failed:', 'error', {
+                    message: error.message,
+                    stack: error.stack,
+                    name: error.name
+                });
+                showStatus('เกิดข้อผิดพลาดในการสร้าง QR Code: ' + error.message, 'error');
+                document.getElementById('paymentForm').style.display = 'block';
+            } finally {
+                debugLog('Hiding loading screen...', 'info');
+                document.getElementById('loading').style.display = 'none';
+            }
+        }
+
+        // เรียก FeelFreePay API
+        async function callFeelFreePayAPI(paymentData, apiMode) {
+            debugLog('=== Starting API Call ===', 'info');
+            
+            const apiURL = apiMode === 'test' ? FEELFREEPAY_CONFIG.testURL : FEELFREEPAY_CONFIG.productionURL;
+            debugLog(`Selected API URL: ${apiURL}`, 'info');
+            
+            try {
+                // เตรียมข้อมูลสำหรับส่งไป API ตามเอกสาร
+                const formData = new FormData();
+                formData.append('token', FEELFREEPAY_CONFIG.token);
+                formData.append('referenceNo', paymentData.referenceId);
+                formData.append('amount', paymentData.amount);
+                formData.append('detail', paymentData.description);
+                formData.append('customerName', paymentData.customerName || '');
+                formData.append('customerEmail', paymentData.customerEmail || '');
+
+                debugLog('Form data prepared:', 'info', {
+                    token: FEELFREEPAY_CONFIG.token,
+                    referenceNo: paymentData.referenceId,
+                    amount: paymentData.amount,
+                    detail: paymentData.description,
+                    customerName: paymentData.customerName || '',
+                    customerEmail: paymentData.customerEmail || ''
+                });
+
+                debugLog('Making fetch request...', 'info');
+                const response = await fetch(apiURL, {
+                    method: 'POST',
+                    body: formData
+                });
+
+                debugLog('Fetch response received:', 'info', {
+                    status: response.status,
+                    statusText: response.statusText,
+                    ok: response.ok,
+                    type: response.type,
+                    url: response.url
+                });
+
+                if (!response.ok) {
+                    debugLog(`API Error Response: ${response.status} - ${response.statusText}`, 'error');
+                    
+                    let errorText;
+                    try {
+                        errorText = await response.text();
+                        debugLog('Error response body:', 'error', errorText);
+                    } catch (textError) {
+                        debugLog('Cannot read error response body', 'error', textError);
+                        errorText = 'Unable to read error response';
+                    }
+                    
+                    throw new Error(`API Error: ${response.status} - ${errorText}`);
+                }
+
+                // สำหรับ API ที่ส่งกลับเป็นรูปภาพ (QR Code)
+                const blob = await response.blob();
+                debugLog('API Response (blob):', 'success', {
+                    size: blob.size,
+                    type: blob.type
+                });
+                
+                // แปลง blob เป็น data URL สำหรับแสดงผล
+                const qrDataUrl = URL.createObjectURL(blob);
+                debugLog('QR Data URL created:', 'success', qrDataUrl);
+
+                const apiResult = {
+                    success: true,
+                    qrData: qrDataUrl,
+                    transactionId: paymentData.referenceId,
+                    responseStatus: response.status
+                };
+
+                debugLog('Final API result:', 'success', apiResult);
+                debugLog('=== API Call Completed Successfully ===', 'success');
+                
+                return apiResult;
+
+            } catch (error) {
+                debugLog('=== API Call Failed ===', 'error');
+                debugLog('Error details:', 'error', {
+                    name: error.name,
+                    message: error.message,
+                    stack: error.stack
+                });
+                
+                throw error;
+            }
+        }
+
+        // แสดง QR Code จากข้อมูล
+        function displayQRCode(dataUrl) {
+            const qrCodeDiv = document.getElementById('qrCode');
+            qrCodeDiv.innerHTML = '';
+            
+            // แสดงรูปภาพ QR Code
+            const img = document.createElement('img');
+            img.src = dataUrl;
+            img.style.maxWidth = '200px';
+            img.style.maxHeight = '200px';
+            img.alt = 'QR Code สำหรับชำระเงิน';
+            qrCodeDiv.appendChild(img);
+        }
+
+        // แสดงข้อมูลการทำรายการ
+        function displayTransaction(transaction) {
+            const detailsDiv = document.getElementById('transactionDetails');
+            detailsDiv.innerHTML = `
+                <h4>รายละเอียดการทำรายการ</h4>
+                <div class="detail-row">
+                    <span>โหมด API:</span>
+                    <span>${transaction.apiMode === 'test' ? 'Test Environment' : 'Production Environment'}</span>
+                </div>
+                <div class="detail-row">
+                    <span>Transaction ID:</span>
+                    <span>${transaction.transactionId || transaction.referenceId}</span>
+                </div>
+                <div class="detail-row">
+                    <span>จำนวนเงิน:</span>
+                    <span>฿${parseFloat(transaction.amount).toFixed(2)}</span>
+                </div>
+                <div class="detail-row">
+                    <span>รายละเอียด:</span>
+                    <span>${transaction.description}</span>
+                </div>
+                <div class="detail-row">
+                    <span>ชื่อลูกค้า:</span>
+                    <span>${transaction.customerName || '-'}</span>
+                </div>
+                <div class="detail-row">
+                    <span>สถานะ:</span>
+                    <span id="paymentStatus">รอการชำระเงิน</span>
+                </div>
+                <div class="detail-row">
+                    <span>วันที่สร้าง:</span>
+                    <span>${transaction.createdAt.toLocaleString('th-TH')}</span>
+                </div>
+            `;
+
+            document.getElementById('qrContainer').classList.remove('hidden');
+        }
+
+        // ตรวจสอบสถานะการชำระเงิน
+        async function checkPaymentStatus() {
+            debugLog('=== Starting Payment Status Check ===', 'info');
+            
+            if (!currentTransaction) {
+                debugLog('No current transaction found', 'error');
+                showStatus('ไม่พบข้อมูลการทำรายการ', 'error');
+                return;
+            }
+
+            debugLog('Current transaction:', 'info', currentTransaction);
+            showStatus('กำลังตรวจสอบสถานะการชำระเงิน...', 'info');
+
+            try {
+                // เรียก API ตรวจสอบสถานะ
+                debugLog('Calling status API...', 'info');
+                const status = await callStatusAPI(currentTransaction);
+                debugLog(`Status check result: ${status}`, 'success');
+                updatePaymentStatus(status);
+                debugLog('=== Payment Status Check Completed ===', 'success');
+
+            } catch (error) {
+                debugLog('Payment status check failed:', 'error', {
+                    message: error.message,
+                    stack: error.stack
+                });
+                showStatus('ไม่สามารถตรวจสอบสถานะได้: ' + error.message, 'error');
+            }
+        }
+
+        // เรียก API ตรวจสอบสถานะ
+        async function callStatusAPI(transaction) {
+            try {
+                // สร้าง Authorization header ตามเอกสาร
+                const authString = `${FEELFREEPAY_CONFIG.secretKey}:`;
+                const base64Auth = btoa(authString);
+                
+                const headers = {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Basic ${base64Auth}`
+                };
+
+                const requestBody = {
+                    referenceNo: transaction.referenceId
+                };
+
+                debugLog('Status API Request:', 'info', { url: FEELFREEPAY_CONFIG.statusURL, headers, body: requestBody });
+
+                const response = await fetch(FEELFREEPAY_CONFIG.statusURL, {
+                    method: 'POST',
+                    headers: headers,
+                    body: JSON.stringify(requestBody)
+                });
+
+                debugLog('Status API Response:', 'info', {
+                    status: response.status,
+                    statusText: response.statusText,
+                    ok: response.ok
+                });
+
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    debugLog('Status API Error:', 'error', errorText);
+                    throw new Error(`Status API Error: ${response.status} - ${errorText}`);
+                }
+
+                const result = await response.json();
+                debugLog('Status API Response Data:', 'success', result);
+
+                // ตรวจสอบสถานะจากผลลัพธ์ตามเอกสาร
+                if (result.resultCode === '00') {
+                    // ตรวจสอบสถานะใน txn object
+                    if (Array.isArray(result.txn)) {
+                        // ถ้ามีหลายรายการ ตรวจสอบรายการล่าสุด
+                        const latestTxn = result.txn[result.txn.length - 1];
+                        return latestTxn.status === 'S' ? 'success' : 'pending';
+                    } else if (result.txn) {
+                        return result.txn.status === 'S' ? 'success' : 'pending';
+                    }
+                    return 'pending';
+                } else {
+                    return 'failed';
+                }
+
+            } catch (error) {
+                debugLog('Status API Error:', 'error', error);
+                throw error;
+            }
+        }
+
+        // อัพเดตสถานะการชำระเงิน
+        function updatePaymentStatus(status) {
+            const statusElement = document.getElementById('paymentStatus');
+            
+            switch(status) {
+                case 'success':
+                    statusElement.innerHTML = '✅ ชำระเงินสำเร็จ';
+                    statusElement.style.color = '#28a745';
+                    currentTransaction.status = 'success';
+                    showStatus('การชำระเงินสำเร็จ!', 'success');
+                    // หยุดการตรวจสอบอัตโนมัติ
+                    if (paymentCheckInterval) {
+                        clearInterval(paymentCheckInterval);
+                        paymentCheckInterval = null;
+                    }
+                    break;
+                case 'failed':
+                    statusElement.innerHTML = '❌ ชำระเงินไม่สำเร็จ';
+                    statusElement.style.color = '#dc3545';
+                    currentTransaction.status = 'failed';
+                    showStatus('การชำระเงินไม่สำเร็จ', 'error');
+                    // หยุดการตรวจสอบอัตโนมัติ
+                    if (paymentCheckInterval) {
+                        clearInterval(paymentCheckInterval);
+                        paymentCheckInterval = null;
+                    }
+                    break;
+                default:
+                    statusElement.innerHTML = '⏳ รอการชำระเงิน';
+                    statusElement.style.color = '#ffc107';
+                    showStatus('ยังไม่มีการชำระเงิน', 'info');
+            }
+        }
+
+        // จำลองการชำระเงินสำเร็จ
+        function simulatePayment() {
+            if (!currentTransaction) {
+                showStatus('ไม่พบข้อมูลการทำรายการ', 'error');
+                return;
+            }
+
+            showStatus('จำลองการชำระเงิน...', 'info');
+            
+            setTimeout(() => {
+                updatePaymentStatus('success');
+            }, 2000);
+        }
+
+        // รีเซ็ตฟอร์ม
+        function resetForm() {
+            // รีเซ็ตข้อมูลฟอร์ม
+            document.getElementById('amount').value = '';
+            document.getElementById('description').value = '';
+            document.getElementById('customerName').value = '';
+            document.getElementById('customerEmail').value = '';
+            document.getElementById('apiMode').selectedIndex = 0;
+            document.getElementById('referenceId').value = generateReferenceId();
+
+            // ซ่อน QR Container
+            document.getElementById('qrContainer').classList.add('hidden');
+            
+            // แสดงฟอร์ม
+            document.getElementById('paymentForm').style.display = 'block';
+            document.getElementById('loading').style.display = 'none';
+
+            // รีเซ็ตข้อมูล transaction
+            currentTransaction = null;
+
+            // หยุดการตรวจสอบสถานะ
+            if (paymentCheckInterval) {
+                clearInterval(paymentCheckInterval);
+                paymentCheckInterval = null;
+            }
+
+            showStatus('รีเซ็ตฟอร์มเรียบร้อย', 'success');
+        }
+
+        // Auto-check payment status every 10 seconds when QR is displayed
+        function startAutoCheck() {
+            if (paymentCheckInterval) {
+                clearInterval(paymentCheckInterval);
+            }
+            
+            paymentCheckInterval = setInterval(() => {
+                if (currentTransaction && currentTransaction.status === 'pending') {
+                    checkPaymentStatus();
+                }
+            }, 10000);
+        }
+
+        // Format currency input
+        document.getElementById('amount').addEventListener('input', function(e) {
+            const value = parseFloat(e.target.value);
+            if (value && value > 0) {
+                e.target.style.borderColor = '#28a745';
+            } else {
+                e.target.style.borderColor = '#e0e0e0';
+            }
+        });
+
+        // Validate required fields
+        document.getElementById('description').addEventListener('input', function(e) {
+            if (e.target.value.trim()) {
+                e.target.style.borderColor = '#28a745';
+            } else {
+                e.target.style.borderColor = '#e0e0e0';
+            }
+        });
+    </script>
+</body>
+</html>

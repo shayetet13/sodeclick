@@ -42,7 +42,7 @@ const AdminChatManagement = () => {
   const fetchChatRooms = async () => {
     try {
       setIsLoading(true);
-      const token = localStorage.getItem('token');
+      const token = sessionStorage.getItem('token');
       const params = new URLSearchParams({
         page: currentPage,
         limit: 10,
@@ -72,7 +72,7 @@ const AdminChatManagement = () => {
   const fetchMessages = async () => {
     try {
       setIsLoading(true);
-      const token = localStorage.getItem('token');
+      const token = sessionStorage.getItem('token');
       const params = new URLSearchParams({
         page: currentPage,
         limit: 20,
@@ -101,7 +101,7 @@ const AdminChatManagement = () => {
 
   const handleDeleteChatRoom = async (roomId) => {
     try {
-      const token = localStorage.getItem('token');
+      const token = sessionStorage.getItem('token');
       const res = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/admin/chatrooms/${roomId}`, {
         method: 'DELETE',
         headers: {
@@ -116,11 +116,11 @@ const AdminChatManagement = () => {
         setDeleteTarget(null);
       } else {
         const error = await res.json();
-        alert(error.message || 'Failed to delete chat room');
+        console.error('Failed to delete chat room:', error.message);
       }
     } catch (error) {
       console.error('Error deleting chat room:', error);
-      alert('Error deleting chat room');
+              console.error('Error deleting chat room');
     }
   };
 
@@ -128,16 +128,16 @@ const AdminChatManagement = () => {
     try {
       if (!messageId) {
         console.error('Message ID is required');
-        alert('ไม่พบ ID ของข้อความที่จะลบ');
+        console.error('ไม่พบ ID ของข้อความที่จะลบ');
         return;
       }
 
       console.log('Deleting message with ID:', messageId);
-      const token = localStorage.getItem('token');
+      const token = sessionStorage.getItem('token');
       
       if (!token) {
         console.error('No authentication token found');
-        alert('ไม่พบ token การยืนยันตัวตน');
+        console.error('ไม่พบ token การยืนยันตัวตน');
         return;
       }
 
@@ -160,17 +160,17 @@ const AdminChatManagement = () => {
       } else {
         const error = await res.json();
         console.error('Failed to delete message:', error);
-        alert(error.message || 'Failed to delete message');
+        console.error('Failed to delete message:', error.message);
       }
     } catch (error) {
       console.error('Error deleting message:', error);
-      alert('เกิดข้อผิดพลาดในการลบข้อความ');
+              console.error('เกิดข้อผิดพลาดในการลบข้อความ');
     }
   };
 
   const handleDeleteAllMessages = async (roomId) => {
     try {
-      const token = localStorage.getItem('token');
+      const token = sessionStorage.getItem('token');
       const res = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/admin/messages/room/${roomId}`, {
         method: 'DELETE',
         headers: {
@@ -185,17 +185,17 @@ const AdminChatManagement = () => {
         setDeleteTarget(null);
       } else {
         const error = await res.json();
-        alert(error.message || 'Failed to delete all messages');
+        console.error('Failed to delete all messages:', error.message);
       }
     } catch (error) {
       console.error('Error deleting all messages:', error);
-      alert('Error deleting all messages');
+              console.error('Error deleting all messages');
     }
   };
 
   const handleDeleteAllImages = async (roomId) => {
     try {
-      const token = localStorage.getItem('token');
+      const token = sessionStorage.getItem('token');
       const res = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/admin/images/room/${roomId}`, {
         method: 'DELETE',
         headers: {
@@ -210,11 +210,11 @@ const AdminChatManagement = () => {
         setDeleteTarget(null);
       } else {
         const error = await res.json();
-        alert(error.message || 'Failed to delete all images');
+        console.error('Failed to delete all images:', error.message);
       }
     } catch (error) {
       console.error('Error deleting all images:', error);
-      alert('Error deleting all images');
+              console.error('Error deleting all images');
     }
   };
 
@@ -228,7 +228,7 @@ const AdminChatManagement = () => {
   const executeDelete = () => {
     if (!deleteTarget) {
       console.error('No delete target provided');
-      alert('ไม่พบข้อมูลที่จะลบ');
+              console.error('ไม่พบข้อมูลที่จะลบ');
       return;
     }
 
@@ -237,7 +237,7 @@ const AdminChatManagement = () => {
 
     if (!targetId) {
       console.error('No target ID found:', deleteTarget);
-      alert('ไม่พบ ID ของข้อมูลที่จะลบ');
+              console.error('ไม่พบ ID ของข้อมูลที่จะลบ');
       return;
     }
 
@@ -256,7 +256,7 @@ const AdminChatManagement = () => {
         break;
       default:
         console.error('Unknown delete type:', deleteType);
-        alert('ประเภทการลบไม่ถูกต้อง');
+        console.error('ประเภทการลบไม่ถูกต้อง');
         break;
     }
   };

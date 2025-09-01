@@ -137,16 +137,18 @@ messageSchema.virtual('reactionCount').get(function() {
 
 // Method สำหรับเพิ่ม reaction
 messageSchema.methods.addReaction = function(userId, reactionType) {
+  if (!userId) return;
+  
   // ตรวจสอบว่าผู้ใช้เคย react แล้วหรือไม่
   const existingReaction = this.reactions.find(
-    reaction => reaction.user.toString() === userId.toString()
+    reaction => reaction.user && userId && reaction.user.toString() === userId.toString()
   );
   
   if (existingReaction) {
     if (existingReaction.type === reactionType) {
       // ถ้า react แบบเดิม ให้ลบออก (toggle)
       this.reactions = this.reactions.filter(
-        reaction => reaction.user.toString() !== userId.toString()
+        reaction => reaction.user && userId && reaction.user.toString() !== userId.toString()
       );
     } else {
       // ถ้า react แบบใหม่ ให้เปลี่ยนประเภท
@@ -168,8 +170,10 @@ messageSchema.methods.addReaction = function(userId, reactionType) {
 
 // Method สำหรับลบ reaction
 messageSchema.methods.removeReaction = function(userId, reactionType) {
+  if (!userId) return;
+  
   this.reactions = this.reactions.filter(
-    reaction => !(reaction.user.toString() === userId.toString() && reaction.type === reactionType)
+    reaction => !(reaction.user && userId && reaction.user.toString() === userId.toString() && reaction.type === reactionType)
   );
   this.updateReactionStats();
 };
@@ -183,15 +187,19 @@ messageSchema.methods.updateReactionStats = function() {
 
 // Method สำหรับตรวจสอบว่าผู้ใช้ react แล้วหรือไม่
 messageSchema.methods.hasUserReacted = function(userId) {
+  if (!userId) return false;
+  
   return this.reactions.some(
-    reaction => reaction.user.toString() === userId.toString()
+    reaction => reaction.user && userId && reaction.user.toString() === userId.toString()
   );
 };
 
 // Method สำหรับดึงประเภท reaction ของผู้ใช้
 messageSchema.methods.getUserReactionType = function(userId) {
+  if (!userId) return null;
+  
   const reaction = this.reactions.find(
-    reaction => reaction.user.toString() === userId.toString()
+    reaction => reaction.user && userId && reaction.user.toString() === userId.toString()
   );
   return reaction ? reaction.type : null;
 };

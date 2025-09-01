@@ -97,7 +97,7 @@ const PremiumManagement = () => {
 
   const fetchPremiumUsers = async () => {
     try {
-      const token = localStorage.getItem('token');
+      const token = sessionStorage.getItem('token');
       const params = new URLSearchParams({
         page: currentPage,
         limit: 10,
@@ -127,7 +127,7 @@ const PremiumManagement = () => {
 
   const fetchStats = async () => {
     try {
-      const token = localStorage.getItem('token');
+      const token = sessionStorage.getItem('token');
       const res = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/admin/premium/stats`, {
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -146,7 +146,7 @@ const PremiumManagement = () => {
 
   const handleBanUser = async (userId) => {
     try {
-      const token = localStorage.getItem('token');
+      const token = sessionStorage.getItem('token');
       const res = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/admin/users/${userId}/ban-duration`, {
         method: 'PATCH',
         headers: {
@@ -174,7 +174,7 @@ const PremiumManagement = () => {
 
   const handleEditUser = async (userId) => {
     try {
-      const token = localStorage.getItem('token');
+      const token = sessionStorage.getItem('token');
       const res = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/admin/users/${userId}`, {
         method: 'PUT',
         headers: {
@@ -196,17 +196,56 @@ const PremiumManagement = () => {
 
   const handleCreateUser = async () => {
     try {
-      const token = localStorage.getItem('token');
+      // Validate required fields
+      if (!createForm.username || !createForm.email || !createForm.password || 
+          !createForm.firstName || !createForm.lastName || !createForm.dateOfBirth || 
+          !createForm.gender || !createForm.lookingFor || !createForm.location) {
+        console.error('กรุณากรอกข้อมูลให้ครบถ้วน');
+        return;
+      }
+
+      // Validate email format
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(createForm.email)) {
+        console.error('รูปแบบอีเมลไม่ถูกต้อง');
+        return;
+      }
+
+      // Validate password length
+      if (createForm.password.length < 6) {
+        console.error('รหัสผ่านต้องมีอย่างน้อย 6 ตัวอักษร');
+        return;
+      }
+
+      const token = sessionStorage.getItem('token');
+      const userData = {
+        ...createForm,
+        dateOfBirth: new Date(createForm.dateOfBirth).toISOString(),
+        membership: {
+          tier: createForm.membership.tier || 'silver'
+        },
+        // เพิ่ม coordinates เพื่อแก้ปัญหา validation error
+        coordinates: {
+          type: 'Point',
+          coordinates: [100.5018, 13.7563] // Default coordinates (Bangkok, Thailand)
+        }
+      };
+
+      console.log('Sending user data:', userData);
+
       const res = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/admin/users`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify(createForm)
+        body: JSON.stringify(userData)
       });
 
       if (res.ok) {
+        const newUser = await res.json();
+        console.log('User created successfully:', newUser);
+        alert('สร้างผู้ใช้สำเร็จ!');
         await fetchPremiumUsers();
         await fetchStats();
         setShowCreateModal(false);
@@ -222,9 +261,16 @@ const PremiumManagement = () => {
           location: '',
           membership: { tier: 'silver' }
         });
+        // Refresh the page to show new user
+        window.location.reload();
+      } else {
+        const errorData = await res.json();
+        console.error('Server error:', errorData);
+        alert(`เกิดข้อผิดพลาด: ${errorData.message || 'ไม่สามารถสร้างผู้ใช้ได้'}`);
       }
     } catch (error) {
       console.error('Error creating user:', error);
+      alert('เกิดข้อผิดพลาดในการเชื่อมต่อ');
     }
   };
 
@@ -232,7 +278,7 @@ const PremiumManagement = () => {
     if (!confirm('คุณแน่ใจหรือไม่ที่จะลบผู้ใช้นี้?')) return;
 
     try {
-      const token = localStorage.getItem('token');
+      const token = sessionStorage.getItem('token');
       const res = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/admin/users/${userId}`, {
         method: 'DELETE',
         headers: {
@@ -252,7 +298,7 @@ const PremiumManagement = () => {
 
   const handleViewProfile = async (userId) => {
     try {
-      const token = localStorage.getItem('token');
+      const token = sessionStorage.getItem('token');
       const res = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/admin/users/${userId}/profile`, {
         headers: {
           'Authorization': `Bearer ${token}`,

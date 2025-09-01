@@ -41,9 +41,9 @@ const AdminDashboard = () => {
   useEffect(() => {
     const checkAuth = async () => {
       try {
-        const token = localStorage.getItem('token');
+        const token = sessionStorage.getItem('token');
         if (!token) {
-          console.log('No token found, redirecting to home');
+          // No token found, redirecting to home
           window.location.href = '/';
           return;
         }
@@ -57,7 +57,7 @@ const AdminDashboard = () => {
         });
 
         if (!res.ok) {
-          console.log('Token invalid, redirecting to home');
+          // Token invalid, redirecting to home
           window.location.href = '/';
           return;
         }
@@ -67,12 +67,12 @@ const AdminDashboard = () => {
         setUser(userData);
 
         if (userData?.role !== 'admin' && userData?.role !== 'superadmin') {
-          console.log('Not admin role, redirecting to home');
+          // ไม่แสดง console log
           window.location.href = '/';
           return;
         }
 
-        console.log('Admin access granted');
+        // Admin access granted
         setIsLoading(false);
         fetchDashboardData();
       } catch (error) {
@@ -93,7 +93,7 @@ const AdminDashboard = () => {
 
   const fetchDashboardData = async () => {
     try {
-      const token = localStorage.getItem('token');
+      const token = sessionStorage.getItem('token');
       
       // Fetch dashboard statistics
       const res = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/admin/stats`, {
@@ -123,7 +123,7 @@ const AdminDashboard = () => {
   // ฟังก์ชันดึงข้อมูลกิจกรรมล่าสุด
   const fetchRecentActivities = async () => {
     try {
-      const token = localStorage.getItem('token');
+      const token = sessionStorage.getItem('token');
       const res = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/admin/activities`, {
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -134,28 +134,6 @@ const AdminDashboard = () => {
       if (res.ok) {
         const data = await res.json();
         const newActivities = data.activities || [];
-        
-        // ตรวจสอบว่ามีกิจกรรมใหม่หรือไม่
-        if (newActivities.length > lastActivityCount && lastActivityCount > 0) {
-          // มีกิจกรรมใหม่
-          const newCount = newActivities.length - lastActivityCount;
-          
-          // แสดง notification
-          if (newCount > 0) {
-            // เพิ่ม animation สำหรับกิจกรรมใหม่
-            setTimeout(() => {
-              const newActivityElements = document.querySelectorAll('[data-activity-id]');
-              newActivityElements.forEach((element, index) => {
-                if (index < newCount) {
-                  element.classList.add('animate-pulse', 'bg-green-50', 'border-l-4', 'border-green-500');
-                  setTimeout(() => {
-                    element.classList.remove('animate-pulse', 'bg-green-50', 'border-l-4', 'border-green-500');
-                  }, 3000);
-                }
-              });
-            }, 100);
-          }
-        }
         
         setLastActivityCount(newActivities.length);
         
@@ -363,7 +341,7 @@ const AdminDashboard = () => {
     const fetchAnalyticsData = async () => {
       try {
         setIsLoading(true);
-        const token = localStorage.getItem('token');
+        const token = sessionStorage.getItem('token');
         const res = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/admin/analytics?period=${selectedPeriod}`, {
           headers: {
             'Authorization': `Bearer ${token}`,

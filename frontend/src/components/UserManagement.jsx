@@ -67,7 +67,7 @@ const UserManagement = () => {
 
   const fetchUsers = async () => {
     try {
-      const token = localStorage.getItem('token');
+      const token = sessionStorage.getItem('token');
       const params = new URLSearchParams({
         page: currentPage,
         limit: 10,
@@ -96,7 +96,7 @@ const UserManagement = () => {
 
   const handleBanUser = async (userId) => {
     try {
-      const token = localStorage.getItem('token');
+      const token = sessionStorage.getItem('token');
       const res = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/admin/users/${userId}/ban-duration`, {
         method: 'PATCH',
         headers: {
@@ -123,7 +123,7 @@ const UserManagement = () => {
 
   const handleEditUser = async (userId) => {
     try {
-      const token = localStorage.getItem('token');
+      const token = sessionStorage.getItem('token');
       const res = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/admin/users/${userId}`, {
         method: 'PUT',
         headers: {
@@ -144,7 +144,7 @@ const UserManagement = () => {
 
   const handleCreateUser = async () => {
     try {
-      const token = localStorage.getItem('token');
+      const token = sessionStorage.getItem('token');
       const res = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/admin/users`, {
         method: 'POST',
         headers: {
@@ -180,7 +180,7 @@ const UserManagement = () => {
     if (!confirm('คุณแน่ใจหรือไม่ที่จะลบผู้ใช้นี้?')) return;
 
     try {
-      const token = localStorage.getItem('token');
+      const token = sessionStorage.getItem('token');
       const res = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/admin/users/${userId}`, {
         method: 'DELETE',
         headers: {
@@ -199,7 +199,7 @@ const UserManagement = () => {
 
   const handleViewProfile = async (userId) => {
     try {
-      const token = localStorage.getItem('token');
+      const token = sessionStorage.getItem('token');
       const res = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/admin/users/${userId}/profile`, {
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -231,7 +231,7 @@ const UserManagement = () => {
     const colors = {
       user: 'bg-blue-100 text-blue-800',
       admin: 'bg-purple-100 text-purple-800',
-      superadmin: 'bg-red-100 text-red-800'
+      // superadmin: 'bg-red-100 text-red-800' // ซ่อน SuperAdmin
     };
     return <Badge className={colors[role] || 'bg-gray-100 text-gray-800'}>{role}</Badge>;
   };
@@ -324,7 +324,7 @@ const UserManagement = () => {
         {/* Users Table */}
         <Card>
           <CardHeader>
-            <CardTitle>รายชื่อผู้ใช้ ({users.length} คน)</CardTitle>
+            <CardTitle>รายชื่อผู้ใช้ ({users.filter(user => user.role !== 'superadmin').length} คน)</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="overflow-x-auto">
@@ -341,7 +341,7 @@ const UserManagement = () => {
                   </tr>
                 </thead>
                 <tbody>
-                  {users.map((user) => (
+                  {users.filter(user => user.role !== 'superadmin').map((user) => (
                     <tr key={user._id} className="border-b border-slate-100 hover:bg-slate-50">
                       <td className="p-4">
                         <div className="flex items-center gap-3">
@@ -376,54 +376,59 @@ const UserManagement = () => {
                       </td>
                       <td className="p-4">
                         <div className="flex gap-2">
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => handleViewProfile(user._id)}
-                          >
-                            <Eye size={14} />
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => {
-                              setSelectedUser(user);
-                              setEditForm({
-                                firstName: user.firstName,
-                                lastName: user.lastName,
-                                email: user.email,
-                                role: user.role,
-                                membership: user.membership
-                              });
-                              setShowEditModal(true);
-                            }}
-                          >
-                            <Edit size={14} />
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => {
-                              setSelectedUser(user);
-                              setBanForm({
-                                isBanned: !user.isBanned,
-                                banReason: user.banReason || '',
-                                banDuration: 1,
-                                banDurationType: 'days'
-                              });
-                              setShowBanModal(true);
-                            }}
-                          >
-                            {user.isBanned ? <Unlock size={14} /> : <Ban size={14} />}
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => handleDeleteUser(user._id)}
-                            className="text-red-600 hover:text-red-700"
-                          >
-                            <Trash2 size={14} />
-                          </Button>
+                          {/* ซ่อนปุ่มการจัดการสำหรับ SuperAdmin */}
+                          {user.role !== 'superadmin' && (
+                            <>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => handleViewProfile(user._id)}
+                              >
+                                <Eye size={14} />
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => {
+                                  setSelectedUser(user);
+                                  setEditForm({
+                                    firstName: user.firstName,
+                                    lastName: user.lastName,
+                                    email: user.email,
+                                    role: user.role,
+                                    membership: user.membership
+                                  });
+                                  setShowEditModal(true);
+                                }}
+                              >
+                                <Edit size={14} />
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => {
+                                  setSelectedUser(user);
+                                  setBanForm({
+                                    isBanned: !user.isBanned,
+                                    banReason: user.banReason || '',
+                                    banDuration: 1,
+                                    banDurationType: 'days'
+                                  });
+                                  setShowBanModal(true);
+                                }}
+                              >
+                                {user.isBanned ? <Unlock size={14} /> : <Ban size={14} />}
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => handleDeleteUser(user._id)}
+                                className="text-red-600 hover:text-red-700"
+                              >
+                                <Trash2 size={14} />
+                              </Button>
+                            </>
+                          )}
                         </div>
                       </td>
                     </tr>
@@ -581,7 +586,8 @@ const UserManagement = () => {
               >
                 <option value="user">ผู้ใช้</option>
                 <option value="admin">แอดมิน</option>
-                <option value="superadmin">ซูเปอร์แอดมิน</option>
+                {/* ซ่อน SuperAdmin จากตัวเลือก */}
+                {/* <option value="superadmin">ซูเปอร์แอดมิน</option> */}
               </select>
             </div>
             <div>
@@ -709,7 +715,8 @@ const UserManagement = () => {
                 >
                   <option value="user">ผู้ใช้</option>
                   <option value="admin">แอดมิน</option>
-                  <option value="superadmin">ซูเปอร์แอดมิน</option>
+                  {/* ซ่อน SuperAdmin จากตัวเลือก */}
+                  {/* <option value="superadmin">ซูเปอร์แอดมิน</option> */}
                 </select>
               </div>
               <div>

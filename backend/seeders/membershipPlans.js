@@ -27,34 +27,7 @@ const membershipPlans = [
     },
     order: 1
   },
-  {
-    tier: 'test',
-    name: 'Test Member',
-    price: { amount: 0.1, currency: 'THB' },
-    duration: { days: 1, description: '1 วัน' },
-    features: {
-      dailyChats: 5,
-      dailyImages: 2,
-      dailyVideos: 1,
-      spinInterval: { minutes: 1440, description: 'วันละ 1 ครั้ง' },
-      dailyBonus: 100,
-      votePoints: 50,
-      profileVideos: 0,
-      pinnedPosts: 0,
-      blurredImages: 0,
-      chatRooms: 0,
-      specialFeatures: [
-        { name: 'testFeature', description: 'ฟีเจอร์ทดสอบ', enabled: true }
-      ],
-      bonusCoins: 0
-    },
-    badge: {
-      color: '#10b981',
-      icon: '🧪',
-      gradient: 'from-emerald-400 to-green-600'
-    },
-    order: 2
-  },
+
   {
     tier: 'silver',
     name: 'Silver Member',
@@ -79,7 +52,7 @@ const membershipPlans = [
       icon: '🥈',
       gradient: 'from-slate-300 to-slate-500'
     },
-    order: 3
+    order: 2
   },
   {
     tier: 'gold',
@@ -109,7 +82,7 @@ const membershipPlans = [
       icon: '🥇',
       gradient: 'from-yellow-400 to-yellow-600'
     },
-    order: 4
+    order: 3
   },
   {
     tier: 'vip',
@@ -142,7 +115,7 @@ const membershipPlans = [
       icon: '👑',
       gradient: 'from-purple-400 to-purple-600'
     },
-    order: 5
+    order: 4
   },
   {
     tier: 'vip1',
@@ -176,7 +149,7 @@ const membershipPlans = [
       icon: '💎',
       gradient: 'from-pink-400 to-purple-600'
     },
-    order: 6
+    order: 5
   },
   {
     tier: 'vip2',
@@ -211,7 +184,7 @@ const membershipPlans = [
       icon: '⭐',
       gradient: 'from-amber-400 to-orange-600'
     },
-    order: 7
+    order: 6
   },
   {
     tier: 'diamond',
@@ -247,7 +220,7 @@ const membershipPlans = [
       icon: '💎',
       gradient: 'from-cyan-400 to-blue-600'
     },
-    order: 8
+    order: 7
   },
   {
     tier: 'platinum',
@@ -284,7 +257,7 @@ const membershipPlans = [
       icon: '🏆',
       gradient: 'from-indigo-400 to-purple-600'
     },
-    order: 9
+    order: 8
   }
 ];
 
