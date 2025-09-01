@@ -1,8 +1,14 @@
 import axios from 'axios'
 
 // ตั้งค่า Base URL จาก environment variables
+// Development: http://localhost:5000
+// Production: https://sodeclick-back-production.up.railway.app
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000'
 const APP_ENV = import.meta.env.VITE_APP_ENV || 'development'
+
+// Log current environment for debugging
+console.log('🌍 Environment:', APP_ENV)
+console.log('🔗 API Base URL:', API_BASE_URL)
 
 // สร้าง axios instance
 const api = axios.create({
