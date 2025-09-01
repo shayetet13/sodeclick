@@ -184,74 +184,122 @@ const RealTimeChat = ({ roomId, currentUser, onBack }) => {
   useEffect(() => {
     const fetchMessages = async () => {
       try {
+        console.log('🔍 Fetching messages for room:', roomId);
         const response = await fetch(
-          `${import.meta.env.VITE_API_URL || 'http://localhost:5000'}/api/messages/${roomId}?userId=${currentUser._id}`,
+          `${import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000'}/api/messages/${roomId}?userId=${currentUser._id}`,
           {
-            credentials: 'include'
+            headers: {
+              'Content-Type': 'application/json',
+              ...(sessionStorage.getItem('token') ? { 'Authorization': `Bearer ${sessionStorage.getItem('token')}` } : {})
+            }
           }
         );
+        
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        
         const data = await response.json();
+        console.log('📨 Messages response:', data);
         
         if (data.success) {
-          setMessages(data.data.messages);
-          // ไม่ต้อง scroll เมื่อโหลดข้อความเก่า เพื่อไม่ให้รบกวนผู้ใช้
+          setMessages(data.data.messages || []);
+          console.log(`✅ Loaded ${data.data.messages?.length || 0} messages`);
+        } else {
+          console.error('❌ Failed to load messages:', data.message);
         }
       } catch (error) {
-        console.error('Error fetching messages:', error);
+        console.error('❌ Error fetching messages:', error);
+        // ตั้งค่า messages เป็น array ว่างถ้าเกิด error
+        setMessages([]);
       }
     };
 
-    fetchMessages();
+    if (roomId && currentUser._id) {
+      fetchMessages();
+    }
   }, [roomId, currentUser._id]);
 
   // โหลดข้อมูลห้องแชท
   useEffect(() => {
     const fetchRoomInfo = async () => {
       try {
+        console.log('🔍 Fetching room info for room:', roomId);
         const response = await fetch(
-          `${import.meta.env.VITE_API_URL || 'http://localhost:5000'}/api/chatroom/${roomId}?userId=${currentUser._id}`,
+          `${import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000'}/api/chatroom/${roomId}?userId=${currentUser._id}`,
           {
-            credentials: 'include'
+            headers: {
+              'Content-Type': 'application/json',
+              ...(sessionStorage.getItem('token') ? { 'Authorization': `Bearer ${sessionStorage.getItem('token')}` } : {})
+            }
           }
         );
+        
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        
         const data = await response.json();
+        console.log('🏠 Room info response:', data);
         
         if (data.success) {
           setRoomInfo(data.data);
+          console.log('✅ Room info loaded:', data.data);
+        } else {
+          console.error('❌ Failed to load room info:', data.message);
         }
       } catch (error) {
-        console.error('Error fetching room info:', error);
+        console.error('❌ Error fetching room info:', error);
       }
     };
 
-    fetchRoomInfo();
+    if (roomId && currentUser._id) {
+      fetchRoomInfo();
+    }
   }, [roomId, currentUser._id]);
 
   // โหลดข้อมูลคนออนไลน์
   useEffect(() => {
     const fetchOnlineUsers = async () => {
       try {
+        console.log('🔍 Fetching online users for room:', roomId);
         const response = await fetch(
-          `${import.meta.env.VITE_API_URL || 'http://localhost:5000'}/api/chatroom/${roomId}/online-users?userId=${currentUser._id}`,
+          `${import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000'}/api/chatroom/${roomId}/online-users?userId=${currentUser._id}`,
           {
-            credentials: 'include'
+            headers: {
+              'Content-Type': 'application/json',
+              ...(sessionStorage.getItem('token') ? { 'Authorization': `Bearer ${sessionStorage.getItem('token')}` } : {})
+            }
           }
         );
+        
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        
         const data = await response.json();
+        console.log('👥 Online users response:', data);
         
         if (data.success) {
-          setOnlineUsers(data.data.onlineUsers);
-          setOnlineCount(data.data.onlineCount);
+          setOnlineUsers(data.data.onlineUsers || []);
+          setOnlineCount(data.data.onlineCount || 0);
+          console.log(`✅ Online users loaded: ${data.data.onlineCount || 0} users`);
+        } else {
+          console.error('❌ Failed to load online users:', data.message);
+          setOnlineUsers([]);
+          setOnlineCount(0);
         }
       } catch (error) {
-        console.error('Error fetching online users:', error);
+        console.error('❌ Error fetching online users:', error);
         // ถ้าไม่สามารถดึงข้อมูลได้ ให้เริ่มต้นด้วย 0
         setOnlineUsers([]);
         setOnlineCount(0);
       }
     };
 
-    fetchOnlineUsers();
+    if (roomId && currentUser._id) {
+      fetchOnlineUsers();
+    }
   }, [roomId, currentUser._id]);
 
 
@@ -441,10 +489,12 @@ const RealTimeChat = ({ roomId, currentUser, onBack }) => {
 
     try {
       const response = await fetch(
-        `${import.meta.env.VITE_API_URL || 'http://localhost:5000'}/api/chatroom/upload`,
+        `${import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000'}/api/chatroom/upload`,
         {
           method: 'POST',
-          credentials: 'include',
+          headers: {
+            ...(sessionStorage.getItem('token') ? { 'Authorization': `Bearer ${sessionStorage.getItem('token')}` } : {})
+          },
           body: formData
         }
       );
