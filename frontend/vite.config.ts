@@ -30,8 +30,6 @@ export default defineConfig({
             './src/components/ui/dialog',
             './src/components/ui/toast'
           ],
-          // แยก icons
-          icons: ['lucide-react'],
           // แยก services
           services: [
             './src/services/membershipAPI',
