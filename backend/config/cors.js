@@ -10,7 +10,8 @@ const corsOptions = {
     const allowedOrigins = [
       'http://localhost:5173',
       'http://127.0.0.1:5173',
-      'https://sodeclick-front-production.up.railway.app'
+      'https://sodeclick-front-production.up.railway.app',
+      'https://sodeclick-back-production.up.railway.app'
     ];
     
     if (allowedOrigins.indexOf(origin) !== -1) {
