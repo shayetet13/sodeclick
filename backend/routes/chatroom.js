@@ -875,7 +875,9 @@ router.post('/upload', upload.single('file'), async (req, res) => {
     }
 
     // สร้าง URL สำหรับไฟล์
-    const fileUrl = `${req.protocol}://${req.get('host')}/uploads/chat-files/${req.file.filename}`;
+  
+    const fileUrl = `${process.env.BACKEND_URL || req.protocol + '://' + req.get('host')}/uploads/chat-files/${req.file.filename}`;
+    
 
     const response = {
       success: true,
