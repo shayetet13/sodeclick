@@ -47,7 +47,7 @@ const RealTimeChat = ({ roomId, currentUser, onBack }) => {
 
   // เชื่อมต่อ Socket.IO
   useEffect(() => {
-    const newSocket = io(import.meta.env.VITE_API_URL || 'http://localhost:5000', {
+    const newSocket = io(import.meta.env.VITE_SOCKET_URL || 'http://localhost:5000', {
       withCredentials: true,
       timeout: 20000,
       reconnection: true,
