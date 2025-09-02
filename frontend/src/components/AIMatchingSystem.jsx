@@ -158,7 +158,8 @@ const AIMatchingSystem = ({ currentUser }) => {
       if (filters.lifestyle.drinking !== 'all') queryParams.append('drinking', filters.lifestyle.drinking);
       if (filters.lifestyle.exercise !== 'all') queryParams.append('exercise', filters.lifestyle.exercise);
 
-      const apiUrl = `/api/matching/ai-matches?${queryParams.toString()}`;
+      // เปลี่ยนจาก relative path เป็น full URL
+      const apiUrl = `${import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000'}/api/matching/ai-matches?${queryParams.toString()}`;
       console.log('🔍 Calling API:', apiUrl);
       console.log('🔑 Token exists:', !!token);
 
