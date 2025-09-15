@@ -17,7 +17,7 @@ const app = express();
 const server = http.createServer(app);
 
 // Environment Variables
-const PORT = process.env.PORT || 5000;
+const PORT = process.env.PORT || 5001;
 const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/sodeclick';
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
 
@@ -27,12 +27,10 @@ const corsOptions = {
     // อนุญาตให้ requests ที่ไม่มี origin (เช่น mobile apps, postman)
     if (!origin) return callback(null, true);
     
-    // อนุญาต localhost ทั้ง port 5173 และ 5174 (กรณี port เปลี่ยน)
+    // อนุญาต localhost ทั้ง port 5173, 5174, และ 5175 (กรณี port เปลี่ยน)
     const allowedOrigins = [
       'http://localhost:5173',
-      'http://localhost:5174',
       'http://127.0.0.1:5173',
-      'http://127.0.0.1:5174',
       'https://sodeclick.com',
       'https://www.sodeclick.com',
       'https://sodeclick-frontend-production.up.railway.app'
@@ -337,7 +335,7 @@ app.get('/api/info', (req, res) => {
 });
 
 // ----------------------
-// 🐇 Rabbit Payment Gateway Configuration (moved to before 404 handler)
+// 🐇 Rabbit Payment Gateway Configuration
 const RABBIT_API_URL = process.env.RABBIT_API_URL;
 const RABBIT_APPLICATION_ID = process.env.RABBIT_APPLICATION_ID;
 const RABBIT_PUBLIC_KEY = process.env.RABBIT_PUBLIC_KEY;
@@ -346,19 +344,28 @@ const RABBIT_API_KEY = process.env.RABBIT_API_KEY;
 
 // Validate Rabbit Payment Gateway configuration
 if (!RABBIT_API_URL || !RABBIT_APPLICATION_ID || !RABBIT_PUBLIC_KEY || !RABBIT_COMPANY_ID || !RABBIT_API_KEY) {
-  console.error('❌ Rabbit Payment Gateway configuration is incomplete!');
-  console.error('Missing environment variables:');
-  if (!RABBIT_API_URL) console.error('  - RABBIT_API_URL');
-  if (!RABBIT_APPLICATION_ID) console.error('  - RABBIT_APPLICATION_ID');
-  if (!RABBIT_PUBLIC_KEY) console.error('  - RABBIT_PUBLIC_KEY');
-  if (!RABBIT_COMPANY_ID) console.error('  - RABBIT_COMPANY_ID');
-  if (!RABBIT_API_KEY) console.error('  - RABBIT_API_KEY');
-  console.error('Please check your .env file configuration.');
+  console.warn('⚠️ Rabbit Payment Gateway configuration is incomplete!');
+  console.warn('Missing environment variables:');
+  if (!RABBIT_API_URL) console.warn('  - RABBIT_API_URL');
+  if (!RABBIT_APPLICATION_ID) console.warn('  - RABBIT_APPLICATION_ID');
+  if (!RABBIT_PUBLIC_KEY) console.warn('  - RABBIT_PUBLIC_KEY');
+  if (!RABBIT_COMPANY_ID) console.warn('  - RABBIT_COMPANY_ID');
+  if (!RABBIT_API_KEY) console.warn('  - RABBIT_API_KEY');
+  console.warn('Payment features will be disabled until configuration is complete.');
 }
 
 // ✅ Endpoint สำหรับสร้าง QR Payment (Real Rabbit Gateway - Direct Method)
 app.post("/create-qr", async (req, res) => {
   const { orderId, amount } = req.body;
+
+  // ตรวจสอบการตั้งค่า Rabbit Gateway
+  if (!RABBIT_API_URL || !RABBIT_APPLICATION_ID || !RABBIT_PUBLIC_KEY || !RABBIT_COMPANY_ID || !RABBIT_API_KEY) {
+    return res.status(503).json({
+      error: "Payment service is not configured",
+      message: "Rabbit Payment Gateway configuration is incomplete",
+      details: "Please contact administrator to configure payment service"
+    });
+  }
 
   try {
     // เตรียมข้อมูลสำหรับ Rabbit Gateway API ตาม Direct Method Documentation
@@ -573,6 +580,15 @@ app.post("/create-qr", async (req, res) => {
 // ✅ Endpoint สำหรับตรวจสอบสถานะการชำระเงิน
 app.get("/api/payment/check-status/:paymentId", async (req, res) => {
   const { paymentId } = req.params;
+  
+  // ตรวจสอบการตั้งค่า Rabbit Gateway
+  if (!RABBIT_API_URL || !RABBIT_APPLICATION_ID || !RABBIT_PUBLIC_KEY || !RABBIT_COMPANY_ID || !RABBIT_API_KEY) {
+    return res.status(503).json({
+      error: "Payment service is not configured",
+      message: "Rabbit Payment Gateway configuration is incomplete",
+      details: "Please contact administrator to configure payment service"
+    });
+  }
   
   try {
     console.log(`🔍 Checking payment status for: ${paymentId}`);
@@ -794,8 +810,10 @@ const io = socketIo(server, {
     origin: [
       'http://localhost:5173',
       'http://localhost:5174',
+      'http://localhost:5175',
       'http://127.0.0.1:5173',
       'http://127.0.0.1:5174',
+      'http://127.0.0.1:5175',
       'https://sodeclick.com',
       'https://www.sodeclick.com',
       'https://sodeclick-frontend-production.up.railway.app'
@@ -818,6 +836,23 @@ const roomUsers = new Map(); // roomId -> Set of userIds
 const userSockets = new Map(); // userId -> Set of socketIds
 const onlineUsers = new Map(); // userId -> { socketId, roomId, lastSeen }
 
+// Rate limiting สำหรับ Socket.IO events
+const eventRateLimits = new Map(); // socketId -> { eventType -> lastTime }
+
+function checkSocketRateLimit(socketId, eventType, minInterval = 1000) {
+  const now = Date.now();
+  const key = `${socketId}_${eventType}`;
+  const lastTime = eventRateLimits.get(key) || 0;
+  
+  if (now - lastTime < minInterval) {
+    console.warn(`⚠️ Socket rate limit: ${eventType} from ${socketId} too frequent`);
+    return false;
+  }
+  
+  eventRateLimits.set(key, now);
+  return true;
+}
+
 io.on('connection', (socket) => {
   console.log('👤 User connected:', socket.id);
   console.log('🔌 Socket transport:', socket.conn.transport.name);
@@ -825,6 +860,12 @@ io.on('connection', (socket) => {
 
   // เข้าร่วมห้องแชท
   socket.on('join-room', async (data) => {
+    // Rate limiting สำหรับการ join room (1 วินาทีต่อครั้ง)
+    if (!checkSocketRateLimit(socket.id, 'join-room', 1000)) {
+      socket.emit('error', { message: 'Rate limit: Please wait before joining another room' });
+      return;
+    }
+
     console.log('🔍 Join room request:', data);
     console.log('🔍 Socket connection details:', {
       id: socket.id,
@@ -846,11 +887,28 @@ io.on('connection', (socket) => {
         }
         
         socket.join(roomId);
+        socket.join(`user_${userId}`); // Join user room for notifications
         socket.userId = userId;
         socket.currentRoom = roomId;
         
         console.log(`🔗 Socket ${socket.id} joined private chat ${roomId} for user ${userId}`);
+        console.log(`🔔 Socket ${socket.id} also joined user room user_${userId} for notifications`);
         console.log(`📊 Room ${roomId} now has ${io.sockets.adapter.rooms.get(roomId)?.size || 0} connected sockets`);
+        
+        // ส่งข้อมูล unread count ให้ผู้ใช้
+        const unreadCount = await Message.countDocuments({
+          chatRoom: roomId,
+          sender: { $ne: userId },
+          readBy: { $ne: userId },
+          isDeleted: false
+        });
+        
+        socket.emit('unread-count-update', {
+          chatRoomId: roomId,
+          unreadCount
+        });
+        
+        console.log(`📊 Sent unread count ${unreadCount} to user ${userId} for chat ${roomId}`);
         
         // Debug: แสดงรายการ socket IDs ที่อยู่ใน room
         const roomSockets = io.sockets.adapter.rooms.get(roomId);
@@ -938,10 +996,12 @@ io.on('connection', (socket) => {
       }
 
       socket.join(roomId);
+      socket.join(`user_${userId}`); // Join user room for notifications
       socket.userId = userId;
       socket.currentRoom = roomId;
       
       console.log(`🔗 Socket ${socket.id} joined room ${roomId} for user ${userId}`);
+      console.log(`🔔 Socket ${socket.id} also joined user room user_${userId} for notifications`);
       
       // เพิ่มผู้ใช้ในรายการออนไลน์
       if (!roomUsers.has(roomId)) {
@@ -1017,6 +1077,12 @@ io.on('connection', (socket) => {
   // ส่งข้อความ
   socket.on('send-message', async (data) => {
     try {
+      // Rate limiting สำหรับการส่งข้อความ (2 วินาทีต่อครั้ง)
+      if (!checkSocketRateLimit(socket.id, 'send-message', 2000)) {
+        socket.emit('error', { message: 'Rate limit: Please wait before sending another message' });
+        return;
+      }
+
       console.log('📤 Received send-message event:', data);
       console.log('📤 Socket connection details:', {
         id: socket.id,
@@ -1081,6 +1147,69 @@ io.on('connection', (socket) => {
         io.to(chatRoomId).emit('new-message', message);
         console.log('✅ Message broadcasted successfully to', io.sockets.adapter.rooms.get(chatRoomId)?.size || 0, 'clients');
         
+        // ส่งข้อมูล unread count ให้ผู้ใช้ที่เกี่ยวข้อง
+        const userParts = chatRoomId.split('_');
+        if (userParts.length >= 3) {
+          const userId1 = userParts[1];
+          const userId2 = userParts[2];
+          
+          // ส่งข้อมูล unread count ให้ผู้ใช้ทั้งสองคน
+          const [user1UnreadCount, user2UnreadCount] = await Promise.all([
+            Message.countDocuments({
+              chatRoom: chatRoomId,
+              sender: { $ne: userId1 },
+              readBy: { $ne: userId1 },
+              isDeleted: false
+            }),
+            Message.countDocuments({
+              chatRoom: chatRoomId,
+              sender: { $ne: userId2 },
+              readBy: { $ne: userId2 },
+              isDeleted: false
+            })
+          ]);
+          
+          // ส่งข้อมูล unread count ให้ผู้ใช้แต่ละคน
+          io.to(`user_${userId1}`).emit('unread-count-update', {
+            chatRoomId,
+            unreadCount: user1UnreadCount
+          });
+          
+          io.to(`user_${userId2}`).emit('unread-count-update', {
+            chatRoomId,
+            unreadCount: user2UnreadCount
+          });
+
+          // ส่งการแจ้งเตือนข้อความใหม่ให้ผู้ใช้ที่ไม่ได้ส่งข้อความ
+          const receiverId = senderId === userId1 ? userId2 : userId1;
+          const sender = await User.findById(senderId).select('username displayName firstName lastName profileImages mainProfileImageIndex');
+          
+          if (sender) {
+            // ส่งแจ้งเตือนไปยัง receiver
+            io.to(`user_${receiverId}`).emit('newNotification', {
+              _id: `msg_${message._id}`,
+              type: 'private_message',
+              title: 'ข้อความใหม่',
+              message: `${sender.displayName || sender.firstName || sender.username || 'Unknown User'} ส่งข้อความมา`,
+              data: {
+                senderId: sender._id,
+                senderName: sender.displayName || sender.firstName || sender.username || 'Unknown User',
+                senderProfileImage: sender.profileImages && sender.profileImages.length > 0 ? 
+                  (sender.mainProfileImageIndex !== undefined ? 
+                    sender.profileImages[sender.mainProfileImageIndex] : 
+                    sender.profileImages[0]) : null,
+                messageId: message._id,
+                chatRoom: chatRoomId,
+                messageContent: message.content || message.text || ''
+              },
+              createdAt: new Date(),
+              isRead: false
+            });
+            
+            console.log('📨 Sent notification to user_' + receiverId + ' for new private message');
+          }
+        }
+        
         
         
         
@@ -1138,6 +1267,24 @@ io.on('connection', (socket) => {
 
       // ส่งข้อความไปยังสมาชิกทุกคนในห้อง
       io.to(chatRoomId).emit('new-message', message);
+      
+      // ส่งข้อมูล unread count ให้สมาชิกทุกคนในห้อง
+      const members = chatRoom.members.map(member => member.user.toString());
+      for (const memberId of members) {
+        if (memberId !== senderId) {
+          const unreadCount = await Message.countDocuments({
+            chatRoom: chatRoomId,
+            sender: { $ne: memberId },
+            readBy: { $ne: memberId },
+            isDeleted: false
+          });
+          
+          io.to(`user_${memberId}`).emit('unread-count-update', {
+            chatRoomId,
+            unreadCount
+          });
+        }
+      }
       
     } catch (error) {
       console.error('❌ Error sending message:', error);
@@ -1213,6 +1360,86 @@ io.on('connection', (socket) => {
     }
   });
 
+  // จัดการสเตตัสข้อความ - ทำเครื่องหมายว่าอ่านแล้ว
+  socket.on('mark-message-read', async (data) => {
+    try {
+      // Rate limiting สำหรับการทำเครื่องหมายอ่าน (500ms ต่อครั้ง)
+      if (!checkSocketRateLimit(socket.id, 'mark-message-read', 500)) {
+        return; // ไม่แสดง error เพื่อไม่ให้รบกวน UX
+      }
+
+      const { messageId, chatRoomId, userId } = data;
+      console.log('👁️ Mark message as read:', { messageId, chatRoomId, userId });
+
+      // อัปเดตข้อความในฐานข้อมูล
+      const result = await Message.updateOne(
+        { 
+          _id: messageId,
+          readBy: { $ne: userId } // ถ้ายังไม่เคยอ่าน
+        },
+        { 
+          $addToSet: { readBy: userId } // เพิ่ม userId ใน readBy array
+        }
+      );
+
+      if (result.modifiedCount > 0) {
+        console.log('✅ Message marked as read in database');
+        
+        // ส่งการอัปเดตสเตตัสไปยังผู้ส่งข้อความ
+        const message = await Message.findById(messageId).populate('sender', 'username displayName');
+        if (message && message.sender) {
+          // ส่งให้ผู้ส่งข้อความทราบว่าข้อความถูกอ่าน
+          io.to(chatRoomId).emit('message-read', {
+            messageId: messageId,
+            readBy: userId,
+            chatRoomId: chatRoomId
+          });
+          
+          console.log('📤 Sent message-read status to room:', chatRoomId);
+        }
+
+        // อัปเดต unread count
+        const unreadCount = await Message.countDocuments({
+          chatRoom: chatRoomId,
+          sender: { $ne: userId },
+          readBy: { $ne: userId },
+          isDeleted: false
+        });
+
+        socket.emit('unread-count-update', {
+          chatRoomId: chatRoomId,
+          unreadCount: unreadCount
+        });
+
+        console.log('📊 Updated unread count:', unreadCount);
+      }
+
+    } catch (error) {
+      console.error('❌ Error marking message as read:', error);
+      socket.emit('error', { message: 'Failed to mark message as read' });
+    }
+  });
+
+  // จัดการการส่งข้อความสำเร็จ (delivered status)
+  socket.on('message-delivered', async (data) => {
+    try {
+      const { messageId, chatRoomId, userId } = data;
+      console.log('📬 Message delivered:', { messageId, chatRoomId, userId });
+
+      // ส่งการอัปเดตสเตตัสไปยังผู้ส่งข้อความ
+      io.to(chatRoomId).emit('message-delivered', {
+        messageId: messageId,
+        chatRoomId: chatRoomId,
+        deliveredAt: new Date()
+      });
+
+      console.log('📤 Sent message-delivered status to room:', chatRoomId);
+
+    } catch (error) {
+      console.error('❌ Error processing message delivered:', error);
+    }
+  });
+
   // ออกจากห้อง
   socket.on('leave-room', async (data) => {
     const { roomId, userId } = data;
@@ -1248,16 +1475,25 @@ io.on('connection', (socket) => {
       });
     }
     
-    // อัปเดตสถานะออฟไลน์ในฐานข้อมูล
-    try {
-      const updateResult = await User.findByIdAndUpdate(userId, {
-        isOnline: false,
-        lastActive: new Date()
-      }, { new: true });
-      console.log(`🔴 User ${userId} marked as offline in database (leave-room)`);
-      console.log(`📅 lastActive updated: ${updateResult.lastActive}`);
-    } catch (error) {
-      console.error('Error updating user offline status (leave-room):', error);
+    // อัปเดตสถานะออฟไลน์ในฐานข้อมูล (เฉพาะเมื่อ userId มีค่า)
+    if (userId && typeof userId === 'string') {
+      try {
+        const updateResult = await User.findByIdAndUpdate(userId, {
+          isOnline: false,
+          lastActive: new Date()
+        }, { new: true });
+        
+        if (updateResult) {
+          console.log(`🔴 User ${userId} marked as offline in database (leave-room)`);
+          console.log(`📅 lastActive updated: ${updateResult.lastActive}`);
+        } else {
+          console.warn(`⚠️ User ${userId} not found in database during leave-room`);
+        }
+      } catch (error) {
+        console.error('Error updating user offline status (leave-room):', error);
+      }
+    } else {
+      console.warn('⚠️ Invalid userId in leave-room handler:', userId);
     }
     
     console.log(`👤 User ${userId} left room ${roomId}`);
@@ -1278,7 +1514,8 @@ io.on('connection', (socket) => {
   socket.on('disconnect', async (reason) => {
     console.log('👤 User disconnected:', socket.id, 'Reason:', reason);
     
-    if (socket.currentRoom && socket.userId) {
+    // ตรวจสอบให้แน่ใจว่า socket มีข้อมูลที่จำเป็น
+    if (socket.currentRoom && socket.userId && typeof socket.userId === 'string') {
       const roomId = socket.currentRoom;
       const userId = socket.userId;
       
@@ -1299,8 +1536,13 @@ io.on('connection', (socket) => {
               isOnline: false,
               lastActive: new Date()
             }, { new: true });
-            console.log(`🔴 User ${userId} marked as offline in database (disconnect)`);
-            console.log(`📅 lastActive updated: ${updateResult.lastActive}`);
+            
+            if (updateResult) {
+              console.log(`🔴 User ${userId} marked as offline in database (disconnect)`);
+              console.log(`📅 lastActive updated: ${updateResult.lastActive}`);
+            } else {
+              console.warn(`⚠️ User ${userId} not found in database during disconnect`);
+            }
           } catch (error) {
             console.error('Error updating user offline status (disconnect):', error);
           }

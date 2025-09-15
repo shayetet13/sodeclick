@@ -12,6 +12,8 @@ import { Badge } from './components/ui/badge'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from './components/ui/tabs'
 import { Dialog, DialogContent, DialogTitle, DialogDescription, VisuallyHidden } from './components/ui/dialog'
 import LoginModal from './components/LoginModal'
+import { DataCacheProvider } from './hooks/useGlobalCache'
+import { useRealTimeUpdate, useNotificationUpdates } from './hooks/useRealTimeUpdates'
 
 // Lazy load heavy components with type assertions
 const MembershipDashboard = lazy(() => import('./components/MembershipDashboard.jsx')) as any
@@ -237,8 +239,46 @@ const profiles: FeaturedProfile[] = [
 function App() {
   const { user, login, logout } = useAuth()
   const { success, error, warning } = useToast()
+  const { updateNotification } = useNotificationUpdates()
 
   const [activeTab, setActiveTab] = useState<'discover' | 'matches' | 'messages' | 'membership' | 'profile'>('discover')
+  
+  // Real-time event handlers
+  useRealTimeUpdate('userLoggedIn', (data) => {
+    console.log('User logged in:', data);
+    // อัปเดต UI โดยไม่ต้องรีเฟรชหน้าเว็บ
+    success('เข้าสู่ระบบสำเร็จ');
+    
+    // รีเฟรชข้อมูลผู้ใช้ในหน้าแรกหลังจาก login
+    if (activeTab === 'discover') {
+      console.log('🔄 Refreshing user data after login...');
+      // เรียกใช้ useEffect ที่โหลดข้อมูลผู้ใช้
+      window.dispatchEvent(new CustomEvent('refreshUserData'));
+    }
+  });
+
+  useRealTimeUpdate('userLoggedOut', (data) => {
+    console.log('User logged out:', data);
+    // อัปเดต UI โดยไม่ต้องรีเฟรชหน้าเว็บ
+    success('ออกจากระบบสำเร็จ');
+  });
+
+  useRealTimeUpdate('profileImageUpdated', (data) => {
+    console.log('Profile image updated:', data);
+    // อัปเดต avatar ใน header โดยไม่ต้องรีเฟรชหน้าเว็บ
+    const avatarElement = document.querySelector('[data-avatar-user-id]');
+    if (avatarElement && data.userId === user?._id) {
+      // Trigger re-render ของ avatar component
+      window.dispatchEvent(new CustomEvent('avatarUpdate', { detail: data }));
+    }
+  });
+
+  useRealTimeUpdate('newNotification', (notification) => {
+    console.log('New notification received:', notification);
+    updateNotification(notification);
+    // แสดง toast notification
+    success(notification.message || 'มีการแจ้งเตือนใหม่');
+  });
   
   // Function to handle Learn More button click - scrolls to specific Premium section
   const handleLearnMoreClick = () => {
@@ -403,6 +443,14 @@ function App() {
   // Maintenance Mode states
   const [isMaintenanceMode, setIsMaintenanceMode] = useState(false)
   const [maintenanceChecked, setMaintenanceChecked] = useState(false)
+  const [hasDevAccess, setHasDevAccess] = useState(() => {
+    // Check if user has dev access from localStorage
+    return localStorage.getItem('devAccess') === 'true'
+  })
+  const [bypassMaintenance, setBypassMaintenance] = useState(() => {
+    // Check if user has bypass maintenance flag
+    return localStorage.getItem('bypassMaintenance') === 'true'
+  })
   
   // Fetch notifications from backend
   const fetchNotifications = async () => {
@@ -437,11 +485,50 @@ function App() {
         }
       } else {
         console.error('❌ Notifications API error:', response.status, response.statusText)
+        // ไม่ให้ notifications error รบกวนการทำงานของระบบ
+        setNotifications([])
+        setUnreadCount(0)
       }
     } catch (error) {
       console.error('Error fetching notifications:', error)
+      // ไม่ให้ notifications error รบกวนการทำงานของระบบ
+      setNotifications([])
+      setUnreadCount(0)
     } finally {
       setIsLoadingNotifications(false)
+    }
+  }
+
+  const clearAllNotifications = async () => {
+    if (!user?._id) return
+    
+    try {
+      const token = localStorage.getItem('token')
+      const apiUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000'
+      const response = await fetch(`${apiUrl}/api/notifications/${user._id}/clear`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      })
+      
+      if (response.ok) {
+        const data = await response.json()
+        if (data.success) {
+          console.log('🗑️ All notifications cleared successfully')
+          // ล้างการแจ้งเตือนใน state
+          setNotifications([])
+          setUnreadCount(0)
+          success('ล้างการแจ้งเตือนเรียบร้อยแล้ว')
+        }
+      } else {
+        console.error('❌ Clear notifications API error:', response.status, response.statusText)
+        error('เกิดข้อผิดพลาดในการล้างการแจ้งเตือน')
+      }
+    } catch (err) {
+      console.error('❌ Error clearing notifications:', err)
+      error('เกิดข้อผิดพลาดในการล้างการแจ้งเตือน')
     }
   }
   
@@ -472,18 +559,134 @@ function App() {
   
   // Render notification item
   const renderNotificationItem = (notification: any) => {
-    const { type, data, createdAt, isRead } = notification
+    const { type, data, createdAt, isRead, title, message } = notification
+    
+    const handleNotificationClick = async () => {
+      // Mark notification as read
+      if (!isRead) {
+        try {
+          const token = localStorage.getItem('token')
+          const response = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/notifications/${user?._id}/mark-read`, {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${token}`,
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ 
+              notificationIds: [notification._id],
+              notificationType: type // ส่งประเภทแจ้งเตือนไปด้วย
+            })
+          })
+          
+          if (response.ok) {
+            // สำหรับแชทข้อความ ให้ลบออกจากรายการเลย
+            if (type === 'private_message') {
+              setNotifications(prev => prev.filter(n => n._id !== notification._id))
+              setUnreadCount(prev => Math.max(0, prev - 1))
+            } else {
+              // สำหรับการแจ้งเตือนอื่นๆ ให้ mark เป็น read
+              setNotifications(prev => prev.map(n => 
+                n._id === notification._id ? { ...n, isRead: true } : n
+              ))
+              setUnreadCount(prev => Math.max(0, prev - 1))
+            }
+          }
+        } catch (error) {
+          console.error('Error marking notification as read:', error)
+        }
+      }
+      
+      if (type === 'private_message' && data.chatRoom) {
+        // ไปหน้าแชทส่วนตัว
+        setActiveTab('messages')
+        setChatType('private')
+        
+        // ใช้ chat ID โดยตรงจาก notification
+        console.log('🔍 Using chat ID from notification:', data.chatRoom)
+        
+        // ดึงข้อมูล private chats ล่าสุดก่อน แล้วค้นหาแชทด้วย chat ID
+        fetchPrivateChats().then(() => {
+          // รอให้ state อัปเดต แล้วค้นหาแชท
+          setTimeout(() => {
+            console.log('📋 Available private chats:', privateChats.map(chat => ({
+              id: chat.id,
+              otherUserId: chat.otherUser?._id,
+              otherUserName: chat.otherUser?.displayName || chat.otherUser?.firstName
+            })))
+            
+            // ค้นหาแชทด้วย chat ID ที่แน่นอน
+            const existingChat = privateChats.find(chat => chat.id === data.chatRoom)
+            
+            if (existingChat) {
+              // ถ้าพบแชท ให้เลือกแชทนั้น
+              console.log('✅ Found existing chat by ID:', existingChat.id)
+              setSelectedPrivateChat(existingChat)
+              setPrivateChatView('chat')
+            } else {
+              // ถ้าไม่พบแชท ให้ลองค้นหาด้วย sender ID (fallback)
+              console.log('❌ Chat not found by ID, trying by sender ID')
+              const fallbackChat = privateChats.find(chat => chat.otherUser?._id === data.senderId)
+              
+              if (fallbackChat) {
+                console.log('✅ Found fallback chat:', fallbackChat.id)
+                setSelectedPrivateChat(fallbackChat)
+                setPrivateChatView('chat')
+              } else {
+                // ถ้าไม่พบเลย ให้เริ่มแชทใหม่
+                console.log('❌ No chat found, creating new one')
+                const targetUser = {
+                  _id: data.senderId,
+                  displayName: data.senderName || 'Unknown User',
+                  profileImages: data.senderProfileImage ? [data.senderProfileImage] : []
+                }
+                handleStartPrivateChat(targetUser)
+              }
+            }
+          }, 100) // รอ 100ms ให้ state อัปเดต
+        }).catch(error => {
+          console.error('❌ Error fetching private chats:', error)
+          // ถ้าเกิดข้อผิดพลาด ให้ลองสร้างแชทใหม่
+          const targetUser = {
+            _id: data.senderId,
+            displayName: data.senderName || 'Unknown User',
+            profileImages: data.senderProfileImage ? [data.senderProfileImage] : []
+          }
+          handleStartPrivateChat(targetUser)
+        })
+        
+        // ปิด notifications dropdown
+        setShowNotificationDropdown(false)
+      }
+      // สำหรับ vote notifications ไม่ต้องทำอะไรพิเศษ
+    }
     
     if (type === 'private_message') {
       return (
-        <div key={notification._id} className={`px-4 py-3 hover:bg-gray-50 cursor-pointer border-b border-gray-100 ${!isRead ? 'bg-blue-50' : ''}`}>
+        <div 
+          key={notification._id} 
+          onClick={handleNotificationClick}
+          className={`px-4 py-3 hover:bg-gray-50 cursor-pointer border-b border-gray-100 ${!isRead ? 'bg-blue-50' : ''}`}
+        >
           <div className="flex items-start space-x-3">
-            <div className="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center">
-              <MessageCircle className="h-4 w-4 text-blue-600" />
+            <div className="w-10 h-10 rounded-full overflow-hidden flex-shrink-0">
+              {data.senderProfileImage && !data.senderProfileImage.startsWith('data:image/svg+xml') ? (
+                <img 
+                  src={data.senderProfileImage.startsWith('http') ? data.senderProfileImage : `${import.meta.env.VITE_API_BASE_URL}/uploads/profiles/${data.senderProfileImage}`}
+                  alt={data.senderName}
+                  className="w-10 h-10 object-cover"
+                />
+              ) : (
+                <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center">
+                  <MessageCircle className="h-5 w-5 text-blue-600" />
+                </div>
+              )}
             </div>
             <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium text-gray-900">ข้อความใหม่</p>
-              <p className="text-xs text-gray-500">{data.senderName} ส่งข้อความมา</p>
+              <p className="text-sm font-medium text-gray-900">{title || 'ข้อความใหม่'}</p>
+              <p className="text-xs text-gray-500">{message || `${data.senderName} ส่งข้อความมา`}</p>
+              {data.messageContent && (
+                <p className="text-xs text-gray-400 mt-1 truncate">{data.messageContent}</p>
+              )}
               <p className="text-xs text-gray-400 mt-1">{formatTimeAgo(createdAt)}</p>
             </div>
             {!isRead && <div className="w-2 h-2 bg-blue-500 rounded-full"></div>}
@@ -494,14 +697,28 @@ function App() {
     
     if (type === 'profile_like') {
       return (
-        <div key={notification._id} className={`px-4 py-3 hover:bg-gray-50 cursor-pointer border-b border-gray-100 ${!isRead ? 'bg-pink-50' : ''}`}>
+        <div 
+          key={notification._id} 
+          onClick={handleNotificationClick}
+          className={`px-4 py-3 hover:bg-gray-50 cursor-pointer border-b border-gray-100 ${!isRead ? 'bg-pink-50' : ''}`}
+        >
           <div className="flex items-start space-x-3">
-            <div className="w-8 h-8 bg-pink-100 rounded-full flex items-center justify-center">
-              <Heart className="h-4 w-4 text-pink-600" />
+            <div className="w-10 h-10 rounded-full overflow-hidden flex-shrink-0">
+              {data.voterProfileImage && !data.voterProfileImage.startsWith('data:image/svg+xml') ? (
+                <img 
+                  src={data.voterProfileImage.startsWith('http') ? data.voterProfileImage : `${import.meta.env.VITE_API_BASE_URL}/uploads/profiles/${data.voterProfileImage}`}
+                  alt={data.voterName}
+                  className="w-10 h-10 object-cover"
+                />
+              ) : (
+                <div className="w-10 h-10 bg-pink-100 rounded-full flex items-center justify-center">
+                  <Heart className="h-5 w-5 text-pink-600" />
+                </div>
+              )}
             </div>
             <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium text-gray-900">มีคนชอบคุณ!</p>
-              <p className="text-xs text-gray-500">มีคนกดหัวใจให้คุณ</p>
+              <p className="text-sm font-medium text-gray-900">{title || 'คุณได้รับโหวด'}</p>
+              <p className="text-xs text-gray-500">{message || 'คุณได้รับ ❤️'}</p>
               <p className="text-xs text-gray-400 mt-1">{formatTimeAgo(createdAt)}</p>
             </div>
             {!isRead && <div className="w-2 h-2 bg-pink-500 rounded-full"></div>}
@@ -748,6 +965,12 @@ function App() {
         const data = await response.json();
         const isMaintenance = data.data?.isMaintenanceMode || false;
         setIsMaintenanceMode(isMaintenance);
+        
+        // Clear bypass flag if maintenance mode is off
+        if (!isMaintenance) {
+          localStorage.removeItem('bypassMaintenance');
+          setBypassMaintenance(false);
+        }
       } else {
         console.error('Maintenance mode check failed:', response.status);
         setIsMaintenanceMode(false);
@@ -764,8 +987,9 @@ function App() {
   // Handle dev access to maintenance mode
   const handleDevAccess = (code: string) => {
     if (code === 'DEV2024LOVE') {
-      setIsMaintenanceMode(false);
-      alert('เข้าสู่ระบบในโหมด Developer สำเร็จ!');
+      setHasDevAccess(true);
+      localStorage.setItem('devAccess', 'true');
+      alert('เข้าสู่ระบบในโหมด Developer สำเร็จ! คุณสามารถเข้าถึงระบบได้แล้ว แต่หน้า Maintenance Mode ยังคงแสดงอยู่');
     }
   };
 
@@ -779,6 +1003,10 @@ function App() {
     
     // Check maintenance mode first
     checkMaintenanceMode();
+    
+    // Check bypass maintenance flag
+    const bypassFlag = localStorage.getItem('bypassMaintenance') === 'true';
+    setBypassMaintenance(bypassFlag);
     
     // ทดสอบ localStorage
     try {
@@ -971,8 +1199,21 @@ function App() {
         if (!isCancelled) setIsLoadingAllUsers(false)
       }
     }
+
     loadAllUsers()
-    return () => { isCancelled = true }
+
+    // เพิ่มการจัดการ event refreshUserData
+    const handleRefreshUserData = () => {
+      console.log('🔄 Event received: refreshUserData');
+      loadAllUsers();
+    };
+
+    window.addEventListener('refreshUserData', handleRefreshUserData);
+
+    return () => {
+      isCancelled = true
+      window.removeEventListener('refreshUserData', handleRefreshUserData);
+    }
   }, [])
 
   // Load more users function
@@ -1021,7 +1262,14 @@ function App() {
           })
           if (res.ok) {
             const data = await res.json()
-            const img = (data?.data?.profile?.profileImages?.[0] as string | undefined) || ''
+            const mainImageIndex = data?.data?.profile?.mainProfileImageIndex || 0
+            const img = (data?.data?.profile?.profileImages?.[mainImageIndex] as string | undefined) || ''
+            console.log('🎯 App.tsx header avatar:', {
+              mainProfileImageIndex: data?.data?.profile?.mainProfileImageIndex,
+              mainImageIndex,
+              img,
+              allImages: data?.data?.profile?.profileImages
+            })
             // ตรวจสอบว่าไม่ใช่รูป default
             if (img && !img.startsWith('data:image/svg+xml')) {
               setAvatarUrl(img)
@@ -1048,7 +1296,14 @@ function App() {
     const handleProfileImageUpdate = (event: CustomEvent) => {
       const { userId, profileImages } = event.detail;
       if (user?._id === userId || user?.id === userId) {
-        const img = profileImages?.[0];
+        const mainImageIndex = event.detail.mainProfileImageIndex || 0;
+        const img = profileImages?.[mainImageIndex];
+        console.log('🎯 App.tsx event update:', {
+          mainProfileImageIndex: event.detail.mainProfileImageIndex,
+          mainImageIndex,
+          img,
+          allImages: profileImages
+        })
         if (img && !img.startsWith('data:image/svg+xml')) {
           setAvatarUrl(img);
         } else {
@@ -1062,6 +1317,20 @@ function App() {
       window.removeEventListener('profileImageUpdated', handleProfileImageUpdate as EventListener);
     };
   }, [user]);
+
+  // ฟัง event สำหรับการอัปเดตสเตตัสข้อความ
+  useEffect(() => {
+    const handleMessageStatusUpdate = (event: CustomEvent) => {
+      const { messageId, status } = event.detail;
+      console.log('📬 Message status update event:', { messageId, status });
+      handleMessageStatusUpdate(messageId, status);
+    };
+
+    window.addEventListener('message-status-update', handleMessageStatusUpdate as EventListener);
+    return () => {
+      window.removeEventListener('message-status-update', handleMessageStatusUpdate as EventListener);
+    };
+  }, [selectedPrivateChat]);
   
   // ฟังก์ชันจัดการการกดหัวใจใน profile modal
   const handleProfileLike = async (profileId: string) => {
@@ -1271,10 +1540,12 @@ function App() {
       
       if (!token) {
         console.error('❌ ไม่มี token')
-        return null
+        throw new Error('กรุณาเข้าสู่ระบบก่อน')
       }
 
       const baseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000';
+      console.log('🔍 Fetching profile data for user:', userId, 'from:', `${baseUrl}/api/profile/${userId}`);
+      
       const response = await fetch(`${baseUrl}/api/profile/${userId}`, {
         method: 'GET',
         headers: {
@@ -1283,8 +1554,16 @@ function App() {
         }
       })
 
+      console.log('📡 Response status:', response.status, response.statusText);
+
       if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`)
+        if (response.status === 403) {
+          throw new Error('ไม่มีสิทธิ์เข้าถึงโปรไฟล์นี้')
+        } else if (response.status === 404) {
+          throw new Error('ไม่พบโปรไฟล์ผู้ใช้')
+        } else {
+          throw new Error(`HTTP error! status: ${response.status}`)
+        }
       }
 
       const result = await response.json()
@@ -1295,11 +1574,11 @@ function App() {
         return result.data.profile
       } else {
         console.error('❌ Response format ไม่ถูกต้อง:', result)
-        return null
+        throw new Error('รูปแบบข้อมูลที่ได้รับไม่ถูกต้อง')
       }
     } catch (error) {
       console.error('❌ เกิดข้อผิดพลาดในการดึงข้อมูลโปรไฟล์:', error)
-      return null
+      throw error; // ส่ง error ต่อไปให้ caller จัดการ
     } finally {
       setLoadingProfileData(false)
     }
@@ -1309,6 +1588,8 @@ function App() {
   const handleViewProfile = async (profileData: any) => {
     if (!user) {
       console.error('❌ ไม่มีผู้ใช้ที่เข้าสู่ระบบ');
+      setProfileAlert({ message: 'กรุณาเข้าสู่ระบบก่อน', type: 'error' });
+      setTimeout(() => setProfileAlert(null), 3000);
       return;
     }
     
@@ -1319,22 +1600,35 @@ function App() {
     if (!canViewProfile(currentUserTier, targetUserTier)) {
       console.log('🚫 Cannot view profile - Role restriction:', { currentUserTier, targetUserTier });
       setProfileAlert({ message: 'ไม่สามารถดูระดับที่สูงกว่าคุณได้', type: 'warning' });
-      setTimeout(() => setProfileAlert(null), 3000); // ซ่อนแจ้งเตือนหลัง 3 วินาที
+      setTimeout(() => setProfileAlert(null), 3000);
       return;
     }
     
     console.log('👤 Viewing profile details:', profileData.name);
     
-    // ดึงข้อมูลโปรไฟล์จริงจาก API
-    const fullProfileData = await fetchProfileData(profileData.id);
+    // แสดง loading state
+    setModalAction('profile');
     
-    if (fullProfileData) {
-      // เก็บข้อมูลโปรไฟล์ที่ดึงมา
-      setProfileData(fullProfileData);
-      // เปิดการแสดงข้อมูลรายละเอียดแบบเต็มจอ
-      setShowProfileDetails(true);
-    } else {
-      showWebappNotification('ไม่สามารถดึงข้อมูลโปรไฟล์ได้ กรุณาลองใหม่อีกครั้ง');
+    try {
+      // ดึงข้อมูลโปรไฟล์จริงจาก API
+      const fullProfileData = await fetchProfileData(profileData.id);
+      
+      if (fullProfileData) {
+        // เก็บข้อมูลโปรไฟล์ที่ดึงมา
+        setProfileData(fullProfileData);
+        // เปิดการแสดงข้อมูลรายละเอียดแบบเต็มจอ
+        setShowProfileDetails(true);
+        setModalAction(null); // ซ่อน loading state
+      } else {
+        setProfileAlert({ message: 'ไม่สามารถดึงข้อมูลโปรไฟล์ได้ กรุณาลองใหม่อีกครั้ง', type: 'error' });
+        setTimeout(() => setProfileAlert(null), 5000);
+        setModalAction(null);
+      }
+    } catch (error) {
+      console.error('❌ Error in handleViewProfile:', error);
+      setProfileAlert({ message: 'เกิดข้อผิดพลาดในการดึงข้อมูลโปรไฟล์', type: 'error' });
+      setTimeout(() => setProfileAlert(null), 5000);
+      setModalAction(null);
     }
   };
 
@@ -1639,41 +1933,65 @@ function App() {
 
 
   // ฟังก์ชันลบแชทส่วนตัว (ลบเฉพาะสำหรับผู้ใช้ปัจจุบัน)
-  const handleDeletePrivateChat = (chatId: string) => {
+  const handleDeletePrivateChat = async (chatId: string) => {
     console.log('🗑️ Deleting private chat:', chatId);
     
-    // ลบแชทออกจากรายการ privateChats (เฉพาะสำหรับผู้ใช้ปัจจุบัน)
-    setPrivateChats(prev => {
-      const updatedChats = prev.filter(chat => chat.id !== chatId);
-      console.log('📝 Updated chats after deletion:', updatedChats.length);
-      console.log('🔍 Deleted chat:', chatId);
-      // บันทึกข้อมูลที่อัปเดตแล้วลง localStorage
-      saveChatsToStorage(updatedChats);
-      
-      // ตรวจสอบว่าข้อมูลถูกบันทึกจริงหรือไม่
-      setTimeout(() => {
-        const verification = localStorage.getItem('privateChats');
-        if (verification) {
-          const parsed = JSON.parse(verification);
-          console.log('✅ Chat deletion saved successfully, remaining chats:', parsed.length);
-        } else {
-          console.error('❌ Failed to save chat deletion to localStorage');
+    try {
+      // เรียก API เพื่อ soft delete แชท
+      const token = localStorage.getItem('token');
+      const response = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/messages/private-chat/${chatId}`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
         }
-      }, 100);
+      });
+
+      if (response.ok) {
+        const result = await response.json();
+        console.log('✅ Chat soft deleted successfully:', result);
+        
+        // รีเฟรชข้อมูล private chats จาก API
+        await fetchPrivateChats();
+        
+        // ถ้าแชทที่ลบเป็นแชทที่เลือกอยู่ ให้กลับไปที่รายการ
+        if (selectedPrivateChat?.id === chatId) {
+          setPrivateChatView('list');
+          setSelectedPrivateChat(null);
+        }
+        
+        console.log('✅ Private chat deleted successfully and data refreshed');
+      } else {
+        const errorData = await response.json();
+        console.error('❌ Failed to delete chat:', errorData);
+        
+        // ถ้า API ล้มเหลว ให้ลบออกจาก UI แบบเดิม (fallback)
+        setPrivateChats(prev => {
+          const updatedChats = prev.filter(chat => chat.id !== chatId);
+          saveChatsToStorage(updatedChats);
+          return updatedChats;
+        });
+        
+        if (selectedPrivateChat?.id === chatId) {
+          setPrivateChatView('list');
+          setSelectedPrivateChat(null);
+        }
+      }
+    } catch (error) {
+      console.error('❌ Error deleting chat:', error);
       
-      return updatedChats;
-    });
-    
-    // ถ้าแชทที่ลบเป็นแชทที่เลือกอยู่ ให้กลับไปที่รายการ
-    if (selectedPrivateChat?.id === chatId) {
-      setPrivateChatView('list');
-      setSelectedPrivateChat(null);
+      // ถ้าเกิดข้อผิดพลาด ให้ลบออกจาก UI แบบเดิม (fallback)
+      setPrivateChats(prev => {
+        const updatedChats = prev.filter(chat => chat.id !== chatId);
+        saveChatsToStorage(updatedChats);
+        return updatedChats;
+      });
+      
+      if (selectedPrivateChat?.id === chatId) {
+        setPrivateChatView('list');
+        setSelectedPrivateChat(null);
+      }
     }
-    
-    console.log('✅ Private chat deleted successfully');
-    
-    // หมายเหตุ: ในแอปจริง คุณจะต้องส่งคำขอไปยัง backend
-    // เพื่อทำเครื่องหมายว่าแชทนี้ถูกลบสำหรับผู้ใช้ปัจจุบันเท่านั้น
     console.log(`แชท ${chatId} ถูกลบสำหรับผู้ใช้ ${user?._id || user?.id}`);
   };
 
@@ -1727,8 +2045,51 @@ function App() {
     });
     
     console.log('✅ Message read status updated');
+  };
+
+  // ฟังก์ชันจัดการอัปเดตสเตตัสข้อความแบบ real-time
+  const handleMessageStatusUpdate = (messageId: string, status: 'delivered' | 'read') => {
+    if (!selectedPrivateChat) return;
     
-    // Message read status updated - real-time sync will be implemented
+    console.log(`📬 Message status update: ${messageId} -> ${status}`);
+    
+    // อัปเดตข้อความในแชทที่เลือก
+    setSelectedPrivateChat((prev: any) => ({
+      ...prev,
+      messages: prev.messages.map((message: any) => 
+        message._id === messageId 
+          ? { 
+              ...message, 
+              isDelivered: status === 'delivered' || message.isDelivered || true,
+              isRead: status === 'read' || message.isRead
+            }
+          : message
+      )
+    }));
+    
+    // อัปเดตรายการแชท
+    setPrivateChats(prev => {
+      const updatedChats = prev.map(chat => 
+        chat.id === selectedPrivateChat.id 
+          ? {
+              ...chat,
+              messages: chat.messages.map((message: any) => 
+                message._id === messageId 
+                  ? { 
+                      ...message, 
+                      isDelivered: status === 'delivered' || message.isDelivered || true,
+                      isRead: status === 'read' || message.isRead
+                    }
+                  : message
+              )
+            }
+          : chat
+      );
+      
+      // บันทึกข้อมูลที่อัปเดตแล้วลง localStorage
+      saveChatsToStorage(updatedChats);
+      return updatedChats;
+    });
   };
 
 
@@ -1857,15 +2218,17 @@ function App() {
     }
     
     // สร้างข้อความใหม่สำหรับการส่งผ่าน API
+    const tempId = `msg_${Date.now()}`;
     const newMessage = {
-      _id: `msg_${Date.now()}`,
+      _id: tempId,
       content: content,
       senderId: user._id || user.id,
       timestamp: new Date(),
       fileUrl: file ? URL.createObjectURL(file) : null,
       fileType: file ? file.type : null,
       isRead: false,
-      isDelivered: true // ส่งสำเร็จแล้ว
+      isDelivered: false, // เริ่มต้นยังไม่ส่ง
+      isTemporary: true // ข้อความชั่วคราว
     };
     
     console.log('💬 Sending private message via API:', newMessage);
@@ -1942,6 +2305,7 @@ function App() {
           ...newMessage,
           _id: result.data._id,
           isDelivered: true,
+          isTemporary: false, // ไม่ใช่ข้อความชั่วคราวแล้ว
           senderId: user._id || user.id, // ตรวจสอบให้แน่ใจว่า senderId ถูกต้อง
           sender: result.data.sender || {
             _id: user._id || user.id,
@@ -2022,7 +2386,8 @@ function App() {
             })
             if (res.ok) {
               const data = await res.json()
-              const img = data?.data?.profile?.profileImages?.[0]
+              const mainImageIndex = data?.data?.profile?.mainProfileImageIndex || 0
+              const img = data?.data?.profile?.profileImages?.[mainImageIndex]
               if (img) {
                 setAvatarUrl(img)
                 return
@@ -2170,9 +2535,10 @@ function App() {
   
 
   
-  // Show maintenance mode if active
-  if (maintenanceChecked && isMaintenanceMode) {
-    return <MaintenanceMode onDevAccess={handleDevAccess} />
+  // Show maintenance mode if active (always show if maintenance is on, regardless of dev access)
+  // But allow bypass if user has bypassMaintenance flag
+  if (maintenanceChecked && isMaintenanceMode && !bypassMaintenance) {
+    return <MaintenanceMode onDevAccess={handleDevAccess} hasDevAccess={hasDevAccess} />
   }
 
   // Show loading while checking maintenance mode
@@ -2387,12 +2753,18 @@ function App() {
                           )}
                           
                           {notifications.length > 0 && (
-                            <div className="px-4 py-2 border-t border-gray-100">
+                            <div className="px-4 py-2 border-t border-gray-100 flex gap-2">
                               <button 
                                 onClick={fetchNotifications}
-                                className="w-full text-center text-sm text-pink-600 hover:text-pink-700 font-medium"
+                                className="flex-1 text-center text-sm text-pink-600 hover:text-pink-700 font-medium"
                               >
                                 รีเฟรช
+                              </button>
+                              <button 
+                                onClick={clearAllNotifications}
+                                className="flex-1 text-center text-sm text-red-600 hover:text-red-700 font-medium"
+                              >
+                                ล้างทั้งหมด
                               </button>
                             </div>
                           )}
@@ -3016,7 +3388,8 @@ function App() {
                 <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3 sm:gap-4 md:gap-6 lg:gap-8">
                   {premiumUsers.map((u: PublicUser, idx: number) => {
                     // const apiBase = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000'
-                    const firstImage = u?.profileImages?.[0]
+                    const mainImageIndex = (u as any)?.mainProfileImageIndex || 0
+                    const firstImage = u?.profileImages?.[mainImageIndex]
                     const imageUrl = firstImage || ''
                     const displayName = u?.nickname || `${u?.firstName || ''} ${u?.lastName || ''}`.trim() || 'Premium User'
                     const tier: string = (u?.membership?.tier || 'member') as string
@@ -3196,16 +3569,34 @@ function App() {
                     // สร้าง profileImage URL ที่ถูกต้อง
                     let profileImage = ''
                     if (user.profileImages && user.profileImages.length > 0) {
-                      const firstImage = user.profileImages[0]
-                      if (firstImage.startsWith('http')) {
+                      const mainImageIndex = (user as any).mainProfileImageIndex || 0
+                      const firstImage = user.profileImages[mainImageIndex]
+                      
+                      // ตรวจสอบและแก้ไขชื่อไฟล์ที่อาจถูกตัดทอน
+                      let cleanImageName = firstImage
+                      if (firstImage && !firstImage.startsWith('http') && !firstImage.startsWith('data:')) {
+                        // ตรวจสอบว่าชื่อไฟล์มี extension หรือไม่
+                        const hasExtension = /\.(jpg|jpeg|png|gif|webp)$/i.test(firstImage)
+                        if (!hasExtension) {
+                          // ถ้าไม่มี extension ให้เพิ่ม .jpg เป็นค่าเริ่มต้น
+                          cleanImageName = `${firstImage}.jpg`
+                          console.warn('⚠️ Image filename missing extension, adding .jpg:', {
+                            original: firstImage,
+                            corrected: cleanImageName,
+                            userId: user._id || (user as any).id
+                          })
+                        }
+                      }
+                      
+                      if (cleanImageName.startsWith('http')) {
                         // URL เต็มแล้ว
-                        profileImage = firstImage
-                      } else if (firstImage.startsWith('data:image/svg+xml')) {
+                        profileImage = cleanImageName
+                      } else if (cleanImageName.startsWith('data:image/svg+xml')) {
                         // SVG data
-                        profileImage = firstImage
+                        profileImage = cleanImageName
                       } else {
                         // ไฟล์ในโฟลเดอร์ uploads
-                        profileImage = `${baseUrl}/uploads/profiles/${firstImage}`
+                        profileImage = `${baseUrl}/uploads/profiles/${cleanImageName}`
                       }
                     }
                     
@@ -3261,28 +3652,36 @@ function App() {
                                 console.error('❌ Homepage image failed to load:', {
                                   imageUrl: profileImage,
                                   userId: user._id || (user as any).id,
-                                  username: (user as any).username
+                                  username: (user as any).username,
+                                  originalImageName: user.profileImages?.[(user as any).mainProfileImageIndex || 0]
                                 });
                                 
-                                // ลองใช้รูปอื่นถ้ามี
+                                // ซ่อนรูปและแสดง fallback ทันที
+                                (e.target as HTMLImageElement).style.display = 'none';
+                                const fallbackElement = (e.target as HTMLImageElement).nextElementSibling;
+                                if (fallbackElement) {
+                                  fallbackElement.classList.remove('hidden');
+                                }
+                                
+                                // ลองโหลดรูปอื่นถ้ามี (เฉพาะเมื่อรูปหลักล้มเหลว)
                                 const otherImages = user.profileImages?.slice(1) || []
-                                if (otherImages.length > 0) {
-                                  const baseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000'
+                                if (otherImages.length > 0 && !(e.target as HTMLImageElement).dataset.retried) {
                                   const nextImage = otherImages[0]
                                   let nextImageUrl = nextImage
                                   
+                                  // แก้ไขชื่อไฟล์ถ้าจำเป็น
                                   if (!nextImage.startsWith('http') && !nextImage.startsWith('data:')) {
-                                    nextImageUrl = `${baseUrl}/uploads/profiles/${nextImage}`
+                                    const hasExtension = /\.(jpg|jpeg|png|gif|webp)$/i.test(nextImage)
+                                    if (!hasExtension) {
+                                      nextImageUrl = `${nextImage}.jpg`
+                                    }
+                                    nextImageUrl = `${baseUrl}/uploads/profiles/${nextImageUrl}`
                                   }
                                   
                                   console.log('🔄 Trying next image:', nextImageUrl)
                                   ;(e.target as HTMLImageElement).src = nextImageUrl
-                                  return
+                                  ;(e.target as HTMLImageElement).dataset.retried = 'true'
                                 }
-                                
-                                // ถ้าไม่มีรูปอื่น ให้ซ่อนรูปและแสดง fallback
-                                (e.target as HTMLImageElement).style.display = 'none';
-                                (e.target as HTMLImageElement).nextElementSibling?.classList.remove('hidden');
                               }}
                               onLoad={() => {
                                 console.log('✅ Homepage image loaded successfully:', {
@@ -3293,6 +3692,12 @@ function App() {
                               }}
                             />
                           ) : null}
+                          
+                          {/* Fallback element สำหรับรูปภาพที่โหลดไม่ได้ */}
+                          <div className="absolute inset-0 bg-gradient-to-r from-pink-500 to-violet-500 flex items-center justify-center text-white text-2xl font-bold hidden">
+                            <User className="h-12 w-12" />
+                          </div>
+                          
                           <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent"></div>
                           
                           {/* Membership Tier Badge */}
@@ -3773,52 +4178,57 @@ function App() {
                     </div>
                   )}
                   
-                  <div className="flex justify-between items-end mb-1">
-                    <div className="flex-1 min-w-0">
-                      <h3 className="text-xl font-bold mb-1 text-white" style={{textShadow: '2px 2px 4px rgba(0,0,0,0.8), 0 0 8px rgba(0,0,0,0.6)'}}>{selectedProfile.name}, {selectedProfile.age}</h3>
-                      <div className="flex items-center text-white text-base" style={{textShadow: '1px 1px 3px rgba(0,0,0,0.8), 0 0 6px rgba(0,0,0,0.6)'}}>
-                        <MapPin className="h-5 w-5 mr-2" />
-                        <span className="truncate">{selectedProfile.location}</span>
-                        <span className="mx-2">•</span>
-                        <div className="flex items-center">
-                          {selectedProfile.membershipTier === 'platinum' && <Crown className="h-5 w-5 mr-2 text-purple-300" />}
-                          {selectedProfile.membershipTier === 'diamond' && <Crown className="h-5 w-5 mr-2 text-blue-300" />}
-                          {selectedProfile.membershipTier === 'gold' && <Crown className="h-5 w-5 mr-2 text-yellow-300" />}
-                          {selectedProfile.membershipTier === 'silver' && <Crown className="h-5 w-5 mr-2 text-gray-300" />}
-                          {selectedProfile.membershipTier === 'vip' && <Crown className="h-5 w-5 mr-2 text-pink-300" />}
-                          {selectedProfile.membershipTier === 'vip1' && <Crown className="h-5 w-5 mr-2 text-orange-300" />}
-                          {selectedProfile.membershipTier === 'vip2' && <Crown className="h-5 w-5 mr-2 text-red-300" />}
-                          <span className="capitalize text-base">{selectedProfile.membershipTier || 'Member'}</span>
+                  {/* Profile Info - ซ่อนเมื่อแสดงรายละเอียดโปรไฟล์ */}
+                  {!showProfileDetails && (
+                    <>
+                      <div className="flex justify-between items-end mb-1">
+                        <div className="flex-1 min-w-0">
+                          <h3 className="text-xl font-bold mb-1 text-white" style={{textShadow: '2px 2px 4px rgba(0,0,0,0.8), 0 0 8px rgba(0,0,0,0.6)'}}>{selectedProfile.name}, {selectedProfile.age}</h3>
+                          <div className="flex items-center text-white text-base" style={{textShadow: '1px 1px 3px rgba(0,0,0,0.8), 0 0 6px rgba(0,0,0,0.6)'}}>
+                            <MapPin className="h-5 w-5 mr-2" />
+                            <span className="truncate">{selectedProfile.location}</span>
+                            <span className="mx-2">•</span>
+                            <div className="flex items-center">
+                              {selectedProfile.membershipTier === 'platinum' && <Crown className="h-5 w-5 mr-2 text-purple-300" />}
+                              {selectedProfile.membershipTier === 'diamond' && <Crown className="h-5 w-5 mr-2 text-blue-300" />}
+                              {selectedProfile.membershipTier === 'gold' && <Crown className="h-5 w-5 mr-2 text-yellow-300" />}
+                              {selectedProfile.membershipTier === 'silver' && <Crown className="h-5 w-5 mr-2 text-gray-300" />}
+                              {selectedProfile.membershipTier === 'vip' && <Crown className="h-5 w-5 mr-2 text-pink-300" />}
+                              {selectedProfile.membershipTier === 'vip1' && <Crown className="h-5 w-5 mr-2 text-orange-300" />}
+                              {selectedProfile.membershipTier === 'vip2' && <Crown className="h-5 w-5 mr-2 text-red-300" />}
+                              <span className="capitalize text-base">{selectedProfile.membershipTier || 'Member'}</span>
+                            </div>
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  </div>
-                  
-                  {/* Bio Section */}
-                  {selectedProfile.bio && (
-                    <div className="mb-1">
-                      <h4 className="text-base font-semibold mb-1 text-white" style={{textShadow: '1px 1px 3px rgba(0,0,0,0.8), 0 0 6px rgba(0,0,0,0.6)'}}>เกี่ยวกับฉัน</h4>
-                      <p className="text-base text-white leading-relaxed line-clamp-1" style={{textShadow: '1px 1px 3px rgba(0,0,0,0.8), 0 0 6px rgba(0,0,0,0.6)'}}>{selectedProfile.bio}</p>
-                    </div>
-                  )}
-                  
-                  {/* Interests Section */}
-                  {selectedProfile.interests && selectedProfile.interests.length > 0 && (
-                    <div className="mb-1">
-                      <h4 className="text-base font-semibold mb-1 text-white" style={{textShadow: '1px 1px 3px rgba(0,0,0,0.8), 0 0 6px rgba(0,0,0,0.6)'}}>ความสนใจ</h4>
-                      <div className="flex flex-wrap gap-2">
-                        {selectedProfile.interests.slice(0, 3).map((interest, index) => (
-                          <span key={index} className="px-3 py-1 bg-black/60 backdrop-blur-sm rounded-full text-sm text-white" style={{textShadow: '1px 1px 2px rgba(0,0,0,0.8)'}}>
-                            {interest}
-                          </span>
-                        ))}
-                        {selectedProfile.interests.length > 3 && (
-                          <span className="px-3 py-1 bg-black/50 backdrop-blur-sm rounded-full text-sm text-white" style={{textShadow: '1px 1px 2px rgba(0,0,0,0.8)'}}>
-                            +{selectedProfile.interests.length - 3}
-                          </span>
-                        )}
-                      </div>
-                    </div>
+                      
+                      {/* Bio Section */}
+                      {selectedProfile.bio && (
+                        <div className="mb-1">
+                          <h4 className="text-base font-semibold mb-1 text-white" style={{textShadow: '1px 1px 3px rgba(0,0,0,0.8), 0 0 6px rgba(0,0,0,0.6)'}}>เกี่ยวกับฉัน</h4>
+                          <p className="text-base text-white leading-relaxed line-clamp-1" style={{textShadow: '1px 1px 3px rgba(0,0,0,0.8), 0 0 6px rgba(0,0,0,0.6)'}}>{selectedProfile.bio}</p>
+                        </div>
+                      )}
+                      
+                      {/* Interests Section */}
+                      {selectedProfile.interests && selectedProfile.interests.length > 0 && (
+                        <div className="mb-1">
+                          <h4 className="text-base font-semibold mb-1 text-white" style={{textShadow: '1px 1px 3px rgba(0,0,0,0.8), 0 0 6px rgba(0,0,0,0.6)'}}>ความสนใจ</h4>
+                          <div className="flex flex-wrap gap-2">
+                            {selectedProfile.interests.slice(0, 3).map((interest, index) => (
+                              <span key={index} className="px-3 py-1 bg-black/60 backdrop-blur-sm rounded-full text-sm text-white" style={{textShadow: '1px 1px 2px rgba(0,0,0,0.8)'}}>
+                                {interest}
+                              </span>
+                            ))}
+                            {selectedProfile.interests.length > 3 && (
+                              <span className="px-3 py-1 bg-black/50 backdrop-blur-sm rounded-full text-sm text-white" style={{textShadow: '1px 1px 2px rgba(0,0,0,0.8)'}}>
+                                +{selectedProfile.interests.length - 3}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      )}
+                    </>
                   )}
                   
                   
@@ -3837,64 +4247,66 @@ function App() {
                     </div>
                   )}
                   
-                  {/* Action Icons */}
-                  <div className="flex justify-center items-center gap-4 mb-10">
-                    {/* Chat Icon */}
-                    <button
-                      className="w-12 h-12 rounded-full flex items-center justify-center shadow-lg hover:shadow-xl transform hover:scale-110 transition-all duration-300 bg-blue-500 hover:bg-blue-600 text-white border border-blue-600"
-                      onClick={() => {
-                        console.log('💬 Start chat with:', selectedProfile.name);
-                        
-                        // สร้าง user object สำหรับ handleStartPrivateChat
-                        const targetUser = createUserObject(selectedProfile);
-                        handleStartPrivateChat(targetUser);
-                      }}
-                    >
-                      <MessageCircle className="h-6 w-6" />
-                    </button>
-                    
-                    {/* Heart Icon */}
-                    <button
-                      className={`w-12 h-12 rounded-full flex items-center justify-center shadow-lg hover:shadow-xl transform hover:scale-110 transition-all duration-300 ${
-                        likedProfiles.has(selectedProfile.id?.toString() || '')
-                          ? 'bg-red-500 text-white scale-110 border border-red-600'
-                          : 'bg-pink-500 hover:bg-pink-600 text-white border border-pink-600'
-                      }`}
-                      onClick={() => {
-                        console.log('💖 Like profile:', selectedProfile.name);
-                        const profileId = selectedProfile.id?.toString() || '';
-                        handleProfileLike(profileId);
-                      }}
-                    >
-                      <Heart className={`h-6 w-6 ${
-                        likedProfiles.has(selectedProfile.id?.toString() || '') ? 'fill-current' : ''
-                      }`} />
-                    </button>
-                    
-                    {/* Profile Details Icon */}
-                    <button
-                      className="w-12 h-12 rounded-full flex items-center justify-center shadow-lg hover:shadow-xl transform hover:scale-110 transition-all duration-300 bg-purple-500 hover:bg-purple-600 text-white border border-purple-600"
-                      onClick={() => {
-                        console.log('👤 View profile details:', selectedProfile.name);
-                        
-                        // สร้าง profile data object สำหรับ handleViewProfile
-                        const profileData = {
-                          id: selectedProfile.id,
-                          name: selectedProfile.name,
-                          membershipTier: selectedProfile.membershipTier || 'member',
-                          profileImages: selectedProfile.images,
-                          location: selectedProfile.location,
-                          age: selectedProfile.age,
-                          bio: selectedProfile.bio,
-                          interests: selectedProfile.interests
-                        };
-                        
-                        handleViewProfile(profileData);
-                      }}
-                    >
-                      <User className="h-6 w-6" />
-                    </button>
-                  </div>
+                  {/* Action Icons - ซ่อนเมื่อแสดงรายละเอียดโปรไฟล์ */}
+                  {!showProfileDetails && (
+                    <div className="flex justify-center items-center gap-4 mb-10">
+                      {/* Chat Icon */}
+                      <button
+                        className="w-12 h-12 rounded-full flex items-center justify-center shadow-lg hover:shadow-xl transform hover:scale-110 transition-all duration-300 bg-blue-500 hover:bg-blue-600 text-white border border-blue-600"
+                        onClick={() => {
+                          console.log('💬 Start chat with:', selectedProfile.name);
+                          
+                          // สร้าง user object สำหรับ handleStartPrivateChat
+                          const targetUser = createUserObject(selectedProfile);
+                          handleStartPrivateChat(targetUser);
+                        }}
+                      >
+                        <MessageCircle className="h-6 w-6" />
+                      </button>
+                      
+                      {/* Heart Icon */}
+                      <button
+                        className={`w-12 h-12 rounded-full flex items-center justify-center shadow-lg hover:shadow-xl transform hover:scale-110 transition-all duration-300 ${
+                          likedProfiles.has(selectedProfile.id?.toString() || '')
+                            ? 'bg-red-500 text-white scale-110 border border-red-600'
+                            : 'bg-pink-500 hover:bg-pink-600 text-white border border-pink-600'
+                        }`}
+                        onClick={() => {
+                          console.log('💖 Like profile:', selectedProfile.name);
+                          const profileId = selectedProfile.id?.toString() || '';
+                          handleProfileLike(profileId);
+                        }}
+                      >
+                        <Heart className={`h-6 w-6 ${
+                          likedProfiles.has(selectedProfile.id?.toString() || '') ? 'fill-current' : ''
+                        }`} />
+                      </button>
+                      
+                      {/* Profile Details Icon */}
+                      <button
+                        className="w-12 h-12 rounded-full flex items-center justify-center shadow-lg hover:shadow-xl transform hover:scale-110 transition-all duration-300 bg-purple-500 hover:bg-purple-600 text-white border border-purple-600"
+                        onClick={() => {
+                          console.log('👤 View profile details:', selectedProfile.name);
+                          
+                          // สร้าง profile data object สำหรับ handleViewProfile
+                          const profileData = {
+                            id: selectedProfile.id,
+                            name: selectedProfile.name,
+                            membershipTier: selectedProfile.membershipTier || 'member',
+                            profileImages: selectedProfile.images,
+                            location: selectedProfile.location,
+                            age: selectedProfile.age,
+                            bio: selectedProfile.bio,
+                            interests: selectedProfile.interests
+                          };
+                          
+                          handleViewProfile(profileData);
+                        }}
+                      >
+                        <User className="h-6 w-6" />
+                      </button>
+                    </div>
+                  )}
                   
                   {/* Action Result Display */}
                   {modalAction && !isStartingChat && (
@@ -3969,7 +4381,8 @@ function App() {
                                 // สร้าง profile image URL ที่ถูกต้อง
                                 let profileImageUrl = ''
                                 if (profileData.profileImages && profileData.profileImages.length > 0) {
-                                  const firstImage = profileData.profileImages[0]
+                                  const mainImageIndex = profileData.mainProfileImageIndex || 0
+                                  const firstImage = profileData.profileImages[mainImageIndex]
                                   if (firstImage.startsWith('http')) {
                                     profileImageUrl = firstImage
                                   } else if (firstImage.startsWith('data:image/svg+xml')) {
@@ -4006,7 +4419,8 @@ function App() {
                               })()}
                               <div className={`w-20 h-20 sm:w-24 sm:h-24 rounded-full bg-gradient-to-r from-pink-500 to-violet-500 flex items-center justify-center text-white text-2xl font-bold ${(() => {
                                 if (profileData.profileImages && profileData.profileImages.length > 0) {
-                                  const firstImage = profileData.profileImages[0]
+                                  const mainImageIndex = profileData.mainProfileImageIndex || 0
+                                  const firstImage = profileData.profileImages[mainImageIndex]
                                   if (firstImage.startsWith('http') || firstImage.startsWith('data:image/svg+xml')) {
                                     return firstImage.startsWith('data:image/svg+xml') ? '' : 'hidden'
                                   } else {
@@ -4130,76 +4544,115 @@ function App() {
                         )}
                         
                         {/* Additional Profile Information */}
-                        <div className="space-y-4">
+                        <div className="space-y-6">
                           {/* Personal Information */}
-                          <div className="space-y-2">
-                            <h3 className="text-lg font-semibold text-gray-800">ข้อมูลส่วนตัว</h3>
-                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                              <div className="flex items-center space-x-2">
-                                <User className="h-4 w-4 text-gray-500" />
-                                <span className="text-sm text-gray-600">เพศ: {translateGender(profileData.gender)}</span>
+                          <div className="space-y-3">
+                            <h3 className="text-lg font-semibold text-gray-800 border-b border-gray-200 pb-2">ข้อมูลส่วนตัว</h3>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                              <div className="flex items-start space-x-3 p-3 bg-gray-50 rounded-lg">
+                                <User className="h-5 w-5 text-gray-500 mt-0.5 flex-shrink-0" />
+                                <div className="min-w-0 flex-1">
+                                  <span className="text-sm font-medium text-gray-700">เพศ</span>
+                                  <p className="text-sm text-gray-600 mt-1">{translateGender(profileData.gender)}</p>
+                                </div>
                               </div>
-                              <div className="flex items-center space-x-2">
-                                <GraduationCap className="h-4 w-4 text-gray-500" />
-                                <span className="text-sm text-gray-600">การศึกษา: {safeDisplay(profileData.education) || 'ยังไม่ระบุ'}</span>
+                              <div className="flex items-start space-x-3 p-3 bg-gray-50 rounded-lg">
+                                <GraduationCap className="h-5 w-5 text-gray-500 mt-0.5 flex-shrink-0" />
+                                <div className="min-w-0 flex-1">
+                                  <span className="text-sm font-medium text-gray-700">การศึกษา</span>
+                                  <p className="text-sm text-gray-600 mt-1">{safeDisplay(profileData.education) || 'ยังไม่ระบุ'}</p>
+                                </div>
                               </div>
-                              <div className="flex items-center space-x-2">
-                                <Briefcase className="h-4 w-4 text-gray-500" />
-                                <span className="text-sm text-gray-600">อาชีพ: {safeDisplay(profileData.occupation) || 'ยังไม่ระบุ'}</span>
+                              <div className="flex items-start space-x-3 p-3 bg-gray-50 rounded-lg">
+                                <Briefcase className="h-5 w-5 text-gray-500 mt-0.5 flex-shrink-0" />
+                                <div className="min-w-0 flex-1">
+                                  <span className="text-sm font-medium text-gray-700">อาชีพ</span>
+                                  <p className="text-sm text-gray-600 mt-1">{safeDisplay(profileData.occupation) || 'ยังไม่ระบุ'}</p>
+                                </div>
                               </div>
-                              <div className="flex items-center space-x-2">
-                                <Church className="h-4 w-4 text-gray-500" />
-                                <span className="text-sm text-gray-600">ศาสนา: {safeDisplay(profileData.religion) || 'ยังไม่ระบุ'}</span>
+                              <div className="flex items-start space-x-3 p-3 bg-gray-50 rounded-lg">
+                                <Church className="h-5 w-5 text-gray-500 mt-0.5 flex-shrink-0" />
+                                <div className="min-w-0 flex-1">
+                                  <span className="text-sm font-medium text-gray-700">ศาสนา</span>
+                                  <p className="text-sm text-gray-600 mt-1">{safeDisplay(profileData.religion) || 'ยังไม่ระบุ'}</p>
+                                </div>
                               </div>
-                              <div className="flex items-center space-x-2">
-                                <Languages className="h-4 w-4 text-gray-500" />
-                                <span className="text-sm text-gray-600">ภาษา: {profileData.languages ? (Array.isArray(profileData.languages) ? profileData.languages.join(', ') : safeDisplay(profileData.languages)) : 'ยังไม่ระบุ'}</span>
+                              <div className="flex items-start space-x-3 p-3 bg-gray-50 rounded-lg">
+                                <Languages className="h-5 w-5 text-gray-500 mt-0.5 flex-shrink-0" />
+                                <div className="min-w-0 flex-1">
+                                  <span className="text-sm font-medium text-gray-700">ภาษา</span>
+                                  <p className="text-sm text-gray-600 mt-1">{profileData.languages ? (Array.isArray(profileData.languages) ? profileData.languages.join(', ') : safeDisplay(profileData.languages)) : 'ยังไม่ระบุ'}</p>
+                                </div>
                               </div>
                             </div>
                           </div>
                           
                           {/* Lifestyle Information */}
-                          <div className="space-y-2">
-                            <h3 className="text-lg font-semibold text-gray-800">ไลฟ์สไตล์</h3>
-                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                              <div className="flex items-center space-x-2">
-                                <Cigarette className="h-4 w-4 text-gray-500" />
-                                <span className="text-sm text-gray-600">สูบบุหรี่: {safeDisplay(profileData.smoking) || 'ยังไม่ระบุ'}</span>
+                          <div className="space-y-3">
+                            <h3 className="text-lg font-semibold text-gray-800 border-b border-gray-200 pb-2">ไลฟ์สไตล์</h3>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                              <div className="flex items-start space-x-3 p-3 bg-gray-50 rounded-lg">
+                                <Cigarette className="h-5 w-5 text-gray-500 mt-0.5 flex-shrink-0" />
+                                <div className="min-w-0 flex-1">
+                                  <span className="text-sm font-medium text-gray-700">สูบบุหรี่</span>
+                                  <p className="text-sm text-gray-600 mt-1">{safeDisplay(profileData.smoking) || 'ยังไม่ระบุ'}</p>
+                                </div>
                               </div>
-                              <div className="flex items-center space-x-2">
-                                <Wine className="h-4 w-4 text-gray-500" />
-                                <span className="text-sm text-gray-600">ดื่มแอลกอฮอล์: {safeDisplay(profileData.drinking) || 'ยังไม่ระบุ'}</span>
+                              <div className="flex items-start space-x-3 p-3 bg-gray-50 rounded-lg">
+                                <Wine className="h-5 w-5 text-gray-500 mt-0.5 flex-shrink-0" />
+                                <div className="min-w-0 flex-1">
+                                  <span className="text-sm font-medium text-gray-700">ดื่มแอลกอฮอล์</span>
+                                  <p className="text-sm text-gray-600 mt-1">{safeDisplay(profileData.drinking) || 'ยังไม่ระบุ'}</p>
+                                </div>
                               </div>
-                              <div className="flex items-center space-x-2">
-                                <Dumbbell className="h-4 w-4 text-gray-500" />
-                                <span className="text-sm text-gray-600">ออกกำลังกาย: {safeDisplay(profileData.exercise) || 'ยังไม่ระบุ'}</span>
+                              <div className="flex items-start space-x-3 p-3 bg-gray-50 rounded-lg">
+                                <Dumbbell className="h-5 w-5 text-gray-500 mt-0.5 flex-shrink-0" />
+                                <div className="min-w-0 flex-1">
+                                  <span className="text-sm font-medium text-gray-700">ออกกำลังกาย</span>
+                                  <p className="text-sm text-gray-600 mt-1">{safeDisplay(profileData.exercise) || 'ยังไม่ระบุ'}</p>
+                                </div>
                               </div>
-                              <div className="flex items-center space-x-2">
-                                <Utensils className="h-4 w-4 text-gray-500" />
-                                <span className="text-sm text-gray-600">อาหาร: {safeDisplay(profileData.diet) || 'ยังไม่ระบุ'}</span>
+                              <div className="flex items-start space-x-3 p-3 bg-gray-50 rounded-lg">
+                                <Utensils className="h-5 w-5 text-gray-500 mt-0.5 flex-shrink-0" />
+                                <div className="min-w-0 flex-1">
+                                  <span className="text-sm font-medium text-gray-700">อาหาร</span>
+                                  <p className="text-sm text-gray-600 mt-1">{safeDisplay(profileData.diet) || 'ยังไม่ระบุ'}</p>
+                                </div>
                               </div>
                             </div>
                           </div>
                           
                           {/* Additional Information */}
-                          <div className="space-y-2">
-                            <h3 className="text-lg font-semibold text-gray-800">ข้อมูลเพิ่มเติม</h3>
-                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                              <div className="flex items-center space-x-2">
-                                <Heart className="h-4 w-4 text-gray-500" />
-                                <span className="text-sm text-gray-600">ความสัมพันธ์ที่ต้องการ: {translateRelationship(safeDisplay(profileData.lookingFor))}</span>
+                          <div className="space-y-3">
+                            <h3 className="text-lg font-semibold text-gray-800 border-b border-gray-200 pb-2">ข้อมูลเพิ่มเติม</h3>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                              <div className="flex items-start space-x-3 p-3 bg-gray-50 rounded-lg">
+                                <Heart className="h-5 w-5 text-gray-500 mt-0.5 flex-shrink-0" />
+                                <div className="min-w-0 flex-1">
+                                  <span className="text-sm font-medium text-gray-700">ความสัมพันธ์ที่ต้องการ</span>
+                                  <p className="text-sm text-gray-600 mt-1">{translateRelationship(safeDisplay(profileData.lookingFor))}</p>
+                                </div>
                               </div>
-                              <div className="flex items-center space-x-2">
-                                <PawPrint className="h-4 w-4 text-gray-500" />
-                                <span className="text-sm text-gray-600">สัตว์เลี้ยง: {safeDisplay(profileData.pets) || 'ยังไม่ระบุ'}</span>
+                              <div className="flex items-start space-x-3 p-3 bg-gray-50 rounded-lg">
+                                <PawPrint className="h-5 w-5 text-gray-500 mt-0.5 flex-shrink-0" />
+                                <div className="min-w-0 flex-1">
+                                  <span className="text-sm font-medium text-gray-700">สัตว์เลี้ยง</span>
+                                  <p className="text-sm text-gray-600 mt-1">{safeDisplay(profileData.pets) || 'ยังไม่ระบุ'}</p>
+                                </div>
                               </div>
-                              <div className="flex items-center space-x-2">
-                                <Building className="h-4 w-4 text-gray-500" />
-                                <span className="text-sm text-gray-600">ที่อยู่อาศัย: {safeDisplay(profileData.livingSituation) || 'ยังไม่ระบุ'}</span>
+                              <div className="flex items-start space-x-3 p-3 bg-gray-50 rounded-lg">
+                                <Building className="h-5 w-5 text-gray-500 mt-0.5 flex-shrink-0" />
+                                <div className="min-w-0 flex-1">
+                                  <span className="text-sm font-medium text-gray-700">ที่อยู่อาศัย</span>
+                                  <p className="text-sm text-gray-600 mt-1">{safeDisplay(profileData.livingSituation) || 'ยังไม่ระบุ'}</p>
+                                </div>
                               </div>
-                              <div className="flex items-center space-x-2">
-                                <Baby className="h-4 w-4 text-gray-500" />
-                                <span className="text-sm text-gray-600">ต้องการมีลูก: {safeDisplay(profileData.wantChildren) || 'ยังไม่ระบุ'}</span>
+                              <div className="flex items-start space-x-3 p-3 bg-gray-50 rounded-lg">
+                                <Baby className="h-5 w-5 text-gray-500 mt-0.5 flex-shrink-0" />
+                                <div className="min-w-0 flex-1">
+                                  <span className="text-sm font-medium text-gray-700">ต้องการมีลูก</span>
+                                  <p className="text-sm text-gray-600 mt-1">{safeDisplay(profileData.wantChildren) || 'ยังไม่ระบุ'}</p>
+                                </div>
                               </div>
                             </div>
                           </div>
@@ -4251,4 +4704,13 @@ function App() {
   )
 }
 
-export default App
+// Wrapper component ที่มี DataCacheProvider
+const AppWithProviders = () => {
+  return (
+    <DataCacheProvider>
+      <App />
+    </DataCacheProvider>
+  );
+};
+
+export default AppWithProviders

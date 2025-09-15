@@ -129,7 +129,7 @@ const messageSchema = new mongoose.Schema({
   timestamps: true
 });
 
-// Indexes
+// เพิ่ม index เพื่อความเร็วในการค้นหาข้อความในห้องแชท
 messageSchema.index({ chatRoom: 1, createdAt: -1 });
 messageSchema.index({ sender: 1 });
 messageSchema.index({ 'reactions.user': 1 });

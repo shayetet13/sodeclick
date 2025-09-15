@@ -7,6 +7,7 @@ const mongoose = require('mongoose');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
+const { auth } = require('../middleware/auth');
 
 // Configure multer for file uploads
 const storage = multer.diskStorage({
@@ -44,22 +45,22 @@ const upload = multer({
 // GET /api/messages/:roomId - ดึงข้อความในห้องแชท
 router.get('/:roomId', async (req, res) => {
   try {
-    const { roomId } = req.params;
-    const { page = 1, limit = 50, userId } = req.query;
+  const { roomId } = req.params;
+  const { page = 1, limit = 30, userId } = req.query; // limit default 30 เพื่อความเร็ว
 
     // สำหรับ private chat ที่ไม่ใช่ ChatRoom
     if (roomId.startsWith('private_')) {
       console.log('🔒 Fetching messages for private chat:', roomId);
-      
-      // ดึงข้อความสำหรับ private chat โดยตรง
+      // ดึงข้อความล่าสุด (ใหม่ -> เก่า)
       const messages = await Message.find({ chatRoom: roomId })
         .populate('sender', 'username displayName membershipTier profileImages')
         .populate('replyTo', 'content sender')
-        .sort({ createdAt: 1 }) // เรียงจากเก่าไปใหม่
+        .sort({ createdAt: -1 }) // ใหม่ -> เก่า
         .limit(parseInt(limit));
-      
+      // reverse ที่ backend เพื่อให้ frontend ได้ array จากเก่า -> ใหม่
+      const orderedMessages = [...messages].reverse();
       // เพิ่มข้อมูลว่าผู้ใช้ปัจจุบัน react หรือไม่
-      const messagesWithUserReactions = messages.map(message => {
+      const messagesWithUserReactions = orderedMessages.map(message => {
         const messageObj = message.toObject();
         if (userId) {
           messageObj.userReaction = message.getUserReactionType(userId);
@@ -67,7 +68,6 @@ router.get('/:roomId', async (req, res) => {
         }
         return messageObj;
       });
-
       res.json({
         success: true,
         data: {
@@ -554,14 +554,22 @@ router.get('/private-chats/:userId', async (req, res) => {
         .sort({ createdAt: -1 })
         .lean();
 
-        // นับจำนวนข้อความที่ยังไม่อ่าน
+        // นับจำนวนข้อความที่ยังไม่อ่าน (ใช้ readBy array)
         const unreadCount = await Message.countDocuments({
           chatRoom: room._id,
           sender: { $ne: userId },
-          isRead: false,
+          readBy: { $ne: userId },
           isDeleted: false
         });
 
+        // เลือก url รูปโปรไฟล์หลัก
+        let profileImageUrl = '';
+        if (Array.isArray(otherUser.profileImages) && otherUser.profileImages.length > 0) {
+          const mainIdx = typeof otherUser.mainProfileImageIndex === 'number' ? otherUser.mainProfileImageIndex : 0;
+          profileImageUrl = otherUser.profileImages[mainIdx] || otherUser.profileImages[0];
+        } else {
+          profileImageUrl = '/uploads/profiles/default-avatar.png'; // path นี้ควรตรงกับ default จริง
+        }
         return {
           id: room._id,
           roomId: room._id,
@@ -574,6 +582,7 @@ router.get('/private-chats/:userId', async (req, res) => {
             lastName: otherUser.lastName || '',
             membershipTier: otherUser.membershipTier || 'member',
             profileImages: otherUser.profileImages || [],
+            profileImageUrl,
             isOnline: otherUser.isOnline || false
           },
           lastMessage: lastMessage ? {
@@ -618,13 +627,22 @@ router.get('/private-chats/:userId', async (req, res) => {
 
         if (!otherUser) return null;
 
-        // นับจำนวนข้อความที่ยังไม่อ่าน
+        // นับจำนวนข้อความที่ยังไม่อ่าน (ใช้ readBy array)
         const unreadCount = await Message.countDocuments({
           chatRoom: chatId,
           sender: { $ne: userId },
+          readBy: { $ne: userId },
           isDeleted: false
         });
 
+        // เลือก url รูปโปรไฟล์หลัก
+        let profileImageUrl = '';
+        if (Array.isArray(otherUser.profileImages) && otherUser.profileImages.length > 0) {
+          const mainIdx = typeof otherUser.mainProfileImageIndex === 'number' ? otherUser.mainProfileImageIndex : 0;
+          profileImageUrl = otherUser.profileImages[mainIdx] || otherUser.profileImages[0];
+        } else {
+          profileImageUrl = '/uploads/profiles/default-avatar.png';
+        }
         return {
           id: chatId,
           roomId: chatId,
@@ -637,6 +655,7 @@ router.get('/private-chats/:userId', async (req, res) => {
             lastName: otherUser.lastName || '',
             membershipTier: otherUser.membershipTier || 'member',
             profileImages: otherUser.profileImages || [],
+            profileImageUrl,
             isOnline: otherUser.isOnline || false
           },
           lastMessage: lastMessage ? {
@@ -779,6 +798,331 @@ router.post('/create-private-chat', async (req, res) => {
 
   } catch (error) {
     console.error('Error creating private chat:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error',
+      error: error.message
+    });
+  }
+});
+
+// DELETE /api/messages/private-chat/:chatId - ลบแชทส่วนตัว (Soft Delete)
+router.delete('/private-chat/:chatId', auth, async (req, res) => {
+  try {
+    const { chatId } = req.params;
+    const userId = req.user.id;
+
+    console.log('🗑️ Soft deleting private chat:', chatId, 'for user:', userId);
+
+    // ตรวจสอบว่า chatId เป็น private chat ID หรือไม่
+    if (!chatId.includes('private_')) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid private chat ID'
+      });
+    }
+
+    // แยก chat ID เพื่อหา user IDs
+    const parts = chatId.replace('private_', '').split('_');
+    if (parts.length !== 2) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid private chat ID format'
+      });
+    }
+
+    const [user1Id, user2Id] = parts;
+
+    // ตรวจสอบว่าผู้ใช้เป็นส่วนหนึ่งของแชทนี้หรือไม่
+    if (user1Id !== userId && user2Id !== userId) {
+      return res.status(403).json({
+        success: false,
+        message: 'You are not authorized to delete this chat'
+      });
+    }
+
+    // หาผู้ใช้ที่ลบและผู้ใช้อีกฝั่ง
+    const deleterId = userId;
+    const otherUserId = user1Id === userId ? user2Id : user1Id;
+
+    // สร้าง chat ID ใหม่สำหรับผู้ที่ลบ (สลับลำดับ user IDs)
+    const newChatId = `private_${deleterId}_${otherUserId}`;
+
+    console.log('🔄 Creating new chat ID for deleter:', newChatId);
+    console.log('📋 Old chat ID remains for other user:', chatId);
+
+    // อัปเดต privateChats ของผู้ใช้ที่ลบให้ใช้ chat ID ใหม่
+    await User.findByIdAndUpdate(
+      deleterId,
+      { 
+        $pull: { privateChats: { chatId: chatId } },
+        $push: { 
+          privateChats: { 
+            chatId: newChatId,
+            otherUserId: otherUserId,
+            lastMessage: null,
+            lastMessageTime: null,
+            isDeleted: true // เพิ่ม flag เพื่อระบุว่าเป็น chat ที่ถูก soft delete
+          }
+        }
+      }
+    );
+
+    // ผู้ใช้อีกฝั่งยังใช้ chat ID เดิม (ไม่ต้องอัปเดตอะไร)
+
+    console.log('✅ Private chat soft deleted successfully');
+    console.log('📝 User', deleterId, 'now uses chat ID:', newChatId);
+    console.log('📝 User', otherUserId, 'still uses chat ID:', chatId);
+
+    res.json({
+      success: true,
+      message: 'Private chat deleted successfully (soft delete)',
+      data: {
+        oldChatId: chatId,
+        newChatId: newChatId,
+        deleterId: deleterId,
+        otherUserId: otherUserId,
+        messagesPreserved: true
+      }
+    });
+
+  } catch (error) {
+    console.error('Error soft deleting private chat:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error',
+      error: error.message
+    });
+  }
+});
+
+// POST /api/messages/mark-as-read - ทำเครื่องหมายข้อความว่าอ่านแล้ว
+router.post('/mark-as-read', auth, async (req, res) => {
+  try {
+    const { chatRoomId, userId } = req.body;
+    const currentUserId = req.user.id;
+
+    if (!chatRoomId || !userId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Chat room ID and user ID are required'
+      });
+    }
+
+    // ตรวจสอบว่าผู้ใช้มีสิทธิ์เข้าถึงแชทนี้
+    let hasAccess = false;
+    
+    // สำหรับ private chat
+    if (chatRoomId.startsWith('private_')) {
+      const userParts = chatRoomId.split('_');
+      if (userParts.length >= 3) {
+        const userId1 = userParts[1];
+        const userId2 = userParts[2];
+        hasAccess = currentUserId === userId1 || currentUserId === userId2;
+      }
+    } else {
+      // สำหรับ ChatRoom ปกติ
+      const chatRoom = await ChatRoom.findById(chatRoomId);
+      if (chatRoom) {
+        hasAccess = chatRoom.members.some(member => 
+          member.user.toString() === currentUserId
+        );
+      }
+    }
+
+    if (!hasAccess) {
+      return res.status(403).json({
+        success: false,
+        message: 'Access denied to this chat room'
+      });
+    }
+
+    // อัปเดตข้อความที่ยังไม่ได้อ่านให้เป็นอ่านแล้ว
+    const result = await Message.updateMany(
+      {
+        chatRoom: chatRoomId,
+        sender: { $ne: currentUserId }, // ไม่นับข้อความที่ตัวเองส่ง
+        readBy: { $ne: currentUserId } // ยังไม่ได้อ่านโดยผู้ใช้ปัจจุบัน
+      },
+      {
+        $addToSet: { readBy: currentUserId }
+      }
+    );
+
+    console.log(`✅ Marked ${result.modifiedCount} messages as read for user ${currentUserId} in chat ${chatRoomId}`);
+
+    res.json({
+      success: true,
+      message: 'Messages marked as read successfully',
+      data: {
+        modifiedCount: result.modifiedCount
+      }
+    });
+
+  } catch (error) {
+    console.error('Error marking messages as read:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error',
+      error: error.message
+    });
+  }
+});
+
+// GET /api/messages/unread-count/:userId - ดึงจำนวนข้อความที่ยังไม่ได้อ่าน
+router.get('/unread-count/:userId', auth, async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const currentUserId = req.user.id;
+
+    // ตรวจสอบสิทธิ์
+    if (currentUserId !== userId) {
+      return res.status(403).json({
+        success: false,
+        message: 'Access denied'
+      });
+    }
+
+    // ดึงจำนวนข้อความที่ยังไม่ได้อ่านสำหรับ private chats
+    const privateChatUnreadCount = await Message.aggregate([
+      {
+        $match: {
+          chatRoom: { $regex: /^private_.*_/ },
+          sender: { $ne: new mongoose.Types.ObjectId(userId) },
+          readBy: { $ne: new mongoose.Types.ObjectId(userId) },
+          isDeleted: false
+        }
+      },
+      {
+        $group: {
+          _id: '$chatRoom',
+          count: { $sum: 1 },
+          lastMessage: { $last: '$$ROOT' }
+        }
+      },
+      {
+        $project: {
+          chatRoom: '$_id',
+          unreadCount: '$count',
+          lastMessage: 1,
+          _id: 0
+        }
+      }
+    ]);
+
+    // ดึงจำนวนข้อความที่ยังไม่ได้อ่านสำหรับ ChatRoom ปกติ
+    const chatRoomUnreadCount = await Message.aggregate([
+      {
+        $lookup: {
+          from: 'chatrooms',
+          localField: 'chatRoom',
+          foreignField: '_id',
+          as: 'room'
+        }
+      },
+      {
+        $match: {
+          'room.members.user': new mongoose.Types.ObjectId(userId),
+          sender: { $ne: new mongoose.Types.ObjectId(userId) },
+          readBy: { $ne: new mongoose.Types.ObjectId(userId) },
+          isDeleted: false
+        }
+      },
+      {
+        $group: {
+          _id: '$chatRoom',
+          count: { $sum: 1 },
+          lastMessage: { $last: '$$ROOT' }
+        }
+      },
+      {
+        $project: {
+          chatRoom: '$_id',
+          unreadCount: '$count',
+          lastMessage: 1,
+          _id: 0
+        }
+      }
+    ]);
+
+    // รวมผลลัพธ์
+    const allUnreadCounts = [...privateChatUnreadCount, ...chatRoomUnreadCount];
+    
+    // คำนวณจำนวนรวม
+    const totalUnreadCount = allUnreadCounts.reduce((sum, item) => sum + item.unreadCount, 0);
+
+    res.json({
+      success: true,
+      data: {
+        totalUnreadCount,
+        chatUnreadCounts: allUnreadCounts
+      }
+    });
+
+  } catch (error) {
+    console.error('Error getting unread count:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error',
+      error: error.message
+    });
+  }
+});
+
+// GET /api/messages/private-chats-unread/:userId - ดึงจำนวนข้อความที่ยังไม่ได้อ่านสำหรับแชทส่วนตัวเท่านั้น
+router.get('/private-chats-unread/:userId', auth, async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const currentUserId = req.user.id;
+
+    // ตรวจสอบสิทธิ์
+    if (currentUserId !== userId) {
+      return res.status(403).json({
+        success: false,
+        message: 'Access denied'
+      });
+    }
+
+    // ดึงจำนวนข้อความที่ยังไม่ได้อ่านสำหรับ private chats เท่านั้น
+    const privateChatUnreadCount = await Message.aggregate([
+      {
+        $match: {
+          chatRoom: { $regex: /^private_.*_/ },
+          sender: { $ne: new mongoose.Types.ObjectId(userId) },
+          readBy: { $ne: new mongoose.Types.ObjectId(userId) },
+          isDeleted: false
+        }
+      },
+      {
+        $group: {
+          _id: '$chatRoom',
+          count: { $sum: 1 },
+          lastMessage: { $last: '$$ROOT' }
+        }
+      },
+      {
+        $project: {
+          chatRoom: '$_id',
+          unreadCount: '$count',
+          lastMessage: 1,
+          _id: 0
+        }
+      }
+    ]);
+
+    // คำนวณจำนวนรวม
+    const totalUnreadCount = privateChatUnreadCount.reduce((sum, item) => sum + item.unreadCount, 0);
+
+    res.json({
+      success: true,
+      data: {
+        totalUnreadCount,
+        chatUnreadCounts: privateChatUnreadCount
+      }
+    });
+
+  } catch (error) {
+    console.error('Error getting private chat unread count:', error);
     res.status(500).json({
       success: false,
       message: 'Internal server error',

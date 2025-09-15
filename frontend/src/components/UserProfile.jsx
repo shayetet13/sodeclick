@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Button } from './ui/button';
 import { Card } from './ui/card';
 import { Badge } from './ui/badge';
@@ -8,7 +8,8 @@ import { Label } from './ui/label';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { useToast } from './ui/toast';
 import { membershipHelpers } from '../services/membershipAPI';
-import { profileAPI, profileHelpers } from '../services/profileAPI';
+import { profileAPI } from '../services/profileAPI';
+import { useLazyData } from '../hooks/useLazyData';
 import {
   User,
   Edit3,
@@ -18,7 +19,6 @@ import {
   Briefcase,
   GraduationCap,
   Heart,
-  MessageCircle,
   Star,
   Award,
   Crown,
@@ -57,15 +57,90 @@ import {
 } from 'lucide-react';
 
 const UserProfile = ({ userId, isOwnProfile = false }) => {
-  const [profile, setProfile] = useState(null);
-  const [loading, setLoading] = useState(true);
   const [editMode, setEditMode] = useState(false);
   const [editData, setEditData] = useState({});
   const [saving, setSaving] = useState(false);
   const [uploadingImage, setUploadingImage] = useState(false);
-  const [membershipData, setMembershipData] = useState(null);
   const [petsInput, setPetsInput] = useState('');
   const { success, error: showError } = useToast();
+
+  // ใช้ lazy loading สำหรับข้อมูลโปรไฟล์
+  const {
+    data: profile,
+    loading: profileLoading,
+    error: profileError,
+    refetch: refetchProfile,
+    updateData: updateProfile
+  } = useLazyData(
+    useCallback(() => profileAPI.getUserProfile(userId), [userId]),
+    [userId],
+    {
+      cacheKey: `profile_${userId}`,
+      staleTime: 2 * 60 * 1000, // 2 นาที
+      onSuccess: (response) => {
+        console.log('✅ Profile loaded successfully:', response);
+        if (response && response.success && response.data && response.data.profile) {
+          console.log('📋 Profile data received:', {
+            userId: response.data.profile._id || response.data.profile.id,
+            hasProfileImages: !!response.data.profile.profileImages,
+            profileImagesCount: response.data.profile.profileImages?.length || 0,
+            hasBasicInfo: !!(response.data.profile.firstName || response.data.profile.displayName)
+          });
+          setEditData(response.data.profile);
+          setPetsInput(formatPetsForInput(response.data.profile?.pets));
+        } else {
+          console.error('❌ Profile response missing data:', response);
+          // ถ้าไม่มีข้อมูลโปรไฟล์ ให้แสดง error และไม่เรียก showError เพื่อไม่ให้เกิด loop
+          // showError('ไม่สามารถโหลดข้อมูลโปรไฟล์ได้');
+        }
+      },
+      onError: (err) => {
+        console.error('❌ Profile loading error:', err);
+        if (err.message.includes('403')) {
+          showError('ไม่มีสิทธิ์เข้าถึงโปรไฟล์นี้');
+        } else if (err.message.includes('404')) {
+          showError('ไม่พบโปรไฟล์ผู้ใช้');
+        } else if (err.message.includes('401')) {
+          showError('กรุณาเข้าสู่ระบบใหม่');
+        } else {
+          showError('ไม่สามารถดึงข้อมูลโปรไฟล์ได้');
+        }
+      }
+    }
+  );
+
+  // ใช้ lazy loading สำหรับข้อมูลสมาชิก
+  const {
+    data: membershipData,
+    loading: membershipLoading
+  } = useLazyData(
+    useCallback(async () => {
+      const token = sessionStorage.getItem('token');
+      const headers = {
+        'Content-Type': 'application/json'
+      };
+      
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+      
+      const response = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/membership/user/${userId}`, {
+        headers
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        return data.success ? data.data : null;
+      }
+      return null;
+    }, [userId]),
+    [userId],
+    {
+      cacheKey: `membership_${userId}`,
+      staleTime: 5 * 60 * 1000, // 5 นาที
+      enabled: !!userId
+    }
+  );
 
   // ฟังก์ชันคำนวณอายุจากวันเกิด
   const getAgeFromDate = (dateOfBirth) => {
@@ -80,67 +155,6 @@ const UserProfile = ({ userId, isOwnProfile = false }) => {
     return age;
   };
 
-  // ดึงข้อมูลโปรไฟล์
-  const fetchProfile = async () => {
-    try {
-      setLoading(true);
-      const response = await profileAPI.getUserProfile(userId);
-      
-      if (response.success) {
-        setProfile(response.data.profile);
-        setEditData(response.data.profile);
-        // เตรียมค่าเริ่มต้นของ pets สำหรับอินพุตแก้ไข
-        setPetsInput(formatPetsForInput(response.data.profile?.pets));
-        console.log('Profile loaded successfully:', response.data.profile);
-      } else {
-        console.error('Profile API returned error:', response);
-        showError(response.message || 'ไม่สามารถดึงข้อมูลโปรไฟล์ได้');
-      }
-    } catch (err) {
-      console.error('Error fetching profile:', err);
-      
-      // จัดการ error ตามประเภท
-      if (err.message.includes('403')) {
-        showError('ไม่มีสิทธิ์เข้าถึงโปรไฟล์นี้');
-      } else if (err.message.includes('404')) {
-        showError('ไม่พบโปรไฟล์ผู้ใช้');
-      } else {
-        showError('ไม่สามารถดึงข้อมูลโปรไฟล์ได้');
-      }
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // ดึงข้อมูลสมาชิก
-  const fetchMembershipData = async () => {
-    try {
-      const token = sessionStorage.getItem('token');
-      const headers = {
-        'Content-Type': 'application/json'
-      };
-      
-      // เพิ่ม token ถ้ามี
-      if (token) {
-        headers['Authorization'] = `Bearer ${token}`;
-      }
-      
-      const response = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/membership/user/${userId}`, {
-        headers
-      });
-      
-      if (response.ok) {
-        const data = await response.json();
-        if (data.success) {
-          setMembershipData(data.data);
-        }
-      } else {
-        console.log('Membership data not available (may require login)');
-      }
-    } catch (err) {
-      console.log('Error fetching membership data (non-critical):', err);
-    }
-  };
 
   // บันทึกข้อมูลโปรไฟล์
   const saveProfile = async () => {
@@ -185,7 +199,8 @@ const UserProfile = ({ userId, isOwnProfile = false }) => {
       console.log('Updated profile:', response.data.profile);
       console.log('Interests data:', response.data.profile?.interests);
       
-      setProfile(response.data.profile);
+      // อัปเดตข้อมูลใน cache แทนการรีเฟรช
+      updateProfile(response.data.profile);
       setEditData(response.data.profile);
       setPetsInput(formatPetsForInput(response.data.profile?.pets));
       setEditMode(false);
@@ -229,22 +244,22 @@ const UserProfile = ({ userId, isOwnProfile = false }) => {
 
   // เริ่มแก้ไข
   const startEdit = () => {
-    console.log('startEdit called, profile:', profile);
-    console.log('Setting editData to:', { ...profile });
-    setEditData({ ...profile });
+    console.log('startEdit called, profileData:', profileData);
+    console.log('Setting editData to:', { ...profileData });
+    setEditData({ ...profileData });
     setEditMode(true);
     console.log('editMode set to true');
-    setPetsInput(formatPetsForInput(profile?.pets));
+    setPetsInput(formatPetsForInput(profileData?.pets));
   };
 
   // ยกเลิกการแก้ไข
   const cancelEdit = () => {
     console.log('cancelEdit called');
-    console.log('Resetting editData to:', { ...profile });
-    setEditData({ ...profile });
+    console.log('Resetting editData to:', { ...profileData });
+    setEditData({ ...profileData });
     setEditMode(false);
     console.log('editMode set to false');
-    setPetsInput(formatPetsForInput(profile?.pets));
+    setPetsInput(formatPetsForInput(profileData?.pets));
   };
 
   // อัปโหลดรูปภาพ
@@ -254,7 +269,7 @@ const UserProfile = ({ userId, isOwnProfile = false }) => {
 
     // ตรวจสอบจำนวนรูปภาพตามระดับสมาชิก
     if (membershipData) {
-      const currentImageCount = profile.profileImages ? profile.profileImages.filter(img => !img.startsWith('data:image/svg+xml')).length : 0;
+      const currentImageCount = profileData.profileImages ? profileData.profileImages.filter(img => !img.startsWith('data:image/svg+xml')).length : 0;
       const maxImages = membershipData.limits.dailyImages === -1 ? 10 : membershipData.limits.dailyImages;
       
       if (currentImageCount >= maxImages) {
@@ -266,7 +281,8 @@ const UserProfile = ({ userId, isOwnProfile = false }) => {
     try {
       setUploadingImage(true);
       await profileAPI.uploadProfileImage(userId, file);
-      await fetchProfile();
+      // อัปเดตข้อมูลโดยไม่ต้องรีเฟรช
+      refetchProfile();
       success('อัปโหลดรูปภาพสำเร็จ');
     } catch (err) {
       showError(err.response?.data?.message || 'ไม่สามารถอัปโหลดรูปภาพได้');
@@ -279,7 +295,8 @@ const UserProfile = ({ userId, isOwnProfile = false }) => {
   const deleteImage = async (imageIndex) => {
     try {
       await profileAPI.deleteProfileImage(userId, imageIndex);
-      await fetchProfile();
+      // อัปเดตข้อมูลโดยไม่ต้องรีเฟรช
+      refetchProfile();
       success('ลบรูปภาพสำเร็จ');
     } catch (err) {
       showError(err.response?.data?.message || 'ไม่สามารถลบรูปภาพได้');
@@ -293,11 +310,16 @@ const UserProfile = ({ userId, isOwnProfile = false }) => {
       const response = await profileAPI.setMainProfileImage(userId, imageIndex);
       console.log('API response:', response);
       
-      await fetchProfile(); // รีเฟรชข้อมูลโปรไฟล์
+      // อัปเดตข้อมูลโดยไม่ต้องรีเฟรช
+      refetchProfile();
       
       // รีเฟรช avatar ใน header โดยไม่ต้องรีเฟรชหน้าเว็บ
       const event = new CustomEvent('profileImageUpdated', { 
-        detail: { userId, profileImages: response.data.profileImages } 
+        detail: { 
+          userId, 
+          profileImages: response.data.profileImages,
+          mainProfileImageIndex: response.data.mainProfileImageIndex
+        } 
       });
       window.dispatchEvent(event);
       
@@ -308,12 +330,26 @@ const UserProfile = ({ userId, isOwnProfile = false }) => {
     }
   };
 
+  // ดึงข้อมูลโปรไฟล์จาก response (ย้ายมาที่นี่เพื่อให้ใช้ได้ใน useEffect)
+  const profileData = profile && profile.data && profile.data.profile ? profile.data.profile : null;
+
+  // ตรวจสอบว่าข้อมูลโปรไฟล์มีเนื้อหาหรือไม่
+  const hasValidProfileData = profileData && (
+    profileData.firstName || 
+    profileData.displayName || 
+    profileData.username ||
+    profileData._id ||
+    profileData.id
+  );
+
   useEffect(() => {
-    if (userId) {
-      fetchProfile();
-      fetchMembershipData();
+    // ไม่ต้องเรียก fetchProfile และ fetchMembershipData อีกแล้ว เพราะใช้ lazy loading
+    // เพียงแค่ตั้งค่าเริ่มต้นของ editData เมื่อ profile โหลดเสร็จ
+    if (profileData && !editData._id) {
+      setEditData({ ...profileData });
+      setPetsInput(formatPetsForInput(profileData?.pets));
     }
-  }, [userId]);
+  }, [profileData]);
 
   // ฟังก์ชันแปลงข้อมูลการศึกษา (รองรับทั้งค่าจากฟอร์มและจากฐานข้อมูล)
   const getEducationLabel = (level) => {
@@ -505,7 +541,7 @@ const UserProfile = ({ userId, isOwnProfile = false }) => {
       .join(', ');
   };
 
-  if (loading) {
+  if (profileLoading) {
     return (
       <div className="flex items-center justify-center py-12">
         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-pink-500"></div>
@@ -514,13 +550,70 @@ const UserProfile = ({ userId, isOwnProfile = false }) => {
     );
   }
 
-  if (!profile) {
+  if (profileError) {
     return (
       <div className="text-center py-12">
-        <p className="text-gray-500">ไม่พบข้อมูลโปรไฟล์</p>
+        <div className="text-red-500 mb-2">
+          <AlertCircle className="h-8 w-8 mx-auto mb-2" />
+          <p className="text-lg font-semibold">เกิดข้อผิดพลาด</p>
+        </div>
+        <p className="text-gray-500 mb-4">{profileError.message || 'ไม่สามารถโหลดข้อมูลโปรไฟล์ได้'}</p>
+        <div className="space-x-2">
+          <Button 
+            onClick={() => refetchProfile()} 
+            variant="outline"
+            className="text-sm"
+          >
+            ลองใหม่
+          </Button>
+          <Button 
+            onClick={() => window.location.reload()} 
+            variant="outline"
+            className="text-sm"
+          >
+            รีเฟรชหน้า
+          </Button>
+        </div>
       </div>
     );
   }
+
+  if (!profile || !profile.data || !hasValidProfileData) {
+    return (
+      <div className="text-center py-12">
+        <div className="text-gray-400 mb-2">
+          <User className="h-8 w-8 mx-auto mb-2" />
+          <p className="text-lg font-semibold">ไม่พบข้อมูลโปรไฟล์</p>
+        </div>
+        <p className="text-gray-500 mb-4">โปรไฟล์นี้ไม่มีอยู่หรือคุณไม่มีสิทธิ์เข้าถึง</p>
+        <div className="space-x-2">
+          <Button 
+            onClick={() => refetchProfile()} 
+            variant="outline"
+            className="text-sm"
+          >
+            ลองใหม่
+          </Button>
+          <Button 
+            onClick={() => window.location.reload()} 
+            variant="outline"
+            className="text-sm"
+          >
+            รีเฟรชหน้า
+          </Button>
+        </div>
+        <div className="mt-4 text-xs text-gray-400">
+          <p>Debug info:</p>
+          <p>Profile exists: {profile ? 'Yes' : 'No'}</p>
+          <p>Profile data exists: {profile?.data ? 'Yes' : 'No'}</p>
+          <p>Profile profile exists: {profile?.data?.profile ? 'Yes' : 'No'}</p>
+          <p>Has valid profile data: {hasValidProfileData ? 'Yes' : 'No'}</p>
+          <p>Profile data keys: {profileData ? Object.keys(profileData).join(', ') : 'None'}</p>
+        </div>
+      </div>
+    );
+  }
+
 
   console.log('UserProfile render - editMode:', editMode, 'isOwnProfile:', isOwnProfile);
   
@@ -535,15 +628,23 @@ const UserProfile = ({ userId, isOwnProfile = false }) => {
                 {(() => {
                   // สร้าง profile image URL ที่ถูกต้อง
                   let profileImageUrl = ''
-                  if (profile.profileImages && profile.profileImages.length > 0) {
-                    const firstImage = profile.profileImages[0]
-                    if (firstImage.startsWith('http')) {
-                      profileImageUrl = firstImage
-                    } else if (firstImage.startsWith('data:image/svg+xml')) {
-                      profileImageUrl = firstImage
+                  if (profileData.profileImages && profileData.profileImages.length > 0) {
+                    // ใช้ mainProfileImageIndex หรือ 0 เป็นค่าเริ่มต้น
+                    const mainImageIndex = profileData.mainProfileImageIndex || 0
+                    const mainImage = profileData.profileImages[mainImageIndex]
+                    console.log('🎯 Profile header image:', {
+                      mainProfileImageIndex: profileData.mainProfileImageIndex,
+                      mainImageIndex,
+                      mainImage,
+                      allImages: profileData.profileImages
+                    })
+                    if (mainImage.startsWith('http')) {
+                      profileImageUrl = mainImage
+                    } else if (mainImage.startsWith('data:image/svg+xml')) {
+                      profileImageUrl = mainImage
                     } else {
                       const baseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000'
-                      profileImageUrl = `${baseUrl}/uploads/profiles/${firstImage}`
+                      profileImageUrl = `${baseUrl}/uploads/profiles/${mainImage}`
                     }
                   }
                   
@@ -555,8 +656,8 @@ const UserProfile = ({ userId, isOwnProfile = false }) => {
                       onError={(e) => {
                         console.error('❌ Profile image failed to load:', {
                           imageUrl: profileImageUrl,
-                          originalImage: profile.profileImages[0],
-                          userId: profile._id || profile.id
+                          originalImage: profileData.profileImages[0],
+                          userId: profileData._id || profileData.id
                         });
                         e.target.style.display = 'none';
                         e.target.nextSibling.style.display = 'flex';
@@ -564,8 +665,8 @@ const UserProfile = ({ userId, isOwnProfile = false }) => {
                       onLoad={() => {
                         console.log('✅ Profile image loaded successfully:', {
                           imageUrl: profileImageUrl,
-                          originalImage: profile.profileImages[0],
-                          userId: profile._id || profile.id
+                          originalImage: profileData.profileImages[0],
+                          userId: profileData._id || profileData.id
                         });
                       }}
                     />
@@ -577,9 +678,9 @@ const UserProfile = ({ userId, isOwnProfile = false }) => {
                   <User className="h-8 w-8 sm:h-10 sm:w-10" />
                 </div>
               </div>
-              {profile.membership && (
-                <div className={`absolute -bottom-1 -right-1 w-6 h-6 sm:w-8 sm:h-8 rounded-full bg-gradient-to-r ${membershipHelpers.getTierGradient(profile.membership.tier)} flex items-center justify-center text-white text-xs shadow-lg`}>
-                  {membershipHelpers.getTierIcon(profile.membership.tier)}
+              {profileData.membership && (
+                <div className={`absolute -bottom-1 -right-1 w-6 h-6 sm:w-8 sm:h-8 rounded-full bg-gradient-to-r ${membershipHelpers.getTierGradient(profileData.membership.tier)} flex items-center justify-center text-white text-xs shadow-lg`}>
+                  {membershipHelpers.getTierIcon(profileData.membership.tier)}
                 </div>
               )}
             </div>
@@ -587,12 +688,12 @@ const UserProfile = ({ userId, isOwnProfile = false }) => {
             <div className="flex-1">
               <div className="flex flex-col sm:flex-row items-start sm:items-center space-y-1 sm:space-y-0 sm:space-x-2 mb-1">
                 <h1 className="text-lg sm:text-xl lg:text-2xl font-bold text-gray-800">
-                  {profile.displayName || `${profile.firstName} ${profile.lastName}`}
+                  {profileData.displayName || `${profileData.firstName} ${profileData.lastName}`}
                 </h1>
-                {profile.nickname && (
-                  <span className="text-gray-500 text-sm sm:text-base">({profile.nickname})</span>
+                {profileData.nickname && (
+                  <span className="text-gray-500 text-sm sm:text-base">({profileData.nickname})</span>
                 )}
-                {profile.isVerified && (
+                {profileData.isVerified && (
                   <Badge variant="secondary" className="bg-blue-100 text-blue-800 text-xs">
                     <Award className="h-3 w-3 mr-1" />
                     ยืนยันแล้ว
@@ -603,16 +704,16 @@ const UserProfile = ({ userId, isOwnProfile = false }) => {
               <div className="flex flex-col sm:flex-row items-start sm:items-center space-y-1 sm:space-y-0 sm:space-x-4 text-xs sm:text-sm text-gray-600">
                 <span className="flex items-center">
                   <Calendar className="h-3 w-3 sm:h-4 sm:w-4 mr-1" />
-                  {getAgeFromDate(profile.dateOfBirth)} ปี
+                  {getAgeFromDate(profileData.dateOfBirth)} ปี
                 </span>
                 <span className="flex items-center">
                   <MapPin className="h-3 w-3 sm:h-4 sm:w-4 mr-1" />
-                  {profile.location}
+                  {profileData.location}
                 </span>
-                {profile.membership && (
-                  <Badge className={`bg-gradient-to-r ${membershipHelpers.getTierGradient(profile.membership.tier)} text-white text-xs`}>
+                {profileData.membership && (
+                  <Badge className={`bg-gradient-to-r ${membershipHelpers.getTierGradient(profileData.membership.tier)} text-white text-xs`}>
                     <Crown className="h-3 w-3 mr-1" />
-                    {membershipHelpers.getTierName(profile.membership.tier)}
+                    {membershipHelpers.getTierName(profileData.membership.tier)}
                   </Badge>
                 )}
               </div>
@@ -634,9 +735,9 @@ const UserProfile = ({ userId, isOwnProfile = false }) => {
         </div>
 
         {/* Mobile-First Bio */}
-        {profile.bio && (
+        {profileData.bio && (
           <div className="mb-4 sm:mb-6">
-            <p className="text-gray-700 leading-relaxed text-sm sm:text-base">{profile.bio}</p>
+            <p className="text-gray-700 leading-relaxed text-sm sm:text-base">{profileData.bio}</p>
           </div>
         )}
 
@@ -648,7 +749,7 @@ const UserProfile = ({ userId, isOwnProfile = false }) => {
               รูปภาพ
               {membershipData && (
                 <span className="ml-2 text-xs sm:text-sm text-gray-500">
-                  ({profile.profileImages ? profile.profileImages.filter(img => !img.startsWith('data:image/svg+xml')).length : 0}/{membershipData.limits.dailyImages === -1 ? 'ไม่จำกัด' : membershipData.limits.dailyImages})
+                  ({profileData.profileImages ? profileData.profileImages.filter(img => !img.startsWith('data:image/svg+xml')).length : 0}/{membershipData.limits.dailyImages === -1 ? 'ไม่จำกัด' : membershipData.limits.dailyImages})
                 </span>
               )}
             </h3>
@@ -681,8 +782,8 @@ const UserProfile = ({ userId, isOwnProfile = false }) => {
           
           {/* Image Gallery with Proper Aspect Ratio */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4">
-            {profile.profileImages && profile.profileImages.length > 0 && !profile.profileImages.every(img => img.startsWith('data:image/svg+xml')) ? (
-              profile.profileImages.map((image, originalIndex) => {
+            {profileData.profileImages && profileData.profileImages.length > 0 && !profileData.profileImages.every(img => img.startsWith('data:image/svg+xml')) ? (
+              profileData.profileImages.map((image, originalIndex) => {
                 // ข้ามรูป default
                 if (image.startsWith('data:image/svg+xml')) return null;
                 
@@ -705,7 +806,7 @@ const UserProfile = ({ userId, isOwnProfile = false }) => {
                         console.error('❌ Gallery image failed to load:', {
                           imageUrl: imageUrl,
                           originalImage: image,
-                          userId: profile._id || profile.id
+                          userId: profileData._id || profileData.id
                         });
                         e.target.style.display = 'none';
                       }}
@@ -713,7 +814,7 @@ const UserProfile = ({ userId, isOwnProfile = false }) => {
                         console.log('✅ Gallery image loaded successfully:', {
                           imageUrl: imageUrl,
                           originalImage: image,
-                          userId: profile._id || profile.id
+                          userId: profileData._id || profileData.id
                         });
                       }}
                     />
@@ -739,7 +840,7 @@ const UserProfile = ({ userId, isOwnProfile = false }) => {
                     </div>
                   )}
                   {/* แสดงเครื่องหมายรูปโปรไฟล์หลัก */}
-                  {originalIndex === 0 && (
+                  {originalIndex === (profileData.mainProfileImageIndex || 0) && (
                     <div className="absolute top-1 left-1 sm:top-2 sm:left-2 bg-green-500 text-white rounded-full px-1 py-0.5 sm:px-2 sm:py-1 text-xs flex items-center">
                       <Star className="h-2 w-2 mr-1" />
                       หลัก
@@ -766,7 +867,7 @@ const UserProfile = ({ userId, isOwnProfile = false }) => {
       {/* New Simple Tabs Design */}
       <div className="mt-8 mb-6">
         <Tabs defaultValue="basic" className="w-full">
-          <TabsList className="grid w-full grid-cols-2 sm:grid-cols-4 bg-white border rounded-lg p-1 h-auto">
+          <TabsList className="grid w-full grid-cols-2 sm:grid-cols-3 bg-white border rounded-lg p-1 h-auto">
             <TabsTrigger 
               value="basic"
               className="text-xs sm:text-sm py-2 px-1 sm:px-3 rounded-md data-[state=active]:bg-pink-500 data-[state=active]:text-white"
@@ -784,12 +885,6 @@ const UserProfile = ({ userId, isOwnProfile = false }) => {
               className="text-xs sm:text-sm py-2 px-1 sm:px-3 rounded-md data-[state=active]:bg-pink-500 data-[state=active]:text-white"
             >
               ความสนใจ
-            </TabsTrigger>
-            <TabsTrigger 
-              value="prompts"
-              className="text-xs sm:text-sm py-2 px-1 sm:px-3 rounded-md data-[state=active]:bg-pink-500 data-[state=active]:text-white"
-            >
-              คำถามพิเศษ
             </TabsTrigger>
           </TabsList>
 
@@ -811,9 +906,9 @@ const UserProfile = ({ userId, isOwnProfile = false }) => {
                 </div>
                 <div className="flex-1">
                   <p className="font-semibold text-sm sm:text-base text-gray-800 mb-1">อาชีพ</p>
-                  <p className="text-sm text-gray-700 mb-1">{profile.occupation?.job || 'ยังไม่ได้ระบุ'}</p>
-                  {profile.occupation?.company && (
-                    <p className="text-xs text-gray-600">{profile.occupation.company}</p>
+                  <p className="text-sm text-gray-700 mb-1">{profileData.occupation?.job || 'ยังไม่ได้ระบุ'}</p>
+                  {profileData.occupation?.company && (
+                    <p className="text-xs text-gray-600">{profileData.occupation.company}</p>
                   )}
                 </div>
               </div>
@@ -825,9 +920,9 @@ const UserProfile = ({ userId, isOwnProfile = false }) => {
                 </div>
                 <div className="flex-1">
                   <p className="font-semibold text-sm sm:text-base text-gray-800 mb-1">จบสถาบันศึกษา</p>
-                  <p className="text-sm text-gray-700 mb-1">{profile.education?.institution || 'ยังไม่ได้ระบุ'}</p>
-                  {profile.education?.level && (
-                    <p className="text-xs text-gray-600">ระดับ: {getEducationLabel(profile.education.level)}</p>
+                  <p className="text-sm text-gray-700 mb-1">{profileData.education?.institution || 'ยังไม่ได้ระบุ'}</p>
+                  {profileData.education?.level && (
+                    <p className="text-xs text-gray-600">ระดับ: {getEducationLabel(profileData.education.level)}</p>
                   )}
                 </div>
               </div>
@@ -840,11 +935,11 @@ const UserProfile = ({ userId, isOwnProfile = false }) => {
                 <div className="flex-1">
                   <p className="font-semibold text-sm sm:text-base text-gray-800 mb-1">ร่างกาย</p>
                   <p className="text-sm text-gray-700">
-                    {profile.physicalAttributes?.height || profile.physicalAttributes?.weight ? (
+                    {profileData.physicalAttributes?.height || profileData.physicalAttributes?.weight ? (
                       <>
-                        {profile.physicalAttributes?.height ? `${profile.physicalAttributes.height} ซม.` : ''}
-                        {profile.physicalAttributes?.height && profile.physicalAttributes?.weight ? ' / ' : ''}
-                        {profile.physicalAttributes?.weight ? `${profile.physicalAttributes.weight} กก.` : ''}
+                        {profileData.physicalAttributes?.height ? `${profileData.physicalAttributes.height} ซม.` : ''}
+                        {profileData.physicalAttributes?.height && profileData.physicalAttributes?.weight ? ' / ' : ''}
+                        {profileData.physicalAttributes?.weight ? `${profileData.physicalAttributes.weight} กก.` : ''}
                       </>
                     ) : (
                       'ยังไม่ได้ระบุ'
@@ -860,7 +955,7 @@ const UserProfile = ({ userId, isOwnProfile = false }) => {
                 </div>
                 <div className="flex-1">
                   <p className="font-semibold text-sm sm:text-base text-gray-800 mb-1">ศาสนา</p>
-                  <p className="text-sm text-gray-700">{profile.religion ? getReligionLabel(profile.religion) : 'ยังไม่ได้ระบุ'}</p>
+                  <p className="text-sm text-gray-700">{profileData.religion ? getReligionLabel(profileData.religion) : 'ยังไม่ได้ระบุ'}</p>
                 </div>
               </div>
 
@@ -872,8 +967,8 @@ const UserProfile = ({ userId, isOwnProfile = false }) => {
                 <div className="flex-1">
                   <p className="font-semibold text-sm sm:text-base text-gray-800 mb-1">ภาษา</p>
                   <p className="text-sm text-gray-700">
-                    {Array.isArray(profile.languages) && profile.languages.length > 0
-                      ? profile.languages.join(', ')
+                    {Array.isArray(profileData.languages) && profileData.languages.length > 0
+                      ? profileData.languages.join(', ')
                       : 'ยังไม่ได้ระบุ'}
                   </p>
                 </div>
@@ -888,9 +983,9 @@ const UserProfile = ({ userId, isOwnProfile = false }) => {
                   <p className="font-semibold text-sm sm:text-base text-gray-800 mb-1">สัตว์เลี้ยง</p>
                   <p className="text-sm text-gray-700">
                     {(() => {
-                      const petArray = Array.isArray(profile.pets)
-                        ? profile.pets
-                        : (profile.pets?.petTypes || []);
+                      const petArray = Array.isArray(profileData.pets)
+                        ? profileData.pets
+                        : (profileData.pets?.petTypes || []);
                       if (!petArray || petArray.length === 0) return 'ยังไม่ได้ระบุ';
                       const counter = petArray.reduce((acc, t) => {
                         acc[t] = (acc[t] || 0) + 1; return acc;
@@ -922,7 +1017,7 @@ const UserProfile = ({ userId, isOwnProfile = false }) => {
                 </div>
                 <div className="flex-1">
                   <p className="font-semibold text-sm sm:text-base text-gray-800 mb-1">การสูบบุหรี่</p>
-                  <p className="text-sm text-gray-700">{profile.lifestyle?.smoking ? getLifestyleLabel('smoking', profile.lifestyle.smoking) : 'ยังไม่ได้ระบุ'}</p>
+                  <p className="text-sm text-gray-700">{profileData.lifestyle?.smoking ? getLifestyleLabel('smoking', profileData.lifestyle.smoking) : 'ยังไม่ได้ระบุ'}</p>
                 </div>
               </div>
 
@@ -932,7 +1027,7 @@ const UserProfile = ({ userId, isOwnProfile = false }) => {
                 </div>
                 <div className="flex-1">
                   <p className="font-semibold text-sm sm:text-base text-gray-800 mb-1">การดื่มสุรา</p>
-                  <p className="text-sm text-gray-700">{profile.lifestyle?.drinking ? getLifestyleLabel('drinking', profile.lifestyle.drinking) : 'ยังไม่ได้ระบุ'}</p>
+                  <p className="text-sm text-gray-700">{profileData.lifestyle?.drinking ? getLifestyleLabel('drinking', profileData.lifestyle.drinking) : 'ยังไม่ได้ระบุ'}</p>
                 </div>
               </div>
 
@@ -942,7 +1037,7 @@ const UserProfile = ({ userId, isOwnProfile = false }) => {
                 </div>
                 <div className="flex-1">
                   <p className="font-semibold text-sm sm:text-base text-gray-800 mb-1">การออกกำลังกาย</p>
-                  <p className="text-sm text-gray-700">{profile.lifestyle?.exercise ? getLifestyleLabel('exercise', profile.lifestyle.exercise) : 'ยังไม่ได้ระบุ'}</p>
+                  <p className="text-sm text-gray-700">{profileData.lifestyle?.exercise ? getLifestyleLabel('exercise', profileData.lifestyle.exercise) : 'ยังไม่ได้ระบุ'}</p>
                 </div>
               </div>
 
@@ -952,7 +1047,7 @@ const UserProfile = ({ userId, isOwnProfile = false }) => {
                 </div>
                 <div className="flex-1">
                   <p className="font-semibold text-sm sm:text-base text-gray-800 mb-1">อาหาร</p>
-                  <p className="text-sm text-gray-700">{profile.lifestyle?.diet ? getLifestyleLabel('diet', profile.lifestyle.diet) : 'ยังไม่ได้ระบุ'}</p>
+                  <p className="text-sm text-gray-700">{profileData.lifestyle?.diet ? getLifestyleLabel('diet', profileData.lifestyle.diet) : 'ยังไม่ได้ระบุ'}</p>
                 </div>
               </div>
             </div>
@@ -1010,69 +1105,6 @@ const UserProfile = ({ userId, isOwnProfile = false }) => {
           </Card>
         </TabsContent>
 
-          <TabsContent value="prompts" className="mt-6">
-            <Card className="p-4 sm:p-6 bg-white border rounded-lg shadow-sm">
-            <h3 className="text-lg sm:text-xl font-semibold mb-4 sm:mb-6 flex items-center text-gray-800">
-              <div className="w-8 h-8 bg-gradient-to-r from-indigo-500 to-purple-500 rounded-lg flex items-center justify-center mr-3">
-                <MessageCircle className="h-4 w-4 text-white" />
-              </div>
-              คำถามพิเศษ
-            </h3>
-            
-            <div className="space-y-4 sm:space-y-6">
-              {[
-                'my_special_talent',
-                'way_to_win_my_heart',
-                'dream_destination',
-                'last_laugh_until_tears',
-                'perfect_first_date',
-                'life_motto',
-                'favorite_memory',
-                'biggest_fear',
-                'dream_job',
-                'guilty_pleasure'
-              ].map((qKey, index) => {
-                const labels = {
-                  'my_special_talent': 'ความสามารถพิเศษของฉันคือ...',
-                  'way_to_win_my_heart': 'วิธีชนะใจฉันคือ...',
-                  'dream_destination': 'สถานที่ในฝันที่อยากไปคือ...',
-                  'last_laugh_until_tears': 'ครั้งล่าสุดที่หัวเราะจนน้ำตาไหลคือ...',
-                  'perfect_first_date': 'เดทแรกในฝันของฉันคือ...',
-                  'life_motto': 'คติประจำใจของฉันคือ...',
-                  'favorite_memory': 'ความทรงจำที่ชื่นชอบที่สุดคือ...',
-                  'biggest_fear': 'สิ่งที่กลัวที่สุดคือ...',
-                  'dream_job': 'งานในฝันของฉันคือ...',
-                  'guilty_pleasure': 'ความผิดที่ชอบทำคือ...'
-                };
-                const matched = (profile.promptAnswers || []).find(p => p.question === qKey);
-                const colors = [
-                  'from-pink-50 to-rose-50 border-pink-200',
-                  'from-blue-50 to-cyan-50 border-blue-200',
-                  'from-green-50 to-emerald-50 border-green-200',
-                  'from-purple-50 to-violet-50 border-purple-200',
-                  'from-orange-50 to-amber-50 border-orange-200',
-                  'from-indigo-50 to-blue-50 border-indigo-200',
-                  'from-red-50 to-pink-50 border-red-200',
-                  'from-yellow-50 to-orange-50 border-yellow-200',
-                  'from-teal-50 to-cyan-50 border-teal-200',
-                  'from-gray-50 to-slate-50 border-gray-200'
-                ];
-                const colorClass = colors[index % colors.length];
-                
-                return (
-                  <div key={qKey} className={`bg-gradient-to-r ${colorClass} border rounded-xl p-4 sm:p-5 shadow-sm`}>
-                    <h4 className="font-semibold text-gray-800 mb-3 text-sm sm:text-base">{labels[qKey]}</h4>
-                    <div className="bg-white/60 p-3 rounded-lg">
-                      <p className="text-gray-700 text-sm sm:text-base leading-relaxed">
-                        {matched?.answer || 'ยังไม่ได้ตอบ'}
-                      </p>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </Card>
-          </TabsContent>
         </Tabs>
       </div>
 
@@ -1247,7 +1279,7 @@ const UserProfile = ({ userId, isOwnProfile = false }) => {
                         pets: normalizePetsInputToTypes(value)
                       });
                     }}
-                    placeholder="แมว 1 ตัว, สนุก 1 ตัว"
+                    placeholder="แมว 1 ตัว, สุนัข 1 ตัว"
                   />
                 </div>
               </div>
@@ -1410,53 +1442,6 @@ const UserProfile = ({ userId, isOwnProfile = false }) => {
                           item.key === 'music' ? 'เพลงโปรดของคุณ....' :
                           'หนังโปรดของคุณคือ....'
                         }
-                      />
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* Special Questions */}
-            <div className="space-y-4 mt-6">
-              <h4 className="font-bold text-xl text-purple-600 flex items-center">
-                ✨ คำถามพิเศษ ⭐
-              </h4>
-              <div className="grid grid-cols-1 gap-4">
-                {[
-                  'my_special_talent',
-                  'way_to_win_my_heart',
-                  'dream_destination',
-                  'last_laugh_until_tears',
-                  'perfect_first_date',
-                  'life_motto',
-                  'favorite_memory',
-                  'biggest_fear',
-                  'dream_job',
-                  'guilty_pleasure'
-                ].map((qKey) => {
-                  const currentList = Array.isArray(editData.promptAnswers) ? editData.promptAnswers : [];
-                  const existing = currentList.find(p => p.question === qKey);
-                  const value = existing?.answer || '';
-                  return (
-                    <div key={qKey}>
-                      <Label htmlFor={`prompt-${qKey}`}>{profileHelpers.getPromptQuestionLabel(qKey)}</Label>
-                      <Input
-                        id={`prompt-${qKey}`}
-                        value={value}
-                        onChange={(e) => {
-                          const answer = e.target.value;
-                          const updated = [...currentList];
-                          const idx = updated.findIndex(p => p.question === qKey);
-                          if (answer.trim() === '') {
-                            if (idx !== -1) updated.splice(idx, 1);
-                          } else {
-                            if (idx === -1) updated.push({ question: qKey, answer: answer });
-                            else updated[idx] = { ...updated[idx], answer: answer };
-                          }
-                          setEditData({ ...editData, promptAnswers: updated });
-                        }}
-                        placeholder={`ตอบคำถาม: ${profileHelpers.getPromptQuestionLabel(qKey)}`}
                       />
                     </div>
                   );

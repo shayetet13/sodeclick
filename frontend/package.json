@@ -4,13 +4,15 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "start": "shx cp env.production .env && vite",
-    "dev": "shx cp env.development .env && vite",
+    "start": "shx cp env.development .env && vite",
+    "start:prod": "shx cp env.production .env && vite",
+    "dev": "node -e \"require('fs').copyFileSync('env.development', '.env')\" && vite",
     "dev:clean": "shx rm -f .env && shx cp env.development .env && vite",
     "build": "shx cp env.production .env && tsc -b && vite build",
     "build:dev": "shx cp env.development .env && tsc -b && vite build",
     "preview": "vite preview",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "dev:windows": "node -e \"require('fs').copyFileSync('env.development', '.env')\" && vite"
   },
   "dependencies": {
     "@fortawesome/fontawesome-svg-core": "^7.0.1",
@@ -49,6 +51,6 @@
     "terser": "^5.36.0",
     "typescript": "~5.8.3",
     "typescript-eslint": "^8.35.1",
-    "vite": "^7.0.4"
+    "vite": "^7.1.5"
   }
 }

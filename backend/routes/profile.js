@@ -337,9 +337,11 @@ router.get('/discover', async (req, res) => {
         const decoded = jwt.verify(token, JWT_SECRET);
         currentUserId = decoded.id;
         console.log('✅ Discover API - Current user ID:', currentUserId);
+        console.log('🔍 Discover API - Decoded token:', JSON.stringify(decoded, null, 2));
       } catch (error) {
         // Token ไม่ถูกต้อง แต่ยังสามารถดูโปรไฟล์ได้
         console.log('❌ Discover API - Invalid token, but allowing profile view');
+        console.log('❌ Discover API - Token error:', error.message);
       }
     }
 
@@ -355,6 +357,7 @@ router.get('/discover', async (req, res) => {
     if (currentUserId) {
       matchQuery._id = { $ne: new mongoose.Types.ObjectId(currentUserId) };
       console.log('🚫 Discover API - Excluding current user:', currentUserId);
+      console.log('🔍 Discover API - Match query after exclusion:', JSON.stringify(matchQuery, null, 2));
     }
 
     console.log('🔍 Discover API - Match query:', JSON.stringify(matchQuery, null, 2));
@@ -387,6 +390,16 @@ router.get('/discover', async (req, res) => {
         }
       }
     ]);
+
+    // Debug: ตรวจสอบว่าผลลัพธ์มีผู้ใช้ปัจจุบันรวมอยู่หรือไม่
+    if (currentUserId) {
+      const currentUserInResults = users.find(user => user._id.toString() === currentUserId);
+      if (currentUserInResults) {
+        console.log('⚠️ Discover API - Current user found in results:', currentUserInResults.username);
+      } else {
+        console.log('✅ Discover API - Current user successfully excluded from results');
+      }
+    }
 
     res.json({ success: true, data: { users } })
   } catch (error) {
@@ -736,6 +749,15 @@ router.get('/:userId', async (req, res) => {
       delete profileData.coins;
       delete profileData.votePoints;
     }
+
+    console.log('📤 Backend sending profile data:', {
+      userId,
+      isOwnProfile,
+      isAdmin,
+      hasProfileData: !!profileData,
+      profileDataKeys: Object.keys(profileData),
+      profileImagesCount: profileData.profileImages?.length || 0
+    });
 
     res.json({
       success: true,
@@ -1286,6 +1308,60 @@ router.get('/:userId/compatibility/:targetUserId', authenticateToken, async (req
     res.status(500).json({
       success: false,
       message: 'ไม่สามารถคำนวณความเข้ากันได้',
+      error: error.message
+    });
+  }
+});
+
+// Set main profile image
+router.put('/:userId/main-image/:imageIndex', authenticateToken, async (req, res) => {
+  try {
+    const { userId, imageIndex } = req.params;
+    
+    // ตรวจสอบว่า user เป็นเจ้าของโปรไฟล์หรือไม่
+    if (req.user.id !== userId) {
+      return res.status(403).json({
+        success: false,
+        message: 'ไม่มีสิทธิ์แก้ไขโปรไฟล์นี้'
+      });
+    }
+
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'ไม่พบผู้ใช้'
+      });
+    }
+
+    const index = parseInt(imageIndex);
+    
+    // ตรวจสอบว่า index อยู่ในขอบเขตที่ถูกต้อง
+    if (index < 0 || index >= user.profileImages.length) {
+      return res.status(400).json({
+        success: false,
+        message: 'ดัชนีรูปภาพไม่ถูกต้อง'
+      });
+    }
+
+    // อัปเดต mainProfileImageIndex
+    user.mainProfileImageIndex = index;
+    await user.save();
+
+    res.json({
+      success: true,
+      message: 'ตั้งรูปโปรไฟล์หลักสำเร็จ',
+      data: {
+        mainProfileImageIndex: user.mainProfileImageIndex,
+        profileImages: user.profileImages
+      }
+    });
+
+  } catch (error) {
+    console.error('Set main profile image error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'เกิดข้อผิดพลาดในการตั้งรูปโปรไฟล์หลัก',
       error: error.message
     });
   }

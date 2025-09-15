@@ -27,9 +27,10 @@ if (!process.env.GOOGLE_CLIENT_ID || !process.env.GOOGLE_CLIENT_SECRET) {
   console.error('❌ Google OAuth credentials are missing!');
   console.error('- GOOGLE_CLIENT_ID:', process.env.GOOGLE_CLIENT_ID ? 'Set' : 'Missing');
   console.error('- GOOGLE_CLIENT_SECRET:', process.env.GOOGLE_CLIENT_SECRET ? 'Set' : 'Missing');
-}
-
-passport.use(new GoogleStrategy({
+  console.warn('⚠️  Google OAuth will be disabled. Set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET to enable.');
+} else {
+  // Only create GoogleStrategy if credentials are available
+  passport.use(new GoogleStrategy({
   clientID: process.env.GOOGLE_CLIENT_ID,
   clientSecret: process.env.GOOGLE_CLIENT_SECRET,
   callbackURL: `${backendUrl}/api/auth/google/callback`,
@@ -86,6 +87,12 @@ passport.use(new GoogleStrategy({
         type: 'Point',
         coordinates: [0, 0]
       },
+      lifestyle: {
+        smoking: null, // เลือก
+        drinking: null, // เลือก
+        exercise: null, // เลือก
+        diet: null // เลือก
+      },
       membership: {
         tier: 'member',
         startDate: new Date()
@@ -103,6 +110,7 @@ passport.use(new GoogleStrategy({
     return done(error, null);
   }
 }));
+}
 
 // Serialize user for session
 passport.serializeUser((user, done) => {

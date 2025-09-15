@@ -92,6 +92,12 @@ router.post('/register', async (req, res) => {
       },
       displayName: `${firstName} ${lastName}`,
       profileImages: [DEFAULT_AVATAR_BASE64], // เพิ่มรูปโปรไฟล์เริ่มต้น
+      lifestyle: {
+        smoking: null, // เลือก
+        drinking: null, // เลือก
+        exercise: null, // เลือก
+        diet: null // เลือก
+      },
       membership: {
         tier: 'member',
         startDate: new Date()
@@ -186,6 +192,12 @@ router.post('/register-phone', async (req, res) => {
         coordinates: [100.5018, 13.7563] // Default Bangkok coordinates
       },
       profileImages: [DEFAULT_AVATAR_BASE64], // เพิ่มรูปโปรไฟล์เริ่มต้น
+      lifestyle: {
+        smoking: null, // เลือก
+        drinking: null, // เลือก
+        exercise: null, // เลือก
+        diet: null // เลือก
+      },
       coins: 1000, // เริ่มต้น 1000 coins
       votes: 100,  // เริ่มต้น 100 votes
       membership: {

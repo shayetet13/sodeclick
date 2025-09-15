@@ -122,6 +122,11 @@ const userSchema = new mongoose.Schema({
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User'
   }],
+  // Notification clear timestamp
+  clearedNotificationsAt: {
+    type: Date,
+    default: null
+  },
   
   // Extended Profile Information
   occupation: {
@@ -161,22 +166,22 @@ const userSchema = new mongoose.Schema({
     smoking: {
       type: String,
       enum: ['never', 'occasionally', 'regularly', 'trying_to_quit'],
-      default: 'never'
+      default: null
     },
     drinking: {
       type: String,
       enum: ['never', 'occasionally', 'socially', 'regularly'],
-      default: 'never'
+      default: null
     },
     exercise: {
       type: String,
       enum: ['never', 'rarely', 'sometimes', 'regularly', 'daily'],
-      default: 'sometimes'
+      default: null
     },
     diet: {
       type: String,
       enum: ['omnivore', 'vegetarian', 'vegan', 'pescatarian', 'keto', 'other'],
-      default: 'omnivore'
+      default: null
     },
     sleepSchedule: {
       type: String,
@@ -233,6 +238,10 @@ const userSchema = new mongoose.Schema({
   profileImages: [{ 
     type: String 
   }],
+  mainProfileImageIndex: {
+    type: Number,
+    default: 0
+  },
   isOnline: { 
     type: Boolean, 
     default: false 

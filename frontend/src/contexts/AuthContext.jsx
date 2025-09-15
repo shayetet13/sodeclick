@@ -80,30 +80,30 @@ export const AuthProvider = ({ children }) => {
               })
             }).then(() => {
               console.log('✅ Login: Location updated to server');
-              // ไม่รีเฟรชหน้าเว็บใน Google OAuth callback
-              if (!window.location.pathname.includes('/auth/callback')) {
-                window.location.reload();
-              }
+              // ส่ง event แทนการรีเฟรชหน้าเว็บ
+              window.dispatchEvent(new CustomEvent('userLoggedIn', { 
+                detail: { user: userData.user || userData, location } 
+              }));
             }).catch((error) => {
               console.error('❌ Login: Failed to update location:', error);
-              // ไม่รีเฟรชหน้าเว็บใน Google OAuth callback
-              if (!window.location.pathname.includes('/auth/callback')) {
-                window.location.reload();
-              }
+              // ส่ง event แทนการรีเฟรชหน้าเว็บ
+              window.dispatchEvent(new CustomEvent('userLoggedIn', { 
+                detail: { user: userData.user || userData, location: null } 
+              }));
             });
           } else {
-            // ไม่รีเฟรชหน้าเว็บใน Google OAuth callback
-            if (!window.location.pathname.includes('/auth/callback')) {
-              window.location.reload();
-            }
+            // ส่ง event แทนการรีเฟรชหน้าเว็บ
+            window.dispatchEvent(new CustomEvent('userLoggedIn', { 
+              detail: { user: userData.user || userData, location: null } 
+            }));
           }
         },
         (error) => {
           console.error('❌ Login: GPS location failed:', error);
-          // ไม่รีเฟรชหน้าเว็บใน Google OAuth callback
-          if (!window.location.pathname.includes('/auth/callback')) {
-            window.location.reload();
-          }
+          // ส่ง event แทนการรีเฟรชหน้าเว็บ
+          window.dispatchEvent(new CustomEvent('userLoggedIn', { 
+            detail: { user: userData.user || userData, location: null } 
+          }));
         },
         {
           enableHighAccuracy: false, // ลดความเข้มงวด
@@ -112,10 +112,10 @@ export const AuthProvider = ({ children }) => {
         }
       );
     } else {
-      // ไม่รีเฟรชหน้าเว็บใน Google OAuth callback
-      if (!window.location.pathname.includes('/auth/callback')) {
-        window.location.reload();
-      }
+      // ส่ง event แทนการรีเฟรชหน้าเว็บ
+      window.dispatchEvent(new CustomEvent('userLoggedIn', { 
+        detail: { user: userData.user || userData, location: null } 
+      }));
     }
   };
 
@@ -143,27 +143,33 @@ export const AuthProvider = ({ children }) => {
             })
           }).then(() => {
             console.log('✅ Logout: Final location updated to server');
-            // ล้างข้อมูลและรีเฟรชหน้าเว็บหลังจากอัปเดตตำแหน่ง
+            // ล้างข้อมูลและส่ง event แทนการรีเฟรชหน้าเว็บ
             setUser(null);
             sessionStorage.removeItem('token');
             sessionStorage.removeItem('user');
-            window.location.reload();
+            window.dispatchEvent(new CustomEvent('userLoggedOut', { 
+              detail: { location } 
+            }));
           }).catch((error) => {
             console.error('❌ Logout: Failed to update final location:', error);
-            // ล้างข้อมูลและรีเฟรชหน้าเว็บแม้ว่าจะอัปเดตตำแหน่งไม่สำเร็จ
+            // ล้างข้อมูลและส่ง event แทนการรีเฟรชหน้าเว็บ
             setUser(null);
             sessionStorage.removeItem('token');
             sessionStorage.removeItem('user');
-            window.location.reload();
+            window.dispatchEvent(new CustomEvent('userLoggedOut', { 
+              detail: { location: null } 
+            }));
           });
         },
         (error) => {
           console.error('❌ Logout: GPS location failed:', error);
-          // ล้างข้อมูลและรีเฟรชหน้าเว็บแม้ว่า GPS จะไม่ทำงาน
+          // ล้างข้อมูลและส่ง event แทนการรีเฟรชหน้าเว็บ
           setUser(null);
           sessionStorage.removeItem('token');
           sessionStorage.removeItem('user');
-          window.location.reload();
+          window.dispatchEvent(new CustomEvent('userLoggedOut', { 
+            detail: { location: null } 
+          }));
         },
         {
           enableHighAccuracy: false, // ลดความเข้มงวด
@@ -172,11 +178,13 @@ export const AuthProvider = ({ children }) => {
         }
       );
     } else {
-      // ล้างข้อมูลและรีเฟรชหน้าเว็บถ้าไม่มี token หรือ GPS ไม่รองรับ
+      // ล้างข้อมูลและส่ง event แทนการรีเฟรชหน้าเว็บ
       setUser(null);
       sessionStorage.removeItem('token');
       sessionStorage.removeItem('user');
-      window.location.reload();
+      window.dispatchEvent(new CustomEvent('userLoggedOut', { 
+        detail: { location: null } 
+      }));
     }
   };
 

@@ -3,9 +3,10 @@ import { Wrench, Lock, Eye, EyeOff, CheckCircle, XCircle, Clock, Server, Shield 
 
 interface MaintenanceModeProps {
   onDevAccess: (code: string) => void
+  hasDevAccess?: boolean
 }
 
-const MaintenanceMode: React.FC<MaintenanceModeProps> = ({ onDevAccess }) => {
+const MaintenanceMode: React.FC<MaintenanceModeProps> = ({ onDevAccess, hasDevAccess = false }) => {
   const [devCode, setDevCode] = useState('')
   const [showPassword, setShowPassword] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
@@ -63,7 +64,14 @@ const MaintenanceMode: React.FC<MaintenanceModeProps> = ({ onDevAccess }) => {
             </h1>
             <p className="text-gray-300 text-sm leading-relaxed">
               ระบบกำลังอยู่ในโหมดบำรุงรักษา<br />
-              กรุณารอสักครู่ เราจะกลับมาเร็วๆ นี้
+              {hasDevAccess ? (
+                <>
+                  <span className="text-green-400 font-medium">คุณมีสิทธิ์เข้าถึงระบบแล้ว</span><br />
+                  หน้า Maintenance Mode จะยังคงแสดงอยู่จนกว่า Admin จะปิดระบบ
+                </>
+              ) : (
+                'กรุณารอสักครู่ เราจะกลับมาเร็วๆ นี้'
+              )}
             </p>
           </div>
 
@@ -97,6 +105,29 @@ const MaintenanceMode: React.FC<MaintenanceModeProps> = ({ onDevAccess }) => {
               <h3 className="text-white font-semibold">เข้าถึงสำหรับ Developer</h3>
             </div>
             
+            {hasDevAccess && (
+              <div className="mb-4 p-4 bg-green-500/20 border border-green-500/30 rounded-lg">
+                <div className="flex items-center space-x-2 text-green-400 mb-2">
+                  <CheckCircle className="w-5 h-5" />
+                  <span className="text-sm font-medium">คุณมีสิทธิ์เข้าถึงระบบแล้ว</span>
+                </div>
+                <p className="text-green-300 text-xs mb-3">
+                  หน้า Maintenance Mode ยังคงแสดงอยู่จนกว่า Admin จะปิดระบบ
+                </p>
+                <button
+                  onClick={() => {
+                    // Clear dev access and set flag to bypass maintenance check
+                    localStorage.removeItem('devAccess');
+                    localStorage.setItem('bypassMaintenance', 'true');
+                    window.location.href = '/';
+                  }}
+                  className="w-full bg-green-500 hover:bg-green-600 text-white font-medium py-2 px-4 rounded-lg transition-colors duration-200 text-sm"
+                >
+                  เข้าสู่ระบบปกติ
+                </button>
+              </div>
+            )}
+            
             <form onSubmit={handleSubmit} className="space-y-4">
               <div className="relative">
                 <input
@@ -125,13 +156,22 @@ const MaintenanceMode: React.FC<MaintenanceModeProps> = ({ onDevAccess }) => {
 
               <button
                 type="submit"
-                disabled={isLoading || !devCode}
-                className="w-full bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 disabled:from-gray-500 disabled:to-gray-600 text-white font-semibold py-3 px-4 rounded-xl transition-all duration-200 transform hover:scale-105 disabled:scale-100 disabled:cursor-not-allowed flex items-center justify-center space-x-2"
+                disabled={isLoading || !devCode || hasDevAccess}
+                className={`w-full font-semibold py-3 px-4 rounded-xl transition-all duration-200 transform hover:scale-105 disabled:scale-100 disabled:cursor-not-allowed flex items-center justify-center space-x-2 ${
+                  hasDevAccess 
+                    ? 'bg-green-500/50 text-green-200 cursor-not-allowed' 
+                    : 'bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 disabled:from-gray-500 disabled:to-gray-600 text-white'
+                }`}
               >
                 {isLoading ? (
                   <>
                     <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
                     <span>กำลังเข้าถึง...</span>
+                  </>
+                ) : hasDevAccess ? (
+                  <>
+                    <CheckCircle className="w-5 h-5" />
+                    <span>เข้าถึงแล้ว</span>
                   </>
                 ) : (
                   <>
@@ -174,7 +214,7 @@ const MaintenanceMode: React.FC<MaintenanceModeProps> = ({ onDevAccess }) => {
             <div className="grid grid-cols-2 gap-4 text-xs">
               <div className="bg-white/10 rounded-lg p-2">
                 <div className="text-gray-300">เริ่มวันที่</div>
-                <div className="text-white font-medium">13/09/2025</div>
+                <div className="text-white font-medium">09/2025</div>
               </div>
               <div className="bg-white/10 rounded-lg p-2">
                 <div className="text-gray-300">คาดการณ์เสร็จ</div>

@@ -10,6 +10,7 @@ import {
   Video,
   Trash2
 } from 'lucide-react';
+import unreadAPI from '../services/unreadAPI';
 
 const PrivateChatList = ({ 
   currentUser, 
@@ -24,6 +25,85 @@ const PrivateChatList = ({
   const [filterType, setFilterType] = useState('all'); // 'all', 'online', 'recent'
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [chatToDelete, setChatToDelete] = useState(null);
+  const [unreadCounts, setUnreadCounts] = useState({}); // เพิ่ม state สำหรับ unread counts
+
+  // ดึงข้อมูล unread count เมื่อ component mount (มี debounce)
+  useEffect(() => {
+    if (currentUser?._id) {
+      const timeoutId = setTimeout(() => {
+        fetchUnreadCounts();
+      }, 500); // รอ 500ms ก่อนเรียก API
+      
+      return () => clearTimeout(timeoutId);
+    }
+  }, [currentUser?._id]);
+
+  // จัดการ real-time updates สำหรับ unread count
+  useEffect(() => {
+    if (!currentUser?._id) return;
+
+    // สร้าง event listener สำหรับ unread count updates
+    const handleUnreadCountUpdate = (event) => {
+      const { chatRoomId, unreadCount } = event.detail;
+      setUnreadCounts(prev => ({
+        ...prev,
+        [chatRoomId]: unreadCount
+      }));
+    };
+
+    // เพิ่ม event listener
+    window.addEventListener('unread-count-update', handleUnreadCountUpdate);
+
+    // Cleanup
+    return () => {
+      window.removeEventListener('unread-count-update', handleUnreadCountUpdate);
+    };
+  }, [currentUser?._id]);
+
+  // ฟังก์ชันดึงข้อมูล unread count
+  const fetchUnreadCounts = async () => {
+    try {
+      const response = await unreadAPI.getPrivateChatUnreadCount(currentUser._id);
+      if (response && response.success) {
+        const countsMap = {};
+        if (response.data && response.data.chatUnreadCounts) {
+          response.data.chatUnreadCounts.forEach(item => {
+            countsMap[item.chatRoom] = item.unreadCount;
+          });
+        }
+        setUnreadCounts(countsMap);
+      }
+    } catch (error) {
+      console.error('Error fetching unread counts:', error);
+      // แสดง notification ถ้ามี
+      if (showWebappNotification) {
+        showWebappNotification('เกิดข้อผิดพลาดในการดึงข้อมูลข้อความที่ยังไม่ได้อ่าน', 'error');
+      }
+    }
+  };
+
+  // ฟังก์ชันรีเซ็ต unread count เมื่อเข้าแชท
+  const handleSelectChat = async (chat) => {
+    // รีเซ็ต unread count สำหรับแชทนี้
+    try {
+      await unreadAPI.markAsRead(chat.roomId || chat.id, currentUser._id);
+      
+      // อัปเดต state ทันที
+      setUnreadCounts(prev => ({
+        ...prev,
+        [chat.roomId || chat.id]: 0
+      }));
+    } catch (error) {
+      console.error('Error marking messages as read:', error);
+      // แสดง notification ถ้ามี แต่ไม่ต้องขัดขวางการเข้าแชท
+      if (showWebappNotification) {
+        showWebappNotification('ไม่สามารถทำเครื่องหมายข้อความเป็นอ่านแล้วได้', 'warning');
+      }
+    }
+    
+    // เรียกใช้ callback เดิม
+    onSelectChat(chat);
+  };
 
   // Filter chats based on search and filter
   const filteredChats = privateChats.filter(chat => {
@@ -62,7 +142,9 @@ const PrivateChatList = ({
   };
 
   const getUnreadCount = (chat) => {
-    return chat.unreadCount || 0;
+    // ใช้ข้อมูลจาก unreadCounts state แทน chat.unreadCount
+    const chatId = chat.roomId || chat.id;
+    return unreadCounts[chatId] || 0;
   };
 
   const getLastMessagePreview = (chat) => {
@@ -212,16 +294,16 @@ const PrivateChatList = ({
               <div
                 key={chat.id}
                 className="border-b border-gray-100 hover:bg-gray-50 transition-colors cursor-pointer"
-                onClick={() => onSelectChat(chat)}
+                onClick={() => handleSelectChat(chat)}
               >
                 <div className="p-3 sm:p-4">
                   <div className="flex items-center space-x-2 sm:space-x-3">
                     {/* Avatar */}
                     <div className="relative">
                       <div className="w-10 h-10 sm:w-12 sm:h-12 bg-gradient-to-br from-pink-400 to-violet-500 rounded-full flex items-center justify-center">
-                        {chat.otherUser.profileImages?.[0] ? (
+                        {chat.otherUser.profileImageUrl ? (
                           <img
-                            src={chat.otherUser.profileImages[0]}
+                            src={chat.otherUser.profileImageUrl.startsWith('http') ? chat.otherUser.profileImageUrl : `${import.meta.env.VITE_API_BASE_URL}${chat.otherUser.profileImageUrl}`}
                             alt={chat.otherUser.displayName || chat.otherUser.firstName}
                             className="w-10 h-10 sm:w-12 sm:h-12 rounded-full object-cover"
                             onError={(e) => {

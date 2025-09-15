@@ -1,4 +1,5 @@
 import { API_BASE_URL } from '../config/api';
+import enhancedAPI from './enhancedAPI';
 
 class ProfileAPI {
   constructor() {
@@ -18,7 +19,7 @@ class ProfileAPI {
     };
   }
 
-  // ดึงข้อมูลโปรไฟล์ผู้ใช้
+  // ดึงข้อมูลโปรไฟล์ผู้ใช้ (ใช้ enhanced API)
   async getUserProfile(userId) {
     try {
       const token = sessionStorage.getItem('token');
@@ -31,21 +32,28 @@ class ProfileAPI {
         headers['Authorization'] = `Bearer ${token}`;
       }
       
-      const response = await fetch(`${this.baseURL}/${userId}`, {
+      const url = `${this.baseURL}/${userId}`;
+      const result = await enhancedAPI.enhancedFetch(url, {
         method: 'GET',
         headers
       });
-
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-
-      const result = await response.json();
+      
       console.log('📤 Profile data received:', {
         userId,
-        profileImages: result.data?.profileImages?.length || 0,
-        images: result.data?.profileImages
+        success: result.success,
+        hasData: !!result.data,
+        dataKeys: result.data ? Object.keys(result.data) : [],
+        hasProfile: !!(result.data && result.data.profile),
+        profileKeys: result.data && result.data.profile ? Object.keys(result.data.profile) : [],
+        profileImages: result.data?.profile?.profileImages?.length || 0,
+        mainProfileImageIndex: result.data?.profile?.mainProfileImageIndex,
+        images: result.data?.profile?.profileImages
       });
+      
+      // ตรวจสอบว่า result มีข้อมูลหรือไม่
+      if (!result.success) {
+        throw new Error(result.error || 'ไม่สามารถดึงข้อมูลโปรไฟล์ได้');
+      }
       
       return result;
     } catch (error) {
@@ -65,7 +73,7 @@ class ProfileAPI {
         throw new Error('Authentication token not found. Please login again.');
       }
       
-      const response = await fetch(`${this.baseURL}/${userId}`, {
+      const response = await enhancedAPI.enhancedFetch(`${this.baseURL}/${userId}`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',

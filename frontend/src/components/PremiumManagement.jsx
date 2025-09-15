@@ -275,8 +275,11 @@ const PremiumManagement = () => {
           location: '',
           membership: { tier: 'silver' }
         });
-        // Refresh the page to show new user
-        window.location.reload();
+        // ส่ง event แทนการรีเฟรชหน้าเว็บ
+        window.dispatchEvent(new CustomEvent('userCreated', { 
+          detail: { user: newUser } 
+        }));
+        success('✅ สร้างผู้ใช้ทดสอบสำเร็จ');
       } else {
         const errorData = await res.json();
         console.error('Server error:', errorData);
