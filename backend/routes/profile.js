@@ -37,13 +37,20 @@ const authenticateToken = (req, res, next) => {
 // Configure multer for profile image uploads
 const storage = multer.diskStorage({
   destination: function (req, file, cb) {
-    // ใช้ absolute path เพื่อให้แน่ใจว่าไฟล์ถูกบันทึกในตำแหน่งที่ถูกต้อง
-    const uploadPath = path.join(__dirname, '..', 'uploads', 'profiles');
-    cb(null, uploadPath)
+    // สร้างโฟลเดอร์แยกตาม user ID
+    const userUploadPath = path.join(__dirname, '..', 'uploads', 'users', req.user.id);
+    
+    // สร้างโฟลเดอร์ถ้ายังไม่มี
+    if (!fs.existsSync(userUploadPath)) {
+      fs.mkdirSync(userUploadPath, { recursive: true });
+      console.log('📁 Created user upload directory:', userUploadPath);
+    }
+    
+    cb(null, userUploadPath);
   },
   filename: function (req, file, cb) {
-    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9)
-    cb(null, 'profile-' + req.user.id + '-' + uniqueSuffix + path.extname(file.originalname))
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+    cb(null, 'profile-' + uniqueSuffix + path.extname(file.originalname));
   }
 });
 
@@ -345,11 +352,16 @@ router.get('/discover', async (req, res) => {
       }
     }
 
-    // สร้าง match query
+    // สร้าง match query - รองรับ user ที่ไม่มี membership tier
     const matchQuery = {
       isActive: true,
       isBanned: false,
-      'membership.tier': { $in: tiers },
+      $or: [
+        { 'membership.tier': { $in: tiers } },
+        { 'membership.tier': { $exists: false } },
+        { 'membership.tier': null },
+        { 'membership': { $exists: false } }
+      ],
       role: { $nin: ['admin', 'superadmin'] } // ไม่แสดง admin และ superadmin
     };
     
@@ -368,7 +380,20 @@ router.get('/discover', async (req, res) => {
       },
       {
         $addFields: {
-          tierRank: { $indexOfArray: [ tiers, '$membership.tier' ] }
+          tierRank: {
+            $cond: {
+              if: { $and: [{ $ne: ['$membership.tier', null] }, { $ne: ['$membership', null] }] },
+              then: { $indexOfArray: [ tiers, '$membership.tier' ] },
+              else: tiers.length // ให้ user ที่ไม่มี membership tier อยู่ลำดับสุดท้าย
+            }
+          },
+          membershipTier: {
+            $cond: {
+              if: { $and: [{ $ne: ['$membership.tier', null] }, { $ne: ['$membership', null] }] },
+              then: '$membership.tier',
+              else: 'member' // กำหนด default เป็น member
+            }
+          }
         }
       },
       { $sort: { tierRank: 1, lastActive: -1 } },
@@ -383,7 +408,7 @@ router.get('/discover', async (req, res) => {
           location: 1,
           profileImages: 1,
           membership: 1,
-          membershipTier: '$membership.tier',
+          membershipTier: 1,
           lastActive: 1,
           gender: 1,
           dateOfBirth: 1
@@ -400,6 +425,15 @@ router.get('/discover', async (req, res) => {
         console.log('✅ Discover API - Current user successfully excluded from results');
       }
     }
+
+    // Debug: แสดงจำนวน user ในแต่ละ tier
+    const tierCounts = {};
+    users.forEach(user => {
+      const tier = user.membershipTier || 'no-tier';
+      tierCounts[tier] = (tierCounts[tier] || 0) + 1;
+    });
+    console.log('📊 Discover API - User counts by tier:', tierCounts);
+    console.log('📊 Discover API - Total users found:', users.length);
 
     res.json({ success: true, data: { users } })
   } catch (error) {
@@ -1051,19 +1085,22 @@ router.post('/:userId/upload-image', authenticateToken, (req, res, next) => {
 
     // เพิ่มรูปภาพใหม่เข้าไปใน profileImages array
     const imagePath = req.file.filename;
+    const userImagePath = `users/${userId}/${imagePath}`; // path ที่รวม user ID
+    
     // สร้าง URL สำหรับรูปภาพที่อัปโหลดจริง
     // ใช้ environment variable สำหรับ production
     const baseUrl = process.env.NODE_ENV === 'production' 
       ? process.env.BACKEND_URL || `${req.protocol}://${req.get('host')}`
       : `${req.protocol}://${req.get('host')}`;
-    const imageUrl = `${baseUrl}/uploads/profiles/${imagePath}`;
+    const imageUrl = `${baseUrl}/uploads/${userImagePath}`;
     
     console.log('📤 Generated image URL:', imageUrl);
     console.log('📤 Base URL:', baseUrl);
     console.log('📤 Image path:', imagePath);
+    console.log('📤 User image path:', userImagePath);
     console.log('📤 Environment:', process.env.NODE_ENV);
     
-    user.profileImages.push(imagePath); // เก็บเฉพาะ filename เพื่อให้ frontend สร้าง URL ตาม environment
+    user.profileImages.push(userImagePath); // เก็บ path ที่รวม user ID
 
     // จำกัดจำนวนรูปภาพตามระดับสมาชิก
     const limits = user.getMembershipLimits();
@@ -1086,9 +1123,9 @@ router.post('/:userId/upload-image', authenticateToken, (req, res, next) => {
       success: true,
       message: 'อัปโหลดรูปภาพสำเร็จ',
       data: {
-        imagePath: imagePath,
+        imagePath: userImagePath, // ส่ง path ที่รวม user ID
         imageUrl: imageUrl, // ยังคงส่ง full URL สำหรับ compatibility
-        profileImages: user.profileImages // ตอนนี้เป็น filename array
+        profileImages: user.profileImages // ตอนนี้เป็น path array ที่รวม user ID
       }
     });
 
@@ -1108,8 +1145,11 @@ router.delete('/:userId/image/:imageIndex', authenticateToken, async (req, res) 
     const { userId, imageIndex } = req.params;
     const { DEFAULT_AVATAR_BASE64 } = require('../config/defaultAvatar');
     
+    console.log('🗑️ Delete image request:', { userId, imageIndex, authUserId: req.user.id });
+    
     // ตรวจสอบสิทธิ์
     if (req.user.id !== userId && !['admin', 'superadmin'].includes(req.user.role)) {
+      console.log('❌ Permission denied for user:', req.user.id, 'trying to delete for:', userId);
       return res.status(403).json({
         success: false,
         message: 'ไม่มีสิทธิ์ลบรูปภาพสำหรับโปรไฟล์นี้'
@@ -1118,6 +1158,7 @@ router.delete('/:userId/image/:imageIndex', authenticateToken, async (req, res) 
 
     const user = await User.findById(userId);
     if (!user) {
+      console.log('❌ User not found:', userId);
       return res.status(404).json({
         success: false,
         message: 'ไม่พบผู้ใช้'
@@ -1125,19 +1166,48 @@ router.delete('/:userId/image/:imageIndex', authenticateToken, async (req, res) 
     }
 
     const index = parseInt(imageIndex);
-    if (index < 0 || index >= user.profileImages.length) {
+    console.log('🗑️ Parsed index:', index, 'Profile images length:', user.profileImages.length);
+    console.log('🗑️ Profile images:', user.profileImages);
+    
+    if (isNaN(index) || index < 0 || index >= user.profileImages.length) {
+      console.log('❌ Invalid image index:', index);
       return res.status(400).json({
         success: false,
-        message: 'ไม่พบรูปภาพที่ต้องการลบ'
+        message: `ไม่พบรูปภาพที่ต้องการลบ (index: ${index}, total: ${user.profileImages.length})`
       });
+    }
+
+    // ตรวจสอบว่าต้องการลบรูป default avatar หรือไม่
+    const imageToDelete = user.profileImages[index];
+    if (imageToDelete && imageToDelete.startsWith('data:image/svg+xml')) {
+      console.log('❌ Cannot delete default avatar');
+      return res.status(400).json({
+        success: false,
+        message: 'ไม่สามารถลบรูป default avatar ได้'
+      });
+    }
+
+    // ลบไฟล์รูปภาพจริงจากระบบไฟล์
+    if (imageToDelete && !imageToDelete.startsWith('data:image/svg+xml')) {
+      const fullImagePath = path.join(__dirname, '..', 'uploads', imageToDelete);
+      if (fs.existsSync(fullImagePath)) {
+        fs.unlinkSync(fullImagePath);
+        console.log('🗑️ Deleted file from filesystem:', fullImagePath);
+      } else {
+        console.log('⚠️ File not found on filesystem:', fullImagePath);
+      }
     }
 
     // ลบรูปภาพออกจาก array
     user.profileImages.splice(index, 1);
     
+    console.log('🗑️ Deleted image:', imageToDelete);
+    console.log('🗑️ Remaining images:', user.profileImages.length);
+    
     // ถ้าไม่มีรูปภาพเหลือแล้ว ให้ใส่รูป default
     if (user.profileImages.length === 0) {
       user.profileImages = [DEFAULT_AVATAR_BASE64];
+      console.log('🗑️ Added default avatar');
     }
     
     await user.save();
@@ -1146,12 +1216,13 @@ router.delete('/:userId/image/:imageIndex', authenticateToken, async (req, res) 
       success: true,
       message: 'ลบรูปภาพสำเร็จ',
       data: {
-        profileImages: user.profileImages
+        profileImages: user.profileImages,
+        deletedIndex: index
       }
     });
 
   } catch (error) {
-    console.error('Error deleting profile image:', error);
+    console.error('❌ Error deleting profile image:', error);
     res.status(500).json({
       success: false,
       message: 'ไม่สามารถลบรูปภาพได้',

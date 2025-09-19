@@ -7,6 +7,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { Label } from './ui/label';
 import { Input } from './ui/input';
 import { useToast } from './ui/toast';
+import { getProfileImageUrl } from '../utils/profileImageUtils';
 import {
   Heart, 
   MessageCircle, 
@@ -19,7 +20,25 @@ import {
   Zap,
   X,
   Check,
-  Sliders
+  Sliders,
+  User,
+  Calendar,
+  CheckCircle,
+  Crown,
+  Phone,
+  Mail,
+  GraduationCap,
+  Briefcase,
+  Home,
+  Baby,
+  Cigarette,
+  Wine,
+  Dumbbell,
+  Languages,
+  Heart as HeartIcon,
+  PawPrint,
+  Building,
+  ArrowLeft
 } from 'lucide-react';
 
 const AIMatchingSystem = ({ currentUser }) => {
@@ -34,6 +53,10 @@ const AIMatchingSystem = ({ currentUser }) => {
   const [filterCount, setFilterCount] = useState(0);
   const [totalUsers, setTotalUsers] = useState(0);
   const [gpsTrackingStatus, setGpsTrackingStatus] = useState('initializing'); // 'initializing', 'tracking', 'error'
+  
+  // Profile Details Modal States
+  const [showProfileDetailsModal, setShowProfileDetailsModal] = useState(false);
+  const [selectedUserProfile, setSelectedUserProfile] = useState(null);
   
   // Default filters
   const defaultFilters = {
@@ -56,6 +79,52 @@ const AIMatchingSystem = ({ currentUser }) => {
   const [tempFilters, setTempFilters] = useState(defaultFilters);
   const [filters, setFilters] = useState(defaultFilters);
   const [likedUsers, setLikedUsers] = useState(new Set());
+
+  // Function to open profile details modal
+  const openProfileDetailsModal = (match) => {
+    const profileData = {
+      id: match.id || match._id,
+      name: match.name || 'ไม่ระบุชื่อ',
+      age: match.age || null,
+      location: match.location || null,
+      bio: match.bio || null,
+      interests: match.interests?.map(i => typeof i === 'string' ? i : i.category || i.items || 'Interest') || [],
+      profileImages: match.profileImages || [],
+      verified: match.isVerified || false,
+      online: match.isActive || false,
+      lastActive: match.lastActive,
+      membership: {
+        tier: match.membershipTier || 'member'
+      },
+      // Detailed information
+      username: match.username || null,
+      firstName: match.firstName || null,
+      lastName: match.lastName || null,
+      email: match.email || null,
+      phone: match.phone || null,
+      birthDate: match.birthDate || null,
+      gender: match.gender || null,
+      lookingFor: match.lookingFor || null,
+      education: match.education || null,
+      occupation: match.occupation || null,
+      height: match.height || null,
+      weight: match.weight || null,
+      relationshipStatus: match.relationshipStatus || null,
+      smoking: match.smoking || null,
+      drinking: match.drinking || null,
+      exercise: match.exercise || null,
+      languages: match.languages || [],
+      hobbies: match.hobbies || [],
+      profileVideos: match.profileVideos || [],
+      religion: match.religion || null,
+      pets: match.pets || null,
+      children: match.children || null,
+      wantChildren: match.wantChildren || null
+    };
+    
+    setSelectedUserProfile(profileData);
+    setShowProfileDetailsModal(true);
+  };
 
   // Check authentication
   useEffect(() => {
@@ -943,14 +1012,9 @@ const AIMatchingSystem = ({ currentUser }) => {
                   bio: match.bio || 'ไม่มีข้อมูล',
                   interests: match.interests?.map(i => typeof i === 'string' ? i : i.category || i.items || 'Interest') || [],
                   images: match.profileImages && match.profileImages.length > 0
-                    ? match.profileImages.filter(img => !img.startsWith('data:image/svg+xml')).map(img => {
-                        if (img.startsWith('http')) {
-                          return img
-                        } else {
-                          const baseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000'
-                          return `${baseUrl}/uploads/profiles/${img}`
-                        }
-                      })
+                    ? match.profileImages.filter(img => !img.startsWith('data:image/svg+xml')).map(img => 
+                        getProfileImageUrl(img, match.id || match._id)
+                      )
                     : [],
                   verified: match.isVerified || false,
                   online: match.isActive || false,
@@ -980,8 +1044,8 @@ const AIMatchingSystem = ({ currentUser }) => {
                   } else if (firstImage.startsWith('data:image/svg+xml')) {
                     imageUrl = firstImage
                   } else {
-                    const baseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000'
-                    imageUrl = `${baseUrl}/uploads/profiles/${firstImage}`
+                    // ใช้ utility function สำหรับสร้าง URL ที่ถูกต้อง
+                    imageUrl = getProfileImageUrl(firstImage, match._id)
                   }
                 }
                 
@@ -1072,14 +1136,9 @@ const AIMatchingSystem = ({ currentUser }) => {
                   bio: match.bio || 'ไม่มีข้อมูล',
                   interests: match.interests?.map(i => typeof i === 'string' ? i : i.category || i.items || 'Interest') || [],
                   images: match.profileImages && match.profileImages.length > 0
-                    ? match.profileImages.filter(img => !img.startsWith('data:image/svg+xml')).map(img => {
-                        if (img.startsWith('http')) {
-                          return img
-                        } else {
-                          const baseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000'
-                          return `${baseUrl}/uploads/profiles/${img}`
-                        }
-                      })
+                    ? match.profileImages.filter(img => !img.startsWith('data:image/svg+xml')).map(img => 
+                        getProfileImageUrl(img, match.id || match._id)
+                      )
                     : [],
                   verified: match.isVerified || false,
                   online: match.isActive || false,
@@ -1143,19 +1202,7 @@ const AIMatchingSystem = ({ currentUser }) => {
                   {match.bio}
                 </p>
 
-                {/* Interests */}
-                <div className="flex flex-wrap gap-1 mb-2 sm:mb-3">
-                  {match.interests && match.interests.slice(0, 2).map((interest, idx) => (
-                    <Badge key={idx} variant="outline" className="text-xs">
-                      {typeof interest === 'string' ? interest : interest.category || interest.items || 'Interest'}
-                    </Badge>
-                  ))}
-                  {match.interests && match.interests.length > 2 && (
-                    <Badge variant="outline" className="text-xs">
-                      +{match.interests.length - 2}
-                    </Badge>
-                  )}
-                </div>
+{/* Interests section hidden as requested */}
               </div>
 
               {/* Actions */}
@@ -1209,6 +1256,7 @@ const AIMatchingSystem = ({ currentUser }) => {
                   }`} />
                   <span className="hidden sm:inline">{likedUsers.has(match.id || match._id) ? 'Liked' : 'หัวใจ'}</span>
                 </Button>
+                
 
               </div>
             </div>
@@ -1613,6 +1661,286 @@ const AIMatchingSystem = ({ currentUser }) => {
               ค้นหาเลย ({totalUsers || 0} คน)
             </Button>
           </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Profile Details Modal */}
+      <Dialog open={showProfileDetailsModal} onOpenChange={setShowProfileDetailsModal}>
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto p-0">
+          {selectedUserProfile && (
+            <div className="relative">
+              {/* Header with Background */}
+              <div className="relative h-48 bg-gradient-to-br from-purple-500 via-pink-500 to-violet-600 overflow-hidden">
+                {/* Background Pattern */}
+                <div className="absolute inset-0 opacity-20">
+                  <div className="absolute top-4 left-4 w-32 h-32 bg-white/10 rounded-full blur-xl"></div>
+                  <div className="absolute top-16 right-8 w-24 h-24 bg-white/10 rounded-full blur-xl"></div>
+                  <div className="absolute bottom-8 left-1/3 w-20 h-20 bg-white/10 rounded-full blur-xl"></div>
+                </div>
+                
+                {/* Close Button */}
+                <button
+                  onClick={() => setShowProfileDetailsModal(false)}
+                  className="absolute top-4 right-4 z-10 bg-white/20 hover:bg-white/30 text-white rounded-full p-2 transition-colors"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+                
+                {/* Profile Header Info */}
+                <div className="absolute bottom-6 left-6 right-6 text-white">
+                  <div className="flex items-end gap-4">
+                    {/* Profile Image */}
+                    <div className="relative">
+                      <div className="w-24 h-24 rounded-full bg-white/20 backdrop-blur-sm border-4 border-white/30 flex items-center justify-center overflow-hidden">
+                        {selectedUserProfile.profileImages && selectedUserProfile.profileImages.length > 0 ? (
+                          <img 
+                            src={getProfileImageUrl(selectedUserProfile.profileImages[0], selectedUserProfile.id)}
+                            alt={selectedUserProfile.name}
+                            className="w-full h-full object-cover"
+                          />
+                        ) : (
+                          <User className="h-12 w-12 text-white/80" />
+                        )}
+                      </div>
+                      {selectedUserProfile.verified && (
+                        <div className="absolute -bottom-1 -right-1 bg-green-500 rounded-full p-1">
+                          <CheckCircle className="h-4 w-4 text-white" />
+                        </div>
+                      )}
+                    </div>
+                    
+                    {/* Basic Info */}
+                    <div className="flex-1">
+                      <h2 className="text-2xl font-bold text-white mb-1">
+                        {selectedUserProfile.name}
+                        {selectedUserProfile.age && `, ${selectedUserProfile.age}`}
+                      </h2>
+                      <div className="flex items-center gap-4 text-white/90">
+                        {selectedUserProfile.location && (
+                          <div className="flex items-center gap-1">
+                            <MapPin className="h-4 w-4" />
+                            <span className="text-sm">{selectedUserProfile.location}</span>
+                          </div>
+                        )}
+                        <div className={`flex items-center gap-1 ${selectedUserProfile.online ? 'text-green-300' : 'text-red-300'}`}>
+                          <div className={`h-2 w-2 rounded-full ${selectedUserProfile.online ? 'bg-green-300' : 'bg-red-300'}`}></div>
+                          <span className="text-sm">{selectedUserProfile.online ? 'ออนไลน์' : 'ออฟไลน์'}</span>
+                        </div>
+                        {selectedUserProfile.membership.tier !== 'member' && (
+                          <div className="flex items-center gap-1 text-yellow-300">
+                            <Crown className="h-4 w-4" />
+                            <span className="text-sm capitalize">{selectedUserProfile.membership.tier}</span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              
+              {/* Content */}
+              <div className="p-6 space-y-6">
+                {/* Bio Section */}
+                {selectedUserProfile.bio && (
+                  <div>
+                    <h3 className="text-lg font-semibold text-gray-800 mb-3">เกี่ยวกับฉัน</h3>
+                    <p className="text-gray-600 leading-relaxed">{selectedUserProfile.bio}</p>
+                  </div>
+                )}
+                
+                {/* Basic Information */}
+                <div>
+                  <h3 className="text-lg font-semibold text-gray-800 mb-4 border-b border-gray-200 pb-2">ข้อมูลพื้นฐาน</h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {selectedUserProfile.age && (
+                      <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
+                        <Calendar className="h-5 w-5 text-gray-500" />
+                        <div>
+                          <span className="text-sm font-medium text-gray-700">อายุ</span>
+                          <p className="text-gray-600">{selectedUserProfile.age} ปี</p>
+                        </div>
+                      </div>
+                    )}
+                    
+                    {selectedUserProfile.gender && (
+                      <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
+                        <User className="h-5 w-5 text-gray-500" />
+                        <div>
+                          <span className="text-sm font-medium text-gray-700">เพศ</span>
+                          <p className="text-gray-600">{selectedUserProfile.gender === 'male' ? 'ชาย' : selectedUserProfile.gender === 'female' ? 'หญิง' : selectedUserProfile.gender}</p>
+                        </div>
+                      </div>
+                    )}
+                    
+                    {selectedUserProfile.education && (
+                      <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
+                        <GraduationCap className="h-5 w-5 text-gray-500" />
+                        <div>
+                          <span className="text-sm font-medium text-gray-700">การศึกษา</span>
+                          <p className="text-gray-600">{selectedUserProfile.education}</p>
+                        </div>
+                      </div>
+                    )}
+                    
+                    {selectedUserProfile.occupation && (
+                      <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
+                        <Briefcase className="h-5 w-5 text-gray-500" />
+                        <div>
+                          <span className="text-sm font-medium text-gray-700">อาชีพ</span>
+                          <p className="text-gray-600">{selectedUserProfile.occupation}</p>
+                        </div>
+                      </div>
+                    )}
+                    
+                    {selectedUserProfile.height && (
+                      <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
+                        <User className="h-5 w-5 text-gray-500" />
+                        <div>
+                          <span className="text-sm font-medium text-gray-700">ส่วนสูง</span>
+                          <p className="text-gray-600">{selectedUserProfile.height} ซม.</p>
+                        </div>
+                      </div>
+                    )}
+                    
+                    {selectedUserProfile.relationshipStatus && (
+                      <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
+                        <HeartIcon className="h-5 w-5 text-gray-500" />
+                        <div>
+                          <span className="text-sm font-medium text-gray-700">สถานะความสัมพันธ์</span>
+                          <p className="text-gray-600">{selectedUserProfile.relationshipStatus}</p>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+                
+                {/* Lifestyle Information */}
+                <div>
+                  <h3 className="text-lg font-semibold text-gray-800 mb-4 border-b border-gray-200 pb-2">ไลฟ์สไตล์</h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {selectedUserProfile.smoking && (
+                      <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
+                        <Cigarette className="h-5 w-5 text-gray-500" />
+                        <div>
+                          <span className="text-sm font-medium text-gray-700">การสูบบุหรี่</span>
+                          <p className="text-gray-600">{selectedUserProfile.smoking}</p>
+                        </div>
+                      </div>
+                    )}
+                    
+                    {selectedUserProfile.drinking && (
+                      <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
+                        <Wine className="h-5 w-5 text-gray-500" />
+                        <div>
+                          <span className="text-sm font-medium text-gray-700">การดื่มแอลกอฮอล์</span>
+                          <p className="text-gray-600">{selectedUserProfile.drinking}</p>
+                        </div>
+                      </div>
+                    )}
+                    
+                    {selectedUserProfile.exercise && (
+                      <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
+                        <Dumbbell className="h-5 w-5 text-gray-500" />
+                        <div>
+                          <span className="text-sm font-medium text-gray-700">การออกกำลังกาย</span>
+                          <p className="text-gray-600">{selectedUserProfile.exercise}</p>
+                        </div>
+                      </div>
+                    )}
+                    
+                    {selectedUserProfile.religion && (
+                      <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
+                        <Building className="h-5 w-5 text-gray-500" />
+                        <div>
+                          <span className="text-sm font-medium text-gray-700">ศาสนา</span>
+                          <p className="text-gray-600">{selectedUserProfile.religion}</p>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+                
+                {/* Interests */}
+                {selectedUserProfile.interests && selectedUserProfile.interests.length > 0 && (
+                  <div>
+                    <h3 className="text-lg font-semibold text-gray-800 mb-4 border-b border-gray-200 pb-2">ความสนใจ</h3>
+                    <div className="flex flex-wrap gap-2">
+                      {selectedUserProfile.interests.map((interest, index) => (
+                        <Badge key={index} variant="secondary" className="px-3 py-1 bg-purple-100 text-purple-700 border-purple-200">
+                          {interest}
+                        </Badge>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                
+                {/* Additional Information */}
+                {(selectedUserProfile.pets || selectedUserProfile.children || selectedUserProfile.wantChildren) && (
+                  <div>
+                    <h3 className="text-lg font-semibold text-gray-800 mb-4 border-b border-gray-200 pb-2">ข้อมูลเพิ่มเติม</h3>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {selectedUserProfile.pets && (
+                        <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
+                          <PawPrint className="h-5 w-5 text-gray-500" />
+                          <div>
+                            <span className="text-sm font-medium text-gray-700">สัตว์เลี้ยง</span>
+                            <p className="text-gray-600">{selectedUserProfile.pets}</p>
+                          </div>
+                        </div>
+                      )}
+                      
+                      {selectedUserProfile.children && (
+                        <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
+                          <Baby className="h-5 w-5 text-gray-500" />
+                          <div>
+                            <span className="text-sm font-medium text-gray-700">มีลูกแล้ว</span>
+                            <p className="text-gray-600">{selectedUserProfile.children}</p>
+                          </div>
+                        </div>
+                      )}
+                      
+                      {selectedUserProfile.wantChildren && (
+                        <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
+                          <Baby className="h-5 w-5 text-gray-500" />
+                          <div>
+                            <span className="text-sm font-medium text-gray-700">ต้องการมีลูก</span>
+                            <p className="text-gray-600">{selectedUserProfile.wantChildren}</p>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+                
+                {/* Contact Actions */}
+                <div className="flex gap-4 pt-4 border-t border-gray-200">
+                  <Button
+                    className="flex-1 bg-blue-500 hover:bg-blue-600 text-white"
+                    onClick={() => {
+                      // Handle message action
+                      console.log('Message user:', selectedUserProfile.name);
+                      setShowProfileDetailsModal(false);
+                    }}
+                  >
+                    <MessageCircle className="h-4 w-4 mr-2" />
+                    ส่งข้อความ
+                  </Button>
+                  
+                  <Button
+                    className="flex-1 bg-pink-500 hover:bg-pink-600 text-white"
+                    onClick={() => {
+                      // Handle like action
+                      console.log('Like user:', selectedUserProfile.name);
+                      setShowProfileDetailsModal(false);
+                    }}
+                  >
+                    <Heart className="h-4 w-4 mr-2" />
+                    ส่งหัวใจ
+                  </Button>
+                </div>
+              </div>
+            </div>
+          )}
         </DialogContent>
       </Dialog>
     </div>

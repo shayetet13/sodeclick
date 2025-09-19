@@ -26,6 +26,7 @@ const ChatRoomList = ({ currentUser, onSelectRoom, onCreatePrivateRoom }) => {
   const [filterType, setFilterType] = useState('all'); // 'all', 'public', 'private'
   const [onlineUsers, setOnlineUsers] = useState({}); // roomId -> onlineCount
   const [totalOnlineUsers, setTotalOnlineUsers] = useState(0); // รวมคนออนไลน์ทั้งหมด
+  const [selectedRoomId, setSelectedRoomId] = useState(null); // เพิ่ม state สำหรับห้องที่เลือก
   
   // เพิ่ม state สำหรับ popup จ่ายเหรียญ
   const [showPaymentDialog, setShowPaymentDialog] = useState(false);
@@ -38,6 +39,17 @@ const ChatRoomList = ({ currentUser, onSelectRoom, onCreatePrivateRoom }) => {
   useEffect(() => {
     fetchChatRooms();
   }, [filterType]);
+
+  // เลือกห้องสาธารณะแรกโดยค่าเริ่มต้น
+  useEffect(() => {
+    if (chatRooms.length > 0 && !selectedRoomId) {
+      const firstPublicRoom = chatRooms.find(room => room.type === 'public');
+      if (firstPublicRoom) {
+        setSelectedRoomId(firstPublicRoom.id);
+        onSelectRoom(firstPublicRoom.id);
+      }
+    }
+  }, [chatRooms, selectedRoomId, onSelectRoom]);
 
   // โหลดข้อมูลคนออนไลน์สำหรับทุกห้อง
   useEffect(() => {
@@ -66,15 +78,19 @@ const ChatRoomList = ({ currentUser, onSelectRoom, onCreatePrivateRoom }) => {
         return;
       }
 
+      console.log('🔑 Fetching user coins with token...');
       const response = await fetch(
-        `${import.meta.env.VITE_API_URL || 'http://localhost:5000'}/api/profile/me/coins`,
+        `${import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000'}/api/profile/me/coins`,
         {
           credentials: 'include',
           headers: {
-            'Authorization': `Bearer ${token}`
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json'
           }
         }
       );
+      
+      console.log('📊 User coins response status:', response.status);
       
       if (response.ok) {
         const data = await response.json();
@@ -84,6 +100,9 @@ const ChatRoomList = ({ currentUser, onSelectRoom, onCreatePrivateRoom }) => {
         } else {
           console.error('❌ Failed to load user coins:', data.message);
         }
+      } else if (response.status === 401) {
+        console.error('❌ Token invalid for user coins - user may need to re-login');
+        // ไม่ redirect เพราะอาจเป็น token หมดอายุชั่วคราว
       } else {
         console.error('❌ Failed to load user coins - HTTP error:', response.status);
       }
@@ -95,12 +114,16 @@ const ChatRoomList = ({ currentUser, onSelectRoom, onCreatePrivateRoom }) => {
   const fetchTotalOnlineUsers = async () => {
     try {
       console.log('🔍 Fetching total online users...');
+      
       const response = await fetch(
-        `${import.meta.env.VITE_API_URL || 'http://localhost:5000'}/api/users/online-count`,
+        `${import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000'}/api/users/online-count`,
         {
           credentials: 'include'
+          // ไม่ส่ง Authorization header เพราะ endpoint นี้ไม่ต้องการ auth
         }
       );
+      
+      console.log('📊 Online count response status:', response.status);
       
       if (response.ok) {
         const data = await response.json();
@@ -119,12 +142,23 @@ const ChatRoomList = ({ currentUser, onSelectRoom, onCreatePrivateRoom }) => {
     try {
       setLoading(true);
       console.log('🔍 Fetching chat rooms with includeActiveMembers=true');
+      const token = sessionStorage.getItem('token');
+      console.log('🔑 Token for chat rooms:', token ? 'Present' : 'Missing');
+      
       const response = await fetch(
-        `${import.meta.env.VITE_API_URL || 'http://localhost:5000'}/api/chatroom?type=${filterType}&search=${searchTerm}&includeActiveMembers=true`,
+        `${import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000'}/api/chatroom?type=${filterType}&search=${searchTerm}&includeActiveMembers=true`,
         {
           credentials: 'include'
+          // ไม่ส่ง Authorization header เพราะ endpoint นี้ไม่ต้องการ auth
         }
       );
+      
+      console.log('📊 Chat rooms response status:', response.status);
+      if (!response.ok) {
+        console.error('❌ Failed to fetch chat rooms:', response.status, response.statusText);
+        return;
+      }
+      
       const data = await response.json();
       
       console.log('📊 Chat rooms response:', data);
@@ -150,12 +184,19 @@ const ChatRoomList = ({ currentUser, onSelectRoom, onCreatePrivateRoom }) => {
       // ดึงข้อมูลคนออนไลน์สำหรับทุกห้อง
       for (const room of chatRooms) {
         try {
+          const roomId = room.id;
+          const userId = authUser._id || authUser.id;
+          console.log(`🔍 Fetching online users for room: "${roomId}", user: "${userId}"`);
+          
           const response = await fetch(
-            `${import.meta.env.VITE_API_URL || 'http://localhost:5000'}/api/chatroom/${room.id}/online-users?userId=${authUser._id || authUser.id}`,
+            `${import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000'}/api/chatroom/${roomId}/online-users?userId=${userId}`,
             {
               credentials: 'include'
+              // ไม่ส่ง Authorization header เพราะ endpoint นี้ไม่ต้องการ auth
             }
           );
+          
+          console.log(`📊 Online users response for room ${roomId}:`, response.status);
           
           if (response.ok) {
             const data = await response.json();
@@ -194,13 +235,19 @@ const ChatRoomList = ({ currentUser, onSelectRoom, onCreatePrivateRoom }) => {
     setPaymentError('');
     
     try {
+      const token = sessionStorage.getItem('token');
+      const headers = {
+        'Content-Type': 'application/json'
+      };
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+
       const response = await fetch(
-        `${import.meta.env.VITE_API_URL || 'http://localhost:5000'}/api/chatroom/${selectedRoom.id}/pay-entry`,
+        `${import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000'}/api/chatroom/${selectedRoom.id}/pay-entry`,
         {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json'
-          },
+          headers,
           credentials: 'include',
           body: JSON.stringify({
             userId: authUser._id || authUser.id,
@@ -224,6 +271,7 @@ const ChatRoomList = ({ currentUser, onSelectRoom, onCreatePrivateRoom }) => {
           setPaymentSuccess(false);
           setSelectedRoom(null);
           // เข้าห้องแชท
+          setSelectedRoomId(selectedRoom.id);
           onSelectRoom(selectedRoom.id);
         }, 2000);
       } else {
@@ -250,6 +298,9 @@ const ChatRoomList = ({ currentUser, onSelectRoom, onCreatePrivateRoom }) => {
       return;
     }
 
+    // อัปเดต selectedRoomId
+    setSelectedRoomId(room.id);
+
     // สำหรับห้องสาธารณะ - เข้าได้เลย
     if (room.type === 'public') {
       onSelectRoom(room.id);
@@ -272,13 +323,19 @@ const ChatRoomList = ({ currentUser, onSelectRoom, onCreatePrivateRoom }) => {
     // สำหรับห้องส่วนตัว - ต้องเข้าร่วมก่อน
     if (room.type === 'private' && !isUserMember(room)) {
       try {
+        const token = sessionStorage.getItem('token');
+        const headers = {
+          'Content-Type': 'application/json'
+        };
+        if (token) {
+          headers['Authorization'] = `Bearer ${token}`;
+        }
+
         const response = await fetch(
-          `${import.meta.env.VITE_API_URL || 'http://localhost:5000'}/api/chatroom/${room.id}/join`,
+          `${import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000'}/api/chatroom/${room.id}/join`,
           {
             method: 'POST',
-            headers: {
-              'Content-Type': 'application/json'
-            },
+            headers,
             credentials: 'include',
             body: JSON.stringify({
               userId: currentUser._id
@@ -289,6 +346,7 @@ const ChatRoomList = ({ currentUser, onSelectRoom, onCreatePrivateRoom }) => {
         const data = await response.json();
         if (data.success) {
           fetchChatRooms();
+          setSelectedRoomId(room.id);
           onSelectRoom(room.id);
         } else {
           alert(data.message);
@@ -298,6 +356,7 @@ const ChatRoomList = ({ currentUser, onSelectRoom, onCreatePrivateRoom }) => {
         alert('เกิดข้อผิดพลาดในการเข้าร่วมห้องแชท');
       }
     } else {
+      setSelectedRoomId(room.id);
       onSelectRoom(room.id);
     }
   };
@@ -378,99 +437,48 @@ const ChatRoomList = ({ currentUser, onSelectRoom, onCreatePrivateRoom }) => {
   }
 
   return (
-    <div className="flex flex-col h-full">
-      {/* Sticky Header Section */}
-      <div className="sticky top-0 z-10 p-2 sm:p-4">
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-3 sm:p-6">
-          <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3 sm:gap-4">
-            {/* Title and Online Status */}
-            <div className="flex items-center gap-3 sm:gap-4">
-              <div className="flex items-center gap-2 sm:gap-3">
-                <div className="w-10 h-10 sm:w-12 sm:h-12 bg-gradient-to-r from-pink-500 to-violet-500 rounded-xl flex items-center justify-center">
-                  <MessageCircle className="h-5 w-5 sm:h-6 sm:w-6 text-white" />
-                </div>
-                <div>
-                  <h1 className="text-lg sm:text-2xl font-bold text-gray-900">ห้องแชท</h1>
-                  <div className="flex items-center gap-2 text-xs sm:text-sm text-gray-600">
-                    <div className="w-1.5 h-1.5 sm:w-2 sm:h-2 bg-green-500 rounded-full animate-pulse"></div>
-                    <span>{totalOnlineUsers} คนกำลังใช้งาน</span>
-                  </div>
-                </div>
-              </div>
-            </div>
+    <div className="w-full">
+      {/* Search and Filters */}
+      <div className="space-y-3 sm:space-y-4">
+        {/* Search Bar */}
+        <div className="relative">
+          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 sm:h-5 sm:w-5 text-gray-400" />
+          <input
+            type="text"
+            placeholder="ค้นหาห้องแชท..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="w-full pl-10 sm:pl-12 pr-3 sm:pr-4 py-2 sm:py-3 bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500 focus:border-transparent text-gray-900 placeholder-gray-500 text-sm sm:text-base"
+          />
+        </div>
 
-            {/* User Info and Actions */}
-            <div className="flex flex-row items-center justify-between gap-2 sm:gap-3">
-              {/* Create Room Button */}
-              {canCreatePrivateRoom(currentUser.membership?.tier || 'member') && (
-                <button
-                  onClick={onCreatePrivateRoom}
-                  className="flex items-center gap-2 bg-gradient-to-r from-pink-500 to-violet-500 text-white px-3 py-2 sm:px-4 sm:py-2 rounded-lg hover:from-pink-600 hover:to-violet-600 transition-all duration-200 shadow-sm text-sm sm:text-base flex-shrink-0"
-                >
-                  <Plus className="h-3 w-3 sm:h-4 sm:w-4" />
-                  <span className="hidden sm:inline">สร้างห้องส่วนตัว</span>
-                  <span className="sm:hidden">สร้างห้อง</span>
-                </button>
-              )}
-              
-              {/* Membership Info */}
-              <div className="bg-gray-100 rounded-lg px-3 py-2 sm:px-4 sm:py-2 flex-shrink-0">
-                <div className="text-xs sm:text-sm font-medium text-gray-900">
-                  สมาชิก: {currentUser.membership?.tier?.toUpperCase() || 'MEMBER'}
-                </div>
-                <div className="text-xs text-gray-600">
-                  {canAccessPrivateChat(currentUser.membership?.tier || 'member')
-                    ? 'เข้าแชทส่วนตัวได้'
-                    : 'เฉพาะแชทสาธารณะ'}
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Search and Filters */}
-          <div className="mt-4 sm:mt-6 space-y-3 sm:space-y-4">
-            {/* Search Bar */}
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 sm:h-5 sm:w-5 text-gray-400" />
-              <input
-                type="text"
-                placeholder="ค้นหาห้องแชท..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full pl-10 sm:pl-12 pr-3 sm:pr-4 py-2 sm:py-3 bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500 focus:border-transparent text-gray-900 placeholder-gray-500 text-sm sm:text-base"
-              />
-            </div>
-
-            {/* Filter Tabs */}
-            <div className="flex gap-1 sm:gap-2 overflow-x-auto">
-              {[
-                { key: 'all', label: 'ทั้งหมด', icon: MessageCircle },
-                { key: 'public', label: 'สาธารณะ', icon: Globe },
-                ...(canAccessPrivateChat(currentUser.membership?.tier || 'member')
-                  ? [{ key: 'private', label: 'ส่วนตัว', icon: Lock }]
-                  : [])
-              ].map((filter) => (
-                <button
-                  key={filter.key}
-                  onClick={() => setFilterType(filter.key)}
-                  className={`flex items-center gap-1 sm:gap-2 px-3 py-2 sm:px-4 sm:py-2 rounded-lg text-xs sm:text-sm font-medium transition-all duration-200 whitespace-nowrap ${
-                    filterType === filter.key
-                      ? 'bg-pink-500 text-white shadow-sm'
-                      : 'bg-white text-gray-600 hover:bg-gray-50 border border-gray-200'
-                  }`}
-                >
-                  <filter.icon className="h-3 w-3 sm:h-4 sm:w-4" />
-                  {filter.label}
-                </button>
-              ))}
-            </div>
-          </div>
+        {/* Filter Tabs */}
+        <div className="flex gap-1 sm:gap-2 overflow-x-auto">
+          {[
+            { key: 'all', label: 'ทั้งหมด', icon: MessageCircle },
+            { key: 'public', label: 'สาธารณะ', icon: Globe },
+            ...(canAccessPrivateChat(currentUser.membership?.tier || 'member')
+              ? [{ key: 'private', label: 'ส่วนตัว', icon: Lock }]
+              : [])
+          ].map((filter) => (
+            <button
+              key={filter.key}
+              onClick={() => setFilterType(filter.key)}
+              className={`flex items-center gap-1 sm:gap-2 px-3 py-2 sm:px-4 sm:py-2 rounded-lg text-xs sm:text-sm font-medium transition-all duration-200 whitespace-nowrap ${
+                filterType === filter.key
+                  ? 'bg-pink-500 text-white shadow-sm'
+                  : 'bg-white text-gray-600 hover:bg-gray-50 border border-gray-200'
+              }`}
+            >
+              <filter.icon className="h-3 w-3 sm:h-4 sm:w-4" />
+              {filter.label}
+            </button>
+          ))}
         </div>
       </div>
 
-      {/* Scrollable Room List */}
-      <div className="flex-1 overflow-y-auto p-2 sm:p-4 pt-0 sm:pt-0">
-        <div className="space-y-2 sm:space-y-4">
+      {/* Chat Room Buttons */}
+      <div className="mt-4">
         {filteredRooms.length === 0 ? (
           <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-8 sm:p-12 text-center">
             <MessageCircle className="h-12 w-12 sm:h-16 sm:w-16 text-gray-300 mx-auto mb-3 sm:mb-4" />
@@ -478,208 +486,71 @@ const ChatRoomList = ({ currentUser, onSelectRoom, onCreatePrivateRoom }) => {
             <p className="text-sm sm:text-base text-gray-500">ลองค้นหาด้วยคำอื่นหรือเปลี่ยนตัวกรอง</p>
           </div>
         ) : (
-          filteredRooms.map((room) => {
+          <div className="grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-6 gap-1 sm:gap-2">
+            {filteredRooms.map((room) => {
               const canAccess = room.type === 'public' ||
                               (room.type === 'private' && canAccessPrivateChat(currentUser.membership?.tier || 'member'));
               
               return (
-                <div
+                <button
                   key={room.id}
-                  className={`bg-white rounded-xl shadow-sm border border-gray-200 p-3 sm:p-6 transition-all duration-200 ${
-                    canAccess ? 'hover:shadow-md hover:border-pink-200 cursor-pointer' : 'opacity-60 cursor-not-allowed'
-                  }`}
                   onClick={() => canAccess ? handleRoomClick(room) : null}
+                  disabled={!canAccess}
+                  className={`relative p-2 rounded-lg border transition-all duration-200 ${
+                    selectedRoomId === room.id
+                      ? 'bg-pink-100 border-pink-300 shadow-md'
+                      : canAccess 
+                        ? 'bg-white border-gray-200 hover:border-pink-300 hover:shadow-md cursor-pointer' 
+                        : 'bg-gray-100 border-gray-200 opacity-60 cursor-not-allowed'
+                  }`}
                 >
-                  <div className="flex items-start justify-between">
-                    {/* Room Info */}
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 sm:gap-3 mb-2 sm:mb-3">
-                        <div className="flex items-center gap-2">
-                          {room.type === 'public' ? (
-                            <div className="w-6 h-6 sm:w-8 sm:h-8 bg-green-100 rounded-lg flex items-center justify-center">
-                              <Globe className="h-3 w-3 sm:h-4 sm:w-4 text-green-600" />
-                            </div>
-                          ) : (
-                            <div className="w-6 h-6 sm:w-8 sm:h-8 bg-orange-100 rounded-lg flex items-center justify-center">
-                              <Lock className="h-3 w-3 sm:h-4 sm:w-4 text-orange-600" />
-                            </div>
-                          )}
-                          <div className="min-w-0 flex-1">
-                            <h3 className={`text-base sm:text-lg font-semibold truncate ${
-                              canAccess ? 'text-gray-900' : 'text-gray-500'
-                            }`}>
-                              {room.name}
-                            </h3>
-                            <div className="flex items-center gap-1 sm:gap-2 flex-wrap">
-                              <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                                room.type === 'public' 
-                                  ? 'bg-green-100 text-green-700' 
-                                  : 'bg-orange-100 text-orange-700'
-                              }`}>
-                                {room.type === 'public' ? 'สาธารณะ' : 'ส่วนตัว'}
-                              </span>
-                              {(room.entryFee || 0) > 0 && (
-                                <span className="px-2 py-1 bg-yellow-100 text-yellow-700 rounded-full text-xs font-medium">
-                                  {room.entryFee} เหรียญ
-                                </span>
-                              )}
-                            </div>
-                          </div>
-                        </div>
+                  {/* Room Icon */}
+                  <div className="flex items-center justify-center mb-1">
+                    {room.type === 'public' ? (
+                      <div className="w-6 h-6 bg-green-100 rounded-md flex items-center justify-center">
+                        <Globe className="h-3 w-3 text-green-600" />
                       </div>
-                      
-                      {room.description && (
-                        <p className="text-gray-600 mb-3 sm:mb-4 line-clamp-2 text-sm sm:text-base">
-                          {room.description}
-                        </p>
-                      )}
-
-                      {/* Room Stats - Single Row Layout */}
-                      <div className="flex items-center gap-3 sm:gap-4 flex-wrap">
-                        {/* Mobile: Icon + Number only, Desktop: Icon + Number + Label */}
-                        <div className="flex items-center gap-1 sm:gap-2">
-                          <Users className="h-3 w-3 sm:h-4 sm:w-4 text-gray-400" />
-                          <div className="text-xs sm:text-sm font-medium text-gray-900">
-                            {room.activeMemberCount || room.memberCount || 0}
-                          </div>
-                          <div className="hidden sm:block text-xs text-gray-500">สมาชิก</div>
-                        </div>
-                        <div className="flex items-center gap-1 sm:gap-2">
-                          <div className="w-1.5 h-1.5 sm:w-2 sm:h-2 bg-green-500 rounded-full animate-pulse"></div>
-                          <div className="text-xs sm:text-sm font-medium text-green-600">
-                            {onlineUsers[room.id] || 0}
-                          </div>
-                          <div className="hidden sm:block text-xs text-gray-500">ใช้งาน</div>
-                        </div>
-                        <div className="flex items-center gap-1 sm:gap-2">
-                          <MessageCircle className="h-3 w-3 sm:h-4 sm:w-4 text-gray-400" />
-                          <div className="text-xs sm:text-sm font-medium text-gray-900">
-                            {room.stats?.totalMessages || 0}
-                          </div>
-                          <div className="hidden sm:block text-xs text-gray-500">ข้อความ</div>
-                        </div>
-                        <div className="flex items-center gap-1 sm:gap-2">
-                          <Clock className="h-3 w-3 sm:h-4 sm:w-4 text-gray-400" />
-                          <div className="text-xs sm:text-sm font-medium text-gray-900">
-                            {formatLastActivity(room.lastActivity).split(' ')[0]}
-                          </div>
-                          <div className="hidden sm:block text-xs text-gray-500">ล่าสุด</div>
-                        </div>
+                    ) : (
+                      <div className="w-6 h-6 bg-orange-100 rounded-md flex items-center justify-center">
+                        <Lock className="h-3 w-3 text-orange-600" />
                       </div>
-                    </div>
-
-                    {/* Owner Info and Action - Mobile Optimized */}
-                    <div className="flex flex-col items-end gap-1 sm:gap-4">
-                      {/* Owner - Mobile: Avatar + Name, Desktop: Full info */}
-                      <div className="flex items-center gap-1 sm:gap-3">
-                        {/* Membership Icon */}
-                        <div className="flex-shrink-0">
-                          {room.owner?.membershipTier === 'platinum' && <Crown className="h-3 w-3 sm:h-4 sm:w-4 text-indigo-500" />}
-                          {room.owner?.membershipTier === 'diamond' && <Crown className="h-3 w-3 sm:h-4 sm:w-4 text-blue-500" />}
-                          {room.owner?.membershipTier === 'vip' && <Crown className="h-3 w-3 sm:h-4 sm:w-4 text-purple-500" />}
-                          {room.owner?.membershipTier === 'vip1' && <Crown className="h-3 w-3 sm:h-4 sm:w-4 text-purple-600" />}
-                          {room.owner?.membershipTier === 'vip2' && <Crown className="h-3 w-3 sm:h-4 sm:w-4 text-purple-700" />}
-                          {room.owner?.membershipTier === 'gold' && <Crown className="h-3 w-3 sm:h-4 sm:w-4 text-yellow-500" />}
-                          {room.owner?.membershipTier === 'silver' && <Crown className="h-3 w-3 sm:h-4 sm:w-4 text-gray-400" />}
-                          {(!room.owner?.membershipTier || room.owner?.membershipTier === 'member') && <Crown className="h-3 w-3 sm:h-4 sm:w-4 text-gray-300" />}
-                        </div>
-                        <Avatar className="w-6 h-6 sm:w-10 sm:h-10">
-                          <AvatarImage src={room.owner?.profileImages?.[0]} alt={room.owner?.displayName || 'Unknown'} />
-                          <AvatarFallback className="bg-gradient-to-r from-pink-400 to-violet-400 text-white text-xs sm:text-sm">
-                            {(room.owner?.displayName || room.owner?.username || 'U').charAt(0).toUpperCase()}
-                          </AvatarFallback>
-                        </Avatar>
-                        {/* Mobile: Show name after avatar */}
-                        <div className="sm:hidden text-right">
-                          <div className="text-xs font-medium text-gray-900 truncate max-w-20">
-                            {room.owner?.displayName || `${room.owner?.firstName || ''} ${room.owner?.lastName || ''}`.trim() || room.owner?.username || 'Unknown User'}
-                          </div>
-                        </div>
-                        {/* Desktop: Full info */}
-                        <div className="hidden sm:block text-right">
-                          <div className="flex items-center gap-1 text-sm font-medium text-gray-900">
-                            <Crown className="h-3 w-3 text-yellow-500" />
-                            <span className="truncate max-w-none">
-                              {room.owner?.displayName || `${room.owner?.firstName || ''} ${room.owner?.lastName || ''}`.trim() || room.owner?.username || 'Unknown User'}
-                            </span>
-                          </div>
-                          <span className={`px-2 py-1 rounded-full text-xs font-medium ${getMembershipBadgeColor(room.owner?.membershipTier)}`}>
-                            {room.owner?.membershipTier?.toUpperCase() || 'MEMBER'}
-                          </span>
-                        </div>
-                      </div>
-
-                      {/* Action Button - Mobile: Icon only, Desktop: Full text */}
-                      <div className="text-right">
-                        {canAccess ? (
-                          <div className="flex items-center gap-1">
-                            {/* Check if room requires payment and if user has paid */}
-                            {room.entryFee && room.entryFee > 0 ? (
-                              // Room requires payment
-                              isUserMember(room) ? (
-                                // User has paid - show green status
-                                <>
-                                  <div className="w-2 h-2 bg-green-500 rounded-full sm:hidden"></div>
-                                  <div className="text-xs sm:text-sm text-green-600 font-medium">
-                                    <span className="hidden sm:inline">คลิกเพื่อแชท</span>
-                                    <span className="sm:hidden">พร้อมใช้งาน</span>
-                                  </div>
-                                </>
-                              ) : (
-                                // User hasn't paid - show yellow status
-                                <>
-                                  <div className="w-2 h-2 bg-yellow-500 rounded-full sm:hidden"></div>
-                                  <div className="text-xs sm:text-sm text-yellow-600 font-medium">
-                                    <span className="hidden sm:inline">จ่ายเหรียญเพื่อเข้าร่วม</span>
-                                    <span className="sm:hidden">จ่ายเหรียญเพื่อเข้าร่วม</span>
-                                  </div>
-                                </>
-                              )
-                            ) : (
-                              // Room is free - show green status
-                              <>
-                                <div className="w-2 h-2 bg-green-500 rounded-full sm:hidden"></div>
-                                <div className="text-xs sm:text-sm text-green-600 font-medium">
-                                  <span className="hidden sm:inline">
-                                    {room.type === 'public' ? 'คลิกเพื่อแชท' :
-                                     isUserMember(room) ? 'คลิกเพื่อแชท' : 'คลิกเพื่อเข้าร่วม'}
-                                  </span>
-                                  <span className="sm:hidden">พร้อมใช้งาน</span>
-                                </div>
-                              </>
-                            )}
-                          </div>
-                        ) : (
-                          <div className="text-xs sm:text-sm text-gray-500">
-                            <span className="hidden sm:inline">ต้องเป็นสมาชิก Gold+</span>
-                            <span className="sm:hidden">Gold+</span>
-                          </div>
-                        )}
-                      </div>
-                    </div>
+                    )}
                   </div>
 
-                  {/* Age Restriction - Mobile Optimized */}
-                  {room.ageRestriction && (
-                    <div className="mt-2 sm:mt-4 pt-2 sm:pt-4 border-t border-gray-100 flex items-center justify-between text-xs sm:text-sm text-gray-500">
-                      <span className="truncate">
-                        <span className="sm:hidden">อายุ: {room.ageRestriction?.minAge || 18}-{room.ageRestriction?.maxAge || 100}</span>
-                        <span className="hidden sm:inline">อายุ: {room.ageRestriction?.minAge || 18}-{room.ageRestriction?.maxAge || 100} ปี</span>
-                      </span>
-                      {room.stats?.totalCoinsReceived > 0 && (
-                        <span className="flex items-center gap-1 flex-shrink-0">
-                          <Star className="h-3 w-3 sm:h-4 sm:w-4 text-yellow-500" />
-                          <span className="sm:hidden">{room.stats.totalCoinsReceived}</span>
-                          <span className="hidden sm:inline">{room.stats.totalCoinsReceived} เหรียญ</span>
-                        </span>
-                      )}
+                  {/* Room Name */}
+                  <h3 className={`text-xs font-medium text-center mb-1 truncate ${
+                    canAccess ? 'text-gray-900' : 'text-gray-500'
+                  }`}>
+                    {room.name}
+                  </h3>
+
+                  {/* Online Count */}
+                  <div className="flex items-center justify-center gap-1 text-xs text-gray-500">
+                    <div className="w-1 h-1 bg-green-500 rounded-full animate-pulse"></div>
+                    <span>{onlineUsers[room.id] || 0}</span>
+                  </div>
+
+                  {/* Entry Fee Icon */}
+                  {(room.entryFee || 0) > 0 && (
+                    <div className="absolute top-1 right-1 flex items-center gap-0.5 bg-yellow-100 text-yellow-700 px-1 py-0.5 rounded-full text-xs font-medium">
+                      <Star className="h-2 w-2" />
+                      <span className="text-xs">{room.entryFee}</span>
                     </div>
                   )}
-                </div>
+
+                  {/* Access Status */}
+                  {!canAccess && (
+                    <div className="absolute inset-0 flex items-center justify-center bg-black bg-opacity-20 rounded-lg">
+                      <span className="text-xs font-medium text-white bg-gray-800 px-1 py-0.5 rounded">
+                        Gold+
+                      </span>
+                    </div>
+                  )}
+                </button>
               );
-            })
+            })}
+          </div>
         )}
-        </div>
       </div>
       
       {/* Clean Payment Dialog */}

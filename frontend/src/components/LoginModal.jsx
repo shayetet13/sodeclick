@@ -359,6 +359,12 @@ const LoginModal = ({ isOpen, onClose, onLoginSuccess }) => {
     <>
       <Dialog open={isOpen} onOpenChange={onClose}>
         <DialogContent className="sm:max-w-md w-[95vw] max-h-[90vh] overflow-y-auto modern-card border-0 shadow-2xl p-0 rounded-3xl">
+          <DialogTitle className="sr-only">
+            {isRegisterMode ? 'สร้างบัญชีใหม่' : 'เข้าสู่ระบบ'}
+          </DialogTitle>
+          <DialogDescription className="sr-only">
+            {isRegisterMode ? 'เริ่มต้นการค้นหาความรัก' : 'ยินดีต้อนรับกลับ'}
+          </DialogDescription>
           {/* Mobile-First Header */}
           <div className="relative bg-gradient-to-br from-pink-500 to-violet-500 p-6 text-white rounded-t-3xl">
             {isRegisterMode && (

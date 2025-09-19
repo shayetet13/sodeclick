@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import socketManager from '../services/socketManager';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
+import { getProfileImageUrl } from '../utils/profileImageUtils';
 import { 
   ArrowLeft, 
   Send, 
@@ -374,12 +375,13 @@ const PrivateChat = ({
           </Button>
           
           <div className="flex items-center space-x-3">
-            <div className="w-10 h-10 bg-white/20 rounded-full flex items-center justify-center">
+            <div className="w-10 h-10 bg-white/20 rounded-full flex items-center justify-center overflow-hidden">
               {otherUser?.profileImages?.[0] ? (
                 <img
-                  src={otherUser.profileImages[0]}
+                  src={getProfileImageUrl(otherUser.profileImages[0], otherUser._id || otherUser.id)}
                   alt={otherUser.displayName || otherUser.firstName}
-                  className="w-10 h-10 rounded-full object-cover"
+                  className="w-full h-full rounded-full object-cover object-center"
+                  style={{ objectFit: 'cover', width: '100%', height: '100%' }}
                 />
               ) : (
                 <span className="text-lg font-semibold text-white">

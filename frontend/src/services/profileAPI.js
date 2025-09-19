@@ -52,7 +52,29 @@ class ProfileAPI {
       
       // ตรวจสอบว่า result มีข้อมูลหรือไม่
       if (!result.success) {
+        console.error('❌ Profile API returned unsuccessful response:', result);
         throw new Error(result.error || 'ไม่สามารถดึงข้อมูลโปรไฟล์ได้');
+      }
+      
+      // ตรวจสอบว่ามีข้อมูลโปรไฟล์หรือไม่
+      if (!result.data || !result.data.profile) {
+        console.error('❌ Profile data is missing from response:', result);
+        // ถ้าไม่มีข้อมูลโปรไฟล์ ให้ลองดึงข้อมูลใหม่อีกครั้ง
+        console.log('🔄 Attempting to refetch profile data...');
+        const retryResult = await fetch(`${this.baseURL}/${userId}`, {
+          method: 'GET',
+          headers: this.getAuthHeaders()
+        });
+        
+        if (retryResult.ok) {
+          const retryData = await retryResult.json();
+          if (retryData.success && retryData.data && retryData.data.profile) {
+            console.log('✅ Profile data retrieved on retry:', retryData);
+            return retryData;
+          }
+        }
+        
+        throw new Error('ข้อมูลโปรไฟล์ไม่พบใน response');
       }
       
       return result;
@@ -186,21 +208,44 @@ class ProfileAPI {
   // ลบรูปภาพโปรไฟล์
   async deleteProfileImage(userId, imageIndex) {
     try {
+      console.log('🗑️ ProfileAPI: Deleting image', { userId, imageIndex });
+      
       const token = sessionStorage.getItem('token');
+      if (!token) {
+        throw new Error('Authentication token not found');
+      }
+      
       const response = await fetch(`${this.baseURL}/${userId}/image/${imageIndex}`, {
         method: 'DELETE',
         headers: {
-          'Authorization': `Bearer ${token}`
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
         }
       });
 
+      console.log('🗑️ ProfileAPI: Response status:', response.status);
+      
       if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
+        const errorData = await response.json().catch(() => ({}));
+        console.error('🗑️ ProfileAPI: Error response:', errorData);
+        
+        // จัดการ error ตาม status code
+        if (response.status === 404) {
+          throw new Error('ไม่พบรูปภาพที่ต้องการลบ (404)');
+        } else if (response.status === 400) {
+          throw new Error(errorData.message || 'ข้อมูลไม่ถูกต้อง (400)');
+        } else if (response.status === 403) {
+          throw new Error('ไม่มีสิทธิ์ลบรูปภาพนี้ (403)');
+        } else {
+          throw new Error(`HTTP error! status: ${response.status}, message: ${errorData.message || 'Unknown error'}`);
+        }
       }
 
-      return await response.json();
+      const result = await response.json();
+      console.log('🗑️ ProfileAPI: Success response:', result);
+      return result;
     } catch (error) {
-      console.error('Error deleting profile image:', error);
+      console.error('❌ ProfileAPI: Error deleting profile image:', error);
       throw error;
     }
   }

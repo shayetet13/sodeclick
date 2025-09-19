@@ -5,7 +5,7 @@ const ChatRoom = require('../models/ChatRoom');
 const User = require('../models/User');
 const { auth, chatroomAccess } = require('../middleware/auth');
 
-// GET /api/chatroom - ดูรายการห้องแชท
+// GET /api/chatroom - ดูรายการห้องแชท (ไม่ต้องการ auth สำหรับการดูรายการ)
 router.get('/', async (req, res) => {
   try {
     const { type = 'all', page = 1, limit = 20, search, includeActiveMembers = false } = req.query;
@@ -234,11 +234,23 @@ router.get('/:roomId', auth, chatroomAccess, async (req, res) => {
     const { roomId } = req.params;
     const { userId } = req.query;
 
+    // ตรวจสอบว่า roomId เป็น null หรือไม่
+    if (!roomId || roomId === 'null') {
+      console.log('❌ Chatroom API: Invalid roomId:', roomId);
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid room ID'
+      });
+    }
+
+    console.log('🔍 Chatroom API: Fetching room info for:', roomId);
+
     const chatRoom = await ChatRoom.findById(roomId)
       .populate('owner', 'username displayName membershipTier verificationBadge')
       .populate('members.user', 'username displayName membershipTier verificationBadge isOnline lastSeen');
 
     if (!chatRoom) {
+      console.log('❌ Chatroom API: Room not found:', roomId);
       return res.status(404).json({
         success: false,
         message: 'Chat room not found'
@@ -298,8 +310,8 @@ router.get('/:roomId', auth, chatroomAccess, async (req, res) => {
   }
 });
 
-// GET /api/chatroom/:roomId/online-users - ดึงข้อมูลคนออนไลน์
-router.get('/:roomId/online-users', auth, chatroomAccess, async (req, res) => {
+// GET /api/chatroom/:roomId/online-users - ดึงข้อมูลคนออนไลน์ (อนุญาตให้ดูได้โดยไม่ต้องเป็นสมาชิก)
+router.get('/:roomId/online-users', async (req, res) => {
   try {
     const { roomId } = req.params;
     const { userId, includeSystemUsers = false } = req.query;
@@ -1014,7 +1026,10 @@ router.post('/upload', upload.single('file'), async (req, res) => {
     }
 
     // สร้าง URL สำหรับไฟล์
-    const fileUrl = `${req.protocol}://${req.get('host')}/uploads/chat-files/${req.file.filename}`;
+    const baseUrl = process.env.NODE_ENV === 'production' 
+      ? process.env.BACKEND_URL || `${req.protocol}://${req.get('host')}`
+      : `${req.protocol}://${req.get('host')}`;
+    const fileUrl = `${baseUrl}/uploads/chat-files/${req.file.filename}`;
 
     const response = {
       success: true,

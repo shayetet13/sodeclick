@@ -75,7 +75,8 @@ const PaymentGateway = ({ plan, onBack, onSuccess, onCancel }) => {
     vip1: { amount: 150, currency: 'THB', name: 'VIP 1' },
     vip2: { amount: 300, currency: 'THB', name: 'VIP 2' },
     diamond: { amount: 500, currency: 'THB', name: 'Diamond Member' },
-    platinum: { amount: 1000, currency: 'THB', name: 'Platinum Member' }
+    platinum: { amount: 1000, currency: 'THB', name: 'Platinum Member' },
+    coin_package: { amount: plan?.price || 0, currency: 'THB', name: plan?.name || 'แพ็กเกจเหรียญ' }
   }
 
   // Timer สำหรับ QR Code - หมดอายุใน 5 นาที
@@ -203,10 +204,13 @@ const PaymentGateway = ({ plan, onBack, onSuccess, onCancel }) => {
       const pricing = tierPricing[plan.tier] || tierPricing.vip
       const orderId = rabbitHelpers.generateOrderId()
       
+      // สำหรับ coin package ใช้ plan.price โดยตรง
+      const amount = plan.tier === 'coin_package' ? plan.price : pricing.amount
+      
       // ใช้ rabbitAPI service ตาม RABBIT_GATEWAY_INTEGRATION_SUMMARY.md
       const result = await rabbitAPI.createPayment({
         orderId: orderId,
-        amount: pricing.amount
+        amount: amount
       })
       
       
@@ -488,16 +492,27 @@ const PaymentGateway = ({ plan, onBack, onSuccess, onCancel }) => {
                   <div className="flex items-center justify-between p-3 bg-white/70 rounded-lg border border-slate-200/50">
                     <div className="flex items-center gap-2">
                       <div className="w-8 h-8 bg-gradient-to-br from-yellow-400 to-orange-500 rounded-lg flex items-center justify-center">
-                        <Star className="h-4 w-4 text-white" />
+                        {plan.tier === 'coin_package' ? (
+                          <span className="text-white text-lg">🪙</span>
+                        ) : (
+                          <Star className="h-4 w-4 text-white" />
+                        )}
                       </div>
                     <div>
                         <h4 className="font-semibold text-slate-800 text-sm">{plan.name}</h4>
-                        <p className="text-xs text-slate-600">{plan.tier.toUpperCase()}</p>
+                        <p className="text-xs text-slate-600">
+                          {plan.tier === 'coin_package' ? 'แพ็กเกจเหรียญ' : plan.tier.toUpperCase()}
+                        </p>
+                        {plan.tier === 'coin_package' && plan.rewards && (
+                          <p className="text-xs text-slate-500 mt-1">
+                            {plan.rewards.coins?.toLocaleString()} เหรียญ + {plan.rewards.votePoints?.toLocaleString()} คะแนนโหวต
+                          </p>
+                        )}
                       </div>
                     </div>
                     <div className="text-right">
                       <div className="text-xl font-bold text-slate-800">
-                        ฿{tierPricing[plan.tier]?.amount || 0}
+                        ฿{plan.tier === 'coin_package' ? plan.price : (tierPricing[plan.tier]?.amount || 0)}
                         </div>
                       <div className="text-xs text-slate-600">THB</div>
                     </div>

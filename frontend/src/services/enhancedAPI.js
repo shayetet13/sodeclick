@@ -5,11 +5,12 @@ class EnhancedAPIService {
   constructor() {
     this.cache = new Map();
     this.pendingRequests = new Map();
-    this.retryCount = 3;
-    this.retryDelay = 1000;
+    this.retryCount = 2; // ลดจาก 3 เป็น 2
+    this.retryDelay = 500; // ลดจาก 1000ms เป็น 500ms
     this.baseURL = '/api'; // เพิ่ม base URL
     this.requestCounter = new Map(); // เพิ่มตัวนับ request
     this.lastRequestTime = new Map(); // เก็บเวลา request ล่าสุด
+    this.backgroundRefreshQueue = new Set(); // เพิ่ม queue สำหรับ background refresh
   }
 
   /**
@@ -29,7 +30,16 @@ class EnhancedAPIService {
     if (!cached) return false;
     
     const now = Date.now();
-    return (now - cached.timestamp) < maxAge;
+    const isValid = (now - cached.timestamp) < maxAge;
+    
+    // ถ้า cache ใกล้หมดอายุ (80% ของเวลา) ให้เตรียม background refresh
+    const isNearExpiry = (now - cached.timestamp) > (maxAge * 0.8);
+    if (isValid && isNearExpiry && !this.backgroundRefreshQueue.has(cacheKey)) {
+      this.backgroundRefreshQueue.add(cacheKey);
+      // จะทำ background refresh ในภายหลัง
+    }
+    
+    return isValid;
   }
 
   /**
@@ -91,20 +101,20 @@ class EnhancedAPIService {
   }
 
   /**
-   * ตรวจสอบการเรียก API บ่อยเกินไป (Rate Limiting)
+   * ตรวจสอบการเรียก API บ่อยเกินไป (Rate Limiting) - ปรับปรุงให้เร็วขึ้น
    */
-  checkRateLimit(url, minInterval = 1000) {
+  checkRateLimit(url, minInterval = 500) { // ลดจาก 1000ms เป็น 500ms
     const now = Date.now();
     const lastTime = this.lastRequestTime.get(url) || 0;
     
-    // แยก rate limit ตาม endpoint
+    // แยก rate limit ตาม endpoint - ลดเวลาทุก endpoint
     let customInterval = minInterval;
     if (url.includes('/profile/')) {
-      customInterval = 2000; // 2 วินาที สำหรับ profile
+      customInterval = 800; // ลดจาก 2000ms เป็น 800ms สำหรับ profile
     } else if (url.includes('/messages')) {
-      customInterval = 2000; // 2 วินาที สำหรับ messages
+      customInterval = 800; // ลดจาก 2000ms เป็น 800ms สำหรับ messages
     } else if (url.includes('/conversations') || url.includes('/unread')) {
-      customInterval = 3000; // 3 วินาที สำหรับ conversations/unread
+      customInterval = 1000; // ลดจาก 3000ms เป็น 1000ms สำหรับ conversations/unread
     }
     
     if (now - lastTime < customInterval) {
@@ -123,8 +133,8 @@ class EnhancedAPIService {
     const method = options.method || 'GET';
     const cacheKey = this.createCacheKey(url, options);
     
-    // ตรวจสอบ rate limit สำหรับ GET requests
-    if (method === 'GET' && !this.checkRateLimit(url, 500)) {
+    // ตรวจสอบ rate limit สำหรับ GET requests - ลดเวลาเริ่มต้น
+    if (method === 'GET' && !this.checkRateLimit(url, 300)) {
       // ถ้าเรียกบ่อยเกินไป ให้ใช้ cache หรือ pending request
       const cachedData = this.getFromCache(cacheKey);
       if (cachedData) {
@@ -275,7 +285,7 @@ class EnhancedAPIService {
       }
 
       return {
-        success: true,
+        success: data.success !== false, // ถ้า data.success เป็น false ให้ return false
         data: data,
         status: response.status
       };
@@ -369,14 +379,54 @@ class EnhancedAPIService {
   async delete(url, options = {}) {
     return this.enhancedFetch(url, { ...options, method: 'DELETE' });
   }
+
+  /**
+   * Background refresh สำหรับ cache ที่ใกล้หมดอายุ
+   */
+  async processBackgroundRefresh() {
+    if (this.backgroundRefreshQueue.size === 0) return;
+    
+    const refreshPromises = [];
+    const keysToProcess = Array.from(this.backgroundRefreshQueue);
+    this.backgroundRefreshQueue.clear();
+    
+    for (const cacheKey of keysToProcess) {
+      // แยก URL จาก cache key
+      const [method, url] = cacheKey.split(':', 2);
+      if (method === 'GET') {
+        refreshPromises.push(
+          this.enhancedFetch(url, { method: 'GET' })
+            .catch(err => console.warn(`Background refresh failed for ${url}:`, err))
+        );
+      }
+    }
+    
+    if (refreshPromises.length > 0) {
+      console.log(`🔄 Processing ${refreshPromises.length} background refreshes`);
+      await Promise.allSettled(refreshPromises);
+    }
+  }
+
+  /**
+   * Preload ข้อมูลที่คาดว่าจะใช้
+   */
+  async preloadData(urls) {
+    const preloadPromises = urls.map(url => 
+      this.get(url).catch(err => console.warn(`Preload failed for ${url}:`, err))
+    );
+    
+    console.log(`🚀 Preloading ${urls.length} resources`);
+    return Promise.allSettled(preloadPromises);
+  }
 }
 
 // สร้าง instance เดียวสำหรับใช้ทั่วทั้งแอป
 const enhancedAPI = new EnhancedAPIService();
 
-// ทำความสะอาด cache ทุก 5 นาที
+// ทำความสะอาด cache และ background refresh ทุก 3 นาที
 setInterval(() => {
   enhancedAPI.cleanExpiredCache();
-}, 5 * 60 * 1000);
+  enhancedAPI.processBackgroundRefresh();
+}, 3 * 60 * 1000); // ลดจาก 5 นาที เป็น 3 นาที
 
 export default enhancedAPI;

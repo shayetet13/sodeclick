@@ -11,6 +11,7 @@ import {
   Trash2
 } from 'lucide-react';
 import unreadAPI from '../services/unreadAPI';
+import { getProfileImageUrl } from '../utils/profileImageUtils';
 
 const PrivateChatList = ({ 
   currentUser, 
@@ -300,21 +301,53 @@ const PrivateChatList = ({
                   <div className="flex items-center space-x-2 sm:space-x-3">
                     {/* Avatar */}
                     <div className="relative">
-                      <div className="w-10 h-10 sm:w-12 sm:h-12 bg-gradient-to-br from-pink-400 to-violet-500 rounded-full flex items-center justify-center">
-                        {chat.otherUser.profileImageUrl ? (
-                          <img
-                            src={chat.otherUser.profileImageUrl.startsWith('http') ? chat.otherUser.profileImageUrl : `${import.meta.env.VITE_API_BASE_URL}${chat.otherUser.profileImageUrl}`}
-                            alt={chat.otherUser.displayName || chat.otherUser.firstName}
-                            className="w-10 h-10 sm:w-12 sm:h-12 rounded-full object-cover"
-                            onError={(e) => {
-                              e.target.style.display = 'none';
-                            }}
-                          />
-                        ) : (
-                          <span className="text-sm sm:text-lg font-semibold text-white">
-                            {chat.otherUser.firstName?.[0] || chat.otherUser.displayName?.[0] || '👤'}
-                          </span>
-                        )}
+                      <div className="w-10 h-10 sm:w-12 sm:h-12 bg-gradient-to-br from-pink-400 to-violet-500 rounded-full flex items-center justify-center overflow-hidden">
+                        {(() => {
+                          // ใช้ profileImages array แทน profileImageUrl
+                          const profileImages = chat.otherUser.profileImages || [];
+                          const mainImageIndex = chat.otherUser.mainProfileImageIndex || 0;
+                          const userId = chat.otherUser._id || chat.otherUser.id;
+                          
+                          // ดึงรูปโปรไฟล์หลัก
+                          let mainImageUrl = null;
+                          if (profileImages.length > 0) {
+                            const mainImage = profileImages[mainImageIndex] || profileImages[0];
+                            if (mainImage && !mainImage.startsWith('data:image/svg+xml')) {
+                              mainImageUrl = getProfileImageUrl(mainImage, userId);
+                            }
+                          }
+                          
+                          // ถ้าไม่มีรูป ใช้ fallback เป็น profileImageUrl (backward compatibility)
+                          if (!mainImageUrl && chat.otherUser.profileImageUrl) {
+                            mainImageUrl = chat.otherUser.profileImageUrl.startsWith('http') 
+                              ? chat.otherUser.profileImageUrl 
+                              : `${import.meta.env.VITE_API_BASE_URL}${chat.otherUser.profileImageUrl}`;
+                          }
+                          
+                          return mainImageUrl ? (
+                            <img
+                              src={mainImageUrl}
+                              alt={chat.otherUser.displayName || chat.otherUser.firstName}
+                              className="w-full h-full rounded-full object-cover object-center"
+                              style={{ objectFit: 'cover', width: '100%', height: '100%' }}
+                              onError={(e) => {
+                                // ซ่อนรูปที่โหลดไม่ได้และแสดง avatar แทน
+                                e.target.style.display = 'none';
+                                const parentDiv = e.target.parentElement;
+                                if (parentDiv && !parentDiv.querySelector('.fallback-avatar')) {
+                                  const fallbackDiv = document.createElement('span');
+                                  fallbackDiv.className = 'fallback-avatar text-sm sm:text-lg font-semibold text-white';
+                                  fallbackDiv.textContent = chat.otherUser.firstName?.[0] || chat.otherUser.displayName?.[0] || '👤';
+                                  parentDiv.appendChild(fallbackDiv);
+                                }
+                              }}
+                            />
+                          ) : (
+                            <span className="text-sm sm:text-lg font-semibold text-white">
+                              {chat.otherUser.firstName?.[0] || chat.otherUser.displayName?.[0] || '👤'}
+                            </span>
+                          );
+                        })()}
                       </div>
                       
                       {/* Online indicator */}
@@ -329,9 +362,6 @@ const PrivateChatList = ({
                         <h3 className="text-sm sm:text-base font-semibold text-gray-900 truncate">
                           {chat.otherUser.displayName || `${chat.otherUser.firstName} ${chat.otherUser.lastName}`}
                         </h3>
-                        <span className="text-xs text-gray-500">
-                          {formatTime(chat.lastMessage?.timestamp || chat.createdAt)}
-                        </span>
                       </div>
                       
                       <div className="flex items-center justify-between">
@@ -348,8 +378,15 @@ const PrivateChatList = ({
                       </div>
                     </div>
 
-                    {/* Action menu */}
-                    <div className="flex items-center space-x-1">
+                    {/* Time and Action menu */}
+                    <div className="flex flex-col items-end space-y-1">
+                      {/* Time */}
+                      <span className="text-xs text-gray-500">
+                        {formatTime(chat.lastMessage?.timestamp || chat.createdAt)}
+                      </span>
+                      
+                      {/* Action buttons */}
+                      <div className="flex items-center space-x-1">
                       <Button
                         variant="ghost"
                         size="icon"
@@ -381,6 +418,7 @@ const PrivateChatList = ({
                       >
                         <Trash2 className="h-3 w-3 sm:h-4 sm:w-4" />
                       </Button>
+                      </div>
                     </div>
                   </div>
                 </div>

@@ -10,14 +10,14 @@ const QRCode = require('qrcode');
 // Load environment variables
 const NODE_ENV = process.env.NODE_ENV || 'development';
 require('dotenv').config({
-  path: path.join(__dirname, '.env')
+  path: path.join(__dirname, `env.${NODE_ENV}`)
 });
 
 const app = express();
 const server = http.createServer(app);
 
 // Environment Variables
-const PORT = process.env.PORT || 5001;
+const PORT = process.env.PORT || 5000;
 const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/sodeclick';
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
 
@@ -34,10 +34,13 @@ const corsOptions = {
       'https://sodeclick.com',
       'https://www.sodeclick.com',
       'https://sodeclick-frontend-production.up.railway.app'
-      
     ];
     
+    console.log('🌐 CORS check - Origin:', origin);
+    console.log('🌐 CORS check - Allowed origins:', allowedOrigins);
+    
     if (allowedOrigins.indexOf(origin) !== -1) {
+      console.log('✅ CORS allowed for origin:', origin);
       callback(null, true);
     } else {
       console.log('🚫 CORS blocked origin:', origin);
@@ -57,6 +60,8 @@ app.use(cors(corsOptions));
 app.use((err, req, res, next) => {
   if (err.message === 'Not allowed by CORS') {
     console.log('🚫 CORS Error:', req.headers.origin);
+    console.log('🚫 Request URL:', req.url);
+    console.log('🚫 Request method:', req.method);
     return res.status(403).json({
       success: false,
       message: 'CORS Error: Origin not allowed',
@@ -141,6 +146,7 @@ const matchingRoutes = require('./routes/matching');
 const notificationsRoutes = require('./routes/notifications');
 const maintenanceRoutes = require('./routes/maintenance');
 const oauthConfigRoutes = require('./routes/oauth-config');
+const usersRoutes = require('./routes/users');
 // const privateMessagesRoutes = require('./routes/privateMessages'); // File not exists
 
 // Preflight OPTIONS handling
@@ -740,6 +746,7 @@ app.use('/api/matching', matchingRoutes);
 app.use('/api/notifications', notificationsRoutes);
 app.use('/api/maintenance', maintenanceRoutes);
 app.use('/api/oauth-config', oauthConfigRoutes);
+app.use('/api/users', usersRoutes);
 // app.use('/api/private-messages', privateMessagesRoutes); // File not exists
 
 // Static file serving - removed duplicate (already configured above with cache headers)
@@ -830,6 +837,28 @@ app.set('io', io);
 const Message = require('./models/Message');
 const ChatRoom = require('./models/ChatRoom');
 const User = require('./models/User');
+const jwt = require('jsonwebtoken');
+
+// WebSocket authentication middleware
+const authenticateSocket = async (socket, token) => {
+  try {
+    if (!token) {
+      return null;
+    }
+
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    const user = await User.findById(decoded.id);
+
+    if (!user || !user.isActive) {
+      return null;
+    }
+
+    return user;
+  } catch (error) {
+    console.error('Socket authentication error:', error);
+    return null;
+  }
+};
 
 // เก็บข้อมูลผู้ใช้ออนไลน์ในแต่ละห้อง
 const roomUsers = new Map(); // roomId -> Set of userIds
@@ -874,7 +903,22 @@ io.on('connection', (socket) => {
       readyState: socket.conn.readyState
     });
     try {
-      const { roomId, userId } = data;
+      const { roomId, userId, token } = data;
+
+      // ตรวจสอบ authentication token
+      const authenticatedUser = await authenticateSocket(socket, token);
+      if (!authenticatedUser) {
+        console.log(`❌ Authentication failed for socket ${socket.id}`);
+        socket.emit('error', { message: 'Authentication required' });
+        return;
+      }
+
+      // ตรวจสอบว่า userId ตรงกับ authenticated user
+      if (authenticatedUser._id.toString() !== userId) {
+        console.log(`❌ User ID mismatch: authenticated ${authenticatedUser._id} vs requested ${userId}`);
+        socket.emit('error', { message: 'User ID mismatch' });
+        return;
+      }
       
       // สำหรับ private chat ที่ไม่ใช่ ChatRoom
       if (roomId.startsWith('private_')) {
@@ -967,15 +1011,9 @@ io.on('connection', (socket) => {
       
       console.log(`✅ Chat room found: ${chatRoom.name} (${chatRoom.type})`);
 
-      // ตรวจสอบผู้ใช้
-      const user = await User.findById(userId);
-      if (!user) {
-        console.log(`❌ User ${userId} not found`);
-        socket.emit('error', { message: 'User not found' });
-        return;
-      }
-      
-      console.log(`✅ User found: ${user.displayName || user.username} (${user.email})`);
+      // ใช้ authenticated user แทนการค้นหาใหม่
+      const user = authenticatedUser;
+      console.log(`✅ User authenticated: ${user.displayName || user.username} (${user.email})`);
 
       // สำหรับห้องสาธารณะ - เข้าได้เลย
       if (chatRoom.type === 'public') {
@@ -1594,3 +1632,10 @@ server.listen(PORT, () => {
   console.log(`🗄️  Database: sodeclick`);
   console.log('🚀 ============================================');
 });
+
+// Export function to get Socket.IO instance
+function getSocketInstance() {
+  return io;
+}
+
+module.exports = { getSocketInstance };

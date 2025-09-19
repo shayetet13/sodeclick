@@ -43,7 +43,7 @@ const auth = async (req, res, next) => {
 // Middleware to check chatroom access with admin override
 const chatroomAccess = async (req, res, next) => {
   try {
-    const chatroomId = req.params.chatroomId || req.params.id;
+    const chatroomId = req.params.roomId || req.params.chatroomId || req.params.id;
     
     if (!chatroomId) {
       return res.status(400).json({ message: "Chatroom ID required" });
@@ -54,18 +54,29 @@ const chatroomAccess = async (req, res, next) => {
       return res.status(404).json({ message: "Chatroom not found" });
     }
 
+    // SuperAdmin can access any chatroom
+    if (req.user.isSuperAdmin && req.user.isSuperAdmin()) {
+      return next();
+    }
+
     // Admin and superadmin can access any chatroom
     if (['admin', 'superadmin'].includes(req.user.role)) {
       return next();
     }
 
-    // Check if user is a member of the chatroom
-    if (!chatroom.members.includes(req.user._id)) {
+    // For public rooms, allow access without membership check
+    if (chatroom.type === 'public') {
+      return next();
+    }
+
+    // Check if user is a member of the chatroom using the proper method
+    if (!chatroom.isMember(req.user._id)) {
       return res.status(403).json({ message: "Access denied to this chatroom" });
     }
 
     next();
   } catch (error) {
+    console.error('chatroomAccess middleware error:', error);
     return res.status(500).json({ message: "Server error" });
   }
 };

@@ -109,12 +109,7 @@ temp/
 ehthumbs.db
 Thumbs.db
 
-# Uploads (keep structure but ignore files)
-backend/uploads/*
-!backend/uploads/.gitkeep
-!backend/uploads/profiles/.gitkeep
-!backend/uploads/chat-files/.gitkeep
-!backend/uploads/profile-videos/.gitkeep
+
 
 # Build outputs
 frontend/dist/

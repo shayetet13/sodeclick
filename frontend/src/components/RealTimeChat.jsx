@@ -47,6 +47,12 @@ const RealTimeChat = ({ roomId, currentUser, onBack }) => {
 
   // เชื่อมต่อ Socket.IO
   useEffect(() => {
+    // ตรวจสอบว่า roomId และ currentUser มีค่าหรือไม่
+    if (!roomId || roomId === 'null' || !currentUser || !currentUser._id) {
+      console.log('❌ RealTimeChat: Cannot connect socket - invalid roomId or currentUser:', { roomId, currentUser: !!currentUser });
+      return;
+    }
+
     const newSocket = io(import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000', {
       withCredentials: true,
       timeout: 20000,
@@ -62,9 +68,11 @@ const RealTimeChat = ({ roomId, currentUser, onBack }) => {
       setIsConnected(true);
       
       // เข้าร่วมห้องแชท
+      const token = sessionStorage.getItem('token');
       newSocket.emit('join-room', {
         roomId,
-        userId: currentUser._id
+        userId: currentUser._id,
+        token
       });
     });
 
@@ -203,6 +211,12 @@ const RealTimeChat = ({ roomId, currentUser, onBack }) => {
   useEffect(() => {
     const fetchMessages = async () => {
       try {
+        // ตรวจสอบว่า roomId และ currentUser มีค่าหรือไม่
+        if (!roomId || roomId === 'null' || !currentUser || !currentUser._id) {
+          console.log('❌ RealTimeChat: Cannot fetch messages - invalid roomId or currentUser:', { roomId, currentUser: !!currentUser });
+          return;
+        }
+
         const response = await fetch(
           `${import.meta.env.VITE_API_URL || 'http://localhost:5000'}/api/messages/${roomId}?userId=${currentUser._id}`,
           {
@@ -227,16 +241,38 @@ const RealTimeChat = ({ roomId, currentUser, onBack }) => {
   useEffect(() => {
     const fetchRoomInfo = async () => {
       try {
+        // ตรวจสอบว่า roomId และ currentUser มีค่าหรือไม่
+        if (!roomId || roomId === 'null' || !currentUser || !currentUser._id) {
+          console.log('❌ RealTimeChat: Invalid roomId or currentUser:', { roomId, currentUser: !!currentUser });
+          return;
+        }
+
+        console.log(`🔍 RealTimeChat: Fetching room info for: ${roomId}`);
+        const token = sessionStorage.getItem('token');
+        const headers = {
+          'Content-Type': 'application/json'
+        };
+        if (token) {
+          headers['Authorization'] = `Bearer ${token}`;
+        }
+
         const response = await fetch(
-          `${import.meta.env.VITE_API_URL || 'http://localhost:5000'}/api/chatroom/${roomId}?userId=${currentUser._id}`,
+          `${import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000'}/api/chatroom/${roomId}?userId=${currentUser._id}`,
           {
-            credentials: 'include'
+            credentials: 'include',
+            headers
           }
         );
-        const data = await response.json();
         
-        if (data.success) {
-          setRoomInfo(data.data);
+        console.log(`📊 RealTimeChat: Room info response status: ${response.status}`);
+        
+        if (response.ok) {
+          const data = await response.json();
+          if (data.success) {
+            setRoomInfo(data.data);
+          }
+        } else if (response.status === 401) {
+          console.error('❌ Authentication failed for room info - user may need to re-login');
         }
       } catch (error) {
         console.error('Error fetching room info:', error);
@@ -250,12 +286,17 @@ const RealTimeChat = ({ roomId, currentUser, onBack }) => {
   useEffect(() => {
     const fetchOnlineUsers = async () => {
       try {
+        console.log(`🔍 RealTimeChat: Fetching online users for room: ${roomId}`);
+        
         const response = await fetch(
-          `${import.meta.env.VITE_API_URL || 'http://localhost:5000'}/api/chatroom/${roomId}/online-users?userId=${currentUser._id}`,
+          `${import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000'}/api/chatroom/${roomId}/online-users?userId=${currentUser._id}`,
           {
             credentials: 'include'
+            // ไม่ส่ง Authorization header เพราะ endpoint นี้ไม่ต้องการ auth
           }
         );
+        
+        console.log(`📊 RealTimeChat: Online users response status: ${response.status}`);
         const data = await response.json();
         
         if (data.success) {
@@ -460,7 +501,7 @@ const RealTimeChat = ({ roomId, currentUser, onBack }) => {
 
     try {
       const response = await fetch(
-        `${import.meta.env.VITE_API_URL || 'http://localhost:5000'}/api/chatroom/upload`,
+        `${import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000'}/api/chatroom/upload`,
         {
           method: 'POST',
           credentials: 'include',
@@ -678,42 +719,34 @@ const RealTimeChat = ({ roomId, currentUser, onBack }) => {
 
     return (
     <>
-      <div className="flex flex-col h-[600px] bg-white rounded-lg shadow-lg overflow-hidden">
-        {/* Header */}
-        <div className="bg-gradient-to-r from-pink-500 to-violet-500 text-white p-4">
+      <div className="flex flex-col h-full bg-white rounded-lg shadow-lg overflow-hidden">
+        {/* Header - Fixed */}
+        <div className="flex-shrink-0 bg-gradient-to-r from-pink-500 to-violet-500 text-white p-3 sm:p-4">
           <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-3">
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={onBack}
-                className="text-white hover:bg-white/20"
-              >
-                <ArrowLeft className="h-5 w-5" />
-              </Button>
+            <div className="flex items-center space-x-2 sm:space-x-3">
               <div>
-                <h3 className="font-semibold text-lg">{roomInfo.name}</h3>
-                <div className="flex items-center space-x-2 text-sm text-white/90">
+                <h3 className="font-semibold text-sm sm:text-lg">{roomInfo.name}</h3>
+                <div className="flex items-center space-x-1 sm:space-x-2 text-xs sm:text-sm text-white/90">
                   <span>{roomInfo.memberCount} สมาชิก</span>
                   <span>•</span>
                   <span className={`flex items-center ${isConnected ? 'text-green-200' : 'text-red-200'}`}>
-                    <div className={`w-2 h-2 rounded-full mr-1 ${isConnected ? 'bg-green-200' : 'bg-red-200'}`}></div>
+                    <div className={`w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full mr-1 ${isConnected ? 'bg-green-200' : 'bg-red-200'}`}></div>
                     {isConnected ? 'เชื่อมต่อแล้ว' : 'ไม่ได้เชื่อมต่อ'}
                   </span>
                 </div>
               </div>
             </div>
-                         <div className="flex items-center space-x-2">
-                                       <span className="text-sm">{onlineCount} ใช้งาน</span>
-               <Button variant="ghost" size="icon" className="text-white hover:bg-white/20">
-                 <MoreVertical className="h-5 w-5" />
-               </Button>
-             </div>
+            <div className="flex items-center space-x-2">
+              <span className="text-xs sm:text-sm">{onlineCount} ใช้งาน</span>
+              <Button variant="ghost" size="icon" className="text-white hover:bg-white/20">
+                <MoreVertical className="h-4 w-4 sm:h-5 sm:w-5" />
+              </Button>
+            </div>
           </div>
         </div>
 
-                    {/* Messages Area */}
-       <div className="messages-container flex-1 overflow-y-auto p-4 space-y-4 bg-gray-50">
+        {/* Messages Area - Scrollable */}
+        <div className="flex-1 overflow-y-auto p-2 sm:p-4 space-y-2 sm:space-y-4 bg-gray-50">
          {messages.map((message, index) => (
                      <div
             key={message._id}
@@ -934,155 +967,151 @@ const RealTimeChat = ({ roomId, currentUser, onBack }) => {
         </div>
       )}
 
-                     {/* Input Area */}
-        <div className="border-t bg-white p-4">
+        {/* Input Area - Fixed */}
+        <div className="flex-shrink-0 p-2 sm:p-4 bg-white border-t border-gray-200">
           {/* Image Preview */}
           {imagePreview && (
-            <div className="mb-3 relative">
+            <div className="mb-2 sm:mb-3 relative">
               <div className="relative inline-block">
                 <img
                   src={imagePreview}
                   alt="Preview"
-                  className="max-h-32 rounded-lg border"
+                  className="max-h-24 sm:max-h-32 rounded-lg border"
                 />
                 <button
                   onClick={handleCancelImage}
-                  className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-1 hover:bg-red-600"
+                  className="absolute -top-1 -right-1 sm:-top-2 sm:-right-2 bg-red-500 text-white rounded-full p-0.5 sm:p-1 hover:bg-red-600"
                 >
-                  <X className="h-3 w-3" />
+                  <X className="h-2 w-2 sm:h-3 sm:w-3" />
                 </button>
               </div>
-              <div className="mt-2 flex space-x-2">
+              <div className="mt-1 sm:mt-2 flex space-x-1 sm:space-x-2">
                 <Button
                   onClick={handleImageUpload}
                   disabled={uploadingImage}
-                  className="bg-green-500 hover:bg-green-600 text-white text-sm"
+                  className="bg-green-500 hover:bg-green-600 text-white text-xs sm:text-sm px-2 sm:px-3 py-1 sm:py-2"
                 >
                   {uploadingImage ? 'กำลังอัปโหลด...' : 'ส่งรูปภาพ'}
                 </Button>
                 <Button
                   onClick={handleCancelImage}
                   variant="outline"
-                  className="text-sm"
+                  className="text-xs sm:text-sm px-2 sm:px-3 py-1 sm:py-2"
                 >
                   ยกเลิก
                 </Button>
               </div>
             </div>
           )}
-
-                     <div className="flex items-center space-x-2">
-             {/* Image Upload Button */}
-             <input
-               ref={imageInputRef}
-               type="file"
-               accept="image/*"
-               onChange={handleImageSelect}
-               className="hidden"
-             />
-             <Button 
-               size="icon" 
-               variant="ghost" 
-               onClick={() => imageInputRef.current?.click()}
-               className="text-gray-500 hover:text-gray-700"
-               title="เพิ่มรูปภาพ"
-             >
-               <Image className="h-5 w-5" />
-             </Button>
-
-                                                       
-
-              {/* Emoji Button */}
-              <Button 
-                size="icon" 
-                variant="ghost" 
-                onClick={() => setShowEmojiPicker(!showEmojiPicker)}
-                className="text-gray-500 hover:text-gray-700"
-                title="เพิ่มอีโมจิ"
-              >
-                <Smile className="h-5 w-5" />
-              </Button>
-
-              <Button size="icon" variant="ghost" className="text-gray-500 hover:text-gray-700">
-                <Mic className="h-5 w-5" />
-              </Button>
           
-          <div className="flex-1 relative">
+          <div className="flex items-center space-x-1 sm:space-x-2">
+            {/* Image Upload Button */}
             <input
-              ref={messageInputRef}
-              type="text"
-              value={newMessage}
-              onChange={(e) => {
-                setNewMessage(e.target.value);
-                handleTyping();
-              }}
-              onKeyPress={(e) => {
-                if (e.key === 'Enter' && !e.shiftKey) {
-                  e.preventDefault();
-                  handleSendMessage();
-                }
-              }}
-              placeholder={editingMessage ? 'แก้ไขข้อความ...' : 'พิมพ์ข้อความ...'}
-              className="w-full px-4 py-2 border border-gray-300 rounded-full focus:outline-none focus:ring-2 focus:ring-pink-500 focus:border-transparent"
-              disabled={!isConnected}
+              ref={imageInputRef}
+              type="file"
+              accept="image/*"
+              onChange={handleImageSelect}
+              className="hidden"
             />
+            <Button 
+              size="icon" 
+              variant="ghost" 
+              onClick={() => imageInputRef.current?.click()}
+              className="text-gray-500 hover:text-gray-700 p-1 sm:p-2"
+              title="เพิ่มรูปภาพ"
+            >
+              <Image className="h-4 w-4 sm:h-5 sm:w-5" />
+            </Button>
 
-            {/* Emoji Picker */}
-            {showEmojiPicker && (
-              <div className="absolute bottom-full left-0 mb-2 bg-white border border-gray-300 rounded-lg shadow-lg p-2 z-10">
-                <div className="grid grid-cols-8 gap-1">
-                  {['😀', '😃', '😄', '😁', '😆', '😅', '😂', '🤣', '😊', '😇', '🙂', '🙃', '😉', '😌', '😍', '🥰', '😘', '😗', '😙', '😚', '😋', '😛', '😝', '😜', '🤪', '🤨', '🧐', '🤓', '😎', '🤩', '🥳', '😏', '😒', '😞', '😔', '😟', '😕', '🙁', '☹️', '😣', '😖', '😫', '😩', '🥺', '😢', '😭', '😤', '😠', '😡', '🤬', '🤯', '😳', '🥵', '🥶', '😱', '😨', '😰', '😥', '😓', '🤗', '🤔', '🤭', '🤫', '🤥', '😶', '😐', '😑', '😯', '😦', '😧', '😮', '😲', '🥱', '😴', '🤤', '😪', '😵', '🤐', '🥴', '🤢', '🤮', '🤧', '😷', '🤒', '🤕', '🤑', '🤠', '💩', '👻', '💀', '☠️', '👽', '👾', '🤖', '😺', '😸', '😹', '😻', '😼', '😽', '🙀', '😿', '😾'].map((emoji, index) => (
-                    <button
-                      key={index}
-                      onClick={() => handleEmojiClick(emoji)}
-                      className="w-8 h-8 text-lg hover:bg-gray-100 rounded flex items-center justify-center transition-colors"
-                      title={emoji}
-                    >
-                      {emoji}
-                    </button>
-                  ))}
+            {/* Emoji Button */}
+            <Button 
+              size="icon" 
+              variant="ghost" 
+              onClick={() => setShowEmojiPicker(!showEmojiPicker)}
+              className="text-gray-500 hover:text-gray-700 p-1 sm:p-2"
+              title="เพิ่มอีโมจิ"
+            >
+              <Smile className="h-4 w-4 sm:h-5 sm:w-5" />
+            </Button>
+
+            <Button size="icon" variant="ghost" className="text-gray-500 hover:text-gray-700 p-1 sm:p-2">
+              <Mic className="h-4 w-4 sm:h-5 sm:w-5" />
+            </Button>
+        
+            <div className="flex-1 relative">
+              <input
+                ref={messageInputRef}
+                type="text"
+                value={newMessage}
+                onChange={(e) => {
+                  setNewMessage(e.target.value);
+                  handleTyping();
+                }}
+                onKeyPress={(e) => {
+                  if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    handleSendMessage();
+                  }
+                }}
+                placeholder={editingMessage ? 'แก้ไขข้อความ...' : 'พิมพ์ข้อความ...'}
+                className="w-full px-3 sm:px-4 py-2 border border-gray-300 rounded-full focus:outline-none focus:ring-2 focus:ring-pink-500 focus:border-transparent text-sm sm:text-base"
+                disabled={!isConnected}
+              />
+
+              {/* Emoji Picker */}
+              {showEmojiPicker && (
+                <div className="absolute bottom-full left-0 mb-2 bg-white border border-gray-300 rounded-lg shadow-lg p-2 z-10">
+                  <div className="grid grid-cols-8 gap-1">
+                    {['😀', '😃', '😄', '😁', '😆', '😅', '😂', '🤣', '😊', '😇', '🙂', '🙃', '😉', '😌', '😍', '🥰', '😘', '😗', '😙', '😚', '😋', '😛', '😝', '😜', '🤪', '🤨', '🧐', '🤓', '😎', '🤩', '🥳', '😏', '😒', '😞', '😔', '😟', '😕', '🙁', '☹️', '😣', '😖', '😫', '😩', '🥺', '😢', '😭', '😤', '😠', '😡', '🤬', '🤯', '😳', '🥵', '🥶', '😱', '😨', '😰', '😥', '😓', '🤗', '🤔', '🤭', '🤫', '🤥', '😶', '😐', '😑', '😯', '😦', '😧', '😮', '😲', '🥱', '😴', '🤤', '😪', '😵', '🤐', '🥴', '🤢', '🤮', '🤧', '😷', '🤒', '🤕', '🤑', '🤠', '💩', '👻', '💀', '☠️', '👽', '👾', '🤖', '😺', '😸', '😹', '😻', '😼', '😽', '🙀', '😿', '😾'].map((emoji, index) => (
+                      <button
+                        key={index}
+                        onClick={() => handleEmojiClick(emoji)}
+                        className="w-8 h-8 text-lg hover:bg-gray-100 rounded flex items-center justify-center transition-colors"
+                        title={emoji}
+                      >
+                        {emoji}
+                      </button>
+                    ))}
+                  </div>
                 </div>
-              </div>
-            )}
+              )}
+            </div>
+
+            <Button
+              onClick={handleSendMessage}
+              disabled={(!newMessage.trim() && !selectedImage) || !isConnected}
+              className="bg-gradient-to-r from-pink-500 to-violet-500 hover:from-pink-600 hover:to-violet-600 text-white rounded-full p-1.5 sm:p-2 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <Send className="h-4 w-4 sm:h-5 sm:w-5" />
+            </Button>
           </div>
-
-          
-          
-          <Button
-            onClick={handleSendMessage}
-            disabled={(!newMessage.trim() && !selectedImage) || !isConnected}
-            className="bg-gradient-to-r from-pink-500 to-violet-500 hover:from-pink-600 hover:to-violet-600 text-white rounded-full p-2 disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            <Send className="h-5 w-5" />
-          </Button>
         </div>
       </div>
-    </div>
 
-    {/* Image Modal - Full Screen */}
-    {imageModal.show && (
-      <div 
-        className="fixed inset-0 bg-black bg-opacity-90 flex items-center justify-center z-[9999]"
-        onClick={() => setImageModal({ show: false, src: '', alt: '' })}
-      >
-        <div className="relative w-full h-full flex items-center justify-center">
-          <img
-            src={imageModal.src}
-            alt={imageModal.alt}
-            className="w-full h-full object-contain"
-            onClick={(e) => e.stopPropagation()}
-          />
-          <button
-            onClick={() => setImageModal({ show: false, src: '', alt: '' })}
-            className="absolute top-6 right-6 bg-black bg-opacity-70 text-white rounded-full p-3 hover:bg-opacity-90 transition-opacity z-10"
-          >
-            <X className="h-8 w-8" />
-          </button>
+      {/* Image Modal - Full Screen */}
+      {imageModal.show && (
+        <div 
+          className="fixed inset-0 bg-black bg-opacity-90 flex items-center justify-center z-[9999]"
+          onClick={() => setImageModal({ show: false, src: '', alt: '' })}
+        >
+          <div className="relative w-full h-full flex items-center justify-center">
+            <img
+              src={imageModal.src}
+              alt={imageModal.alt}
+              className="w-full h-full object-contain"
+              onClick={(e) => e.stopPropagation()}
+            />
+            <button
+              onClick={() => setImageModal({ show: false, src: '', alt: '' })}
+              className="absolute top-6 right-6 bg-black bg-opacity-70 text-white rounded-full p-3 hover:bg-opacity-90 transition-opacity z-10"
+            >
+              <X className="h-8 w-8" />
+            </button>
+          </div>
         </div>
-      </div>
-    )}
-  </>
-);
+      )}
+    </>
+  );
 };
 
 export default RealTimeChat;

@@ -303,6 +303,8 @@ router.post('/login', async (req, res) => {
   try {
     const { email, username, password } = req.body;
     console.log('🔐 Login attempt:', { email, username, hasPassword: !!password });
+    console.log('🔐 Request body:', req.body);
+    console.log('🔐 Request headers:', req.headers);
 
     if (!password) {
       console.log('❌ No password provided');
@@ -335,6 +337,7 @@ router.post('/login', async (req, res) => {
 
     if (!user) {
       console.log('❌ User not found');
+      console.log('❌ Searched for:', email ? `email: ${email}` : `username: ${username}`);
       return res.status(401).json({
         success: false,
         message: 'อีเมล/ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง'
@@ -367,6 +370,7 @@ router.post('/login', async (req, res) => {
     
     if (!isPasswordValid) {
       console.log('❌ Invalid password for user:', user._id);
+      console.log('❌ User details:', { username: user.username, email: user.email, isActive: user.isActive, isBanned: user.isBanned });
       return res.status(401).json({
         success: false,
         message: 'อีเมล/ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง'
@@ -402,7 +406,8 @@ router.post('/login', async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Login error:', error);
+    console.error('❌ Login error:', error);
+    console.error('❌ Error stack:', error.stack);
     res.status(500).json({
       success: false,
       message: 'เกิดข้อผิดพลาดในการเข้าสู่ระบบ',

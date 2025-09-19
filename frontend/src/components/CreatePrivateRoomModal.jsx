@@ -32,13 +32,19 @@ const CreatePrivateRoomModal = ({ isOpen, onClose, onCreateRoom, currentUser }) 
 
     setLoading(true);
     try {
+      const token = sessionStorage.getItem('token');
+      const headers = {
+        'Content-Type': 'application/json'
+      };
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+
       const response = await fetch(
-        `${import.meta.env.VITE_API_URL || 'http://localhost:5000'}/api/chatroom`,
+        `${import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000'}/api/chatroom`,
         {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json'
-          },
+          headers,
           credentials: 'include',
           body: JSON.stringify({
             name: formData.name,

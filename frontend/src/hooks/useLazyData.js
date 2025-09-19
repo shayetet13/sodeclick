@@ -13,8 +13,9 @@ export const useLazyData = (fetchFunction, dependencies = [], options = {}) => {
     cacheKey = null,
     staleTime = 5 * 60 * 1000, // 5 นาที
     cacheTime = 30 * 60 * 1000, // 30 นาที
-    retryCount = 3,
-    retryDelay = 1000,
+    retryCount = 2, // ลดจาก 3 เป็น 2 ครั้ง
+    retryDelay = 500, // ลดจาก 1000ms เป็น 500ms
+    backgroundRefresh = true, // เปิดใช้ background refresh
     onSuccess = null,
     onError = null
   } = options;
@@ -111,12 +112,14 @@ export const useLazyData = (fetchFunction, dependencies = [], options = {}) => {
     } catch (err) {
       console.error('Error fetching data:', err);
       
-      // Retry logic
+      // Retry logic - ปรับปรุงให้เร็วขึ้น
       if (retryCountRef.current < retryCount) {
         retryCountRef.current++;
+        // ใช้ exponential backoff แต่เริ่มต้นเร็วกว่าเดิม
+        const delay = Math.min(retryDelay * Math.pow(1.5, retryCountRef.current - 1), 2000);
         setTimeout(() => {
           fetchData(forceRefresh);
-        }, retryDelay * retryCountRef.current);
+        }, delay);
         return;
       }
       
@@ -154,6 +157,24 @@ export const useLazyData = (fetchFunction, dependencies = [], options = {}) => {
   useEffect(() => {
     fetchData();
   }, [fetchData]);
+
+  // Background refresh effect
+  useEffect(() => {
+    if (!backgroundRefresh || !data || !lastFetchTime) return;
+
+    const refreshInterval = setInterval(() => {
+      const now = Date.now();
+      const timeSinceLastFetch = now - lastFetchTime;
+      
+      // ถ้าข้อมูลเก่ากว่า 80% ของ staleTime ให้ทำ background refresh
+      if (timeSinceLastFetch > (staleTime * 0.8)) {
+        console.log(`🔄 Background refresh for ${cacheKey || 'data'}`);
+        fetchData(true); // force refresh แต่ไม่แสดง loading
+      }
+    }, Math.min(staleTime / 2, 2 * 60 * 1000)); // ตรวจสอบทุก 2 นาที หรือครึ่งหนึ่งของ staleTime
+
+    return () => clearInterval(refreshInterval);
+  }, [backgroundRefresh, data, lastFetchTime, staleTime, cacheKey, fetchData]);
 
   return {
     data,

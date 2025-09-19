@@ -2,10 +2,49 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Mobile keyboard viewport handling */
+@supports (-webkit-touch-callout: none) {
+  /* iOS Safari */
+  .keyboard-aware {
+    height: calc(100vh - env(keyboard-inset-height, 0px));
+    min-height: calc(100vh - env(keyboard-inset-height, 0px));
+  }
+}
+
+@supports not (-webkit-touch-callout: none) {
+  /* Android Chrome */
+  .keyboard-aware {
+    height: calc(100vh - env(keyboard-inset-height, 0px));
+    min-height: calc(100vh - env(keyboard-inset-height, 0px));
+  }
+}
+
+/* Fallback for browsers that don't support env() */
+@supports not (height: env(keyboard-inset-height)) {
+  .keyboard-aware {
+    height: calc(100vh - 10rem);
+    min-height: calc(100vh - 10rem);
+  }
+}
+
 /* Custom animations */
 @keyframes spin {
   from { transform: rotate(0deg); }
   to { transform: rotate(360deg); }
+}
+
+/* Profile image border animations */
+@keyframes pulse-red {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7);
+  }
+  50% {
+    box-shadow: 0 0 0 10px rgba(239, 68, 68, 0);
+  }
+}
+
+.profile-image-main {
+  animation: pulse-red 2s infinite;
 }
 
 @layer base {

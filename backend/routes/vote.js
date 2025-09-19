@@ -4,26 +4,41 @@ const mongoose = require('mongoose');
 const VoteTransaction = require('../models/VoteTransaction');
 const User = require('../models/User');
 
-// POST /api/vote/cast - โหวตให้ผู้ใช้
+// Import socket.io instance
+const { getSocketInstance } = require('../server');
+
+// POST /api/vote/cast - โหวตให้ผู้ใช้ (1 user 1 vote)
 router.post('/cast', async (req, res) => {
   try {
-    const { voterId, candidateId, votePoints, voteType, message } = req.body;
+    const { voterId, candidateId, voteType, message } = req.body;
 
-    if (!voterId || !candidateId || !votePoints || !voteType) {
+    if (!voterId || !candidateId || !voteType) {
       return res.status(400).json({
         success: false,
-        message: 'Voter ID, Candidate ID, Vote Points, and Vote Type are required'
+        message: 'Voter ID, Candidate ID, and Vote Type are required'
       });
     }
 
-    if (votePoints < 1) {
+    // ตรวจสอบว่าโหวตแล้วหรือยัง (1 user 1 vote)
+    const existingVote = await VoteTransaction.findOne({
+      voter: voterId,
+      candidate: candidateId,
+      voteType,
+      status: 'active'
+    });
+
+    if (existingVote) {
       return res.status(400).json({
         success: false,
-        message: 'Vote points must be at least 1'
+        message: 'You have already voted for this user',
+        canUnvote: true
       });
     }
 
-    const validVoteTypes = ['popularity_male', 'popularity_female', 'gift_ranking'];
+    // ใช้คะแนนโหวตเป็น 1 คะแนนเสมอ
+    const votePoints = 1;
+
+    const validVoteTypes = ['popularity_male', 'popularity_female', 'popularity_combined', 'gift_ranking'];
     if (!validVoteTypes.includes(voteType)) {
       return res.status(400).json({
         success: false,
@@ -73,18 +88,8 @@ router.post('/cast', async (req, res) => {
       });
     }
 
-    // ตรวจสอบคะแนนโหวต
-    if (voter.votePoints < votePoints) {
-      return res.status(400).json({
-        success: false,
-        message: 'Insufficient vote points',
-        required: votePoints,
-        current: voter.votePoints
-      });
-    }
-
-    // หักคะแนนโหวต
-    voter.votePoints -= votePoints;
+    // สำหรับระบบ heart vote ไม่ต้องหักคะแนน (ฟรี)
+    // แต่ยังคงเก็บ votePoints ไว้เป็น 1 เพื่อการนับ
 
     // สร้างธุรกรรมโหวต
     const voteTransaction = new VoteTransaction({
@@ -99,11 +104,66 @@ router.post('/cast', async (req, res) => {
       status: 'active'
     });
 
-    // บันทึกทุกอย่าง
-    await Promise.all([
-      voter.save(),
-      voteTransaction.save()
-    ]);
+    // บันทึกธุรกรรมโหวต (ไม่ต้องบันทึก voter เพราะไม่ได้แก้ไข)
+    await voteTransaction.save();
+
+    // ส่ง real-time update ผ่าน Socket.IO
+    try {
+      const io = getSocketInstance();
+      if (io) {
+        // คำนวณคะแนนโหวตใหม่
+        const newVoteStats = await VoteTransaction.aggregate([
+          {
+            $match: {
+              candidate: new mongoose.Types.ObjectId(candidateId),
+              status: 'active'
+            }
+          },
+          {
+            $group: {
+              _id: '$voteType',
+              totalVotes: { $sum: '$votePoints' },
+              uniqueVoters: { $addToSet: '$voter' }
+            }
+          }
+        ]);
+
+        const voteData = {};
+        newVoteStats.forEach(stat => {
+          voteData[stat._id] = {
+            totalVotes: stat.totalVotes,
+            uniqueVoters: stat.uniqueVoters.length
+          };
+        });
+
+        // ส่ง event ไปยังทุก client
+        io.emit('vote-updated', {
+          candidateId,
+          voteType,
+          voteStats: voteData,
+          action: 'cast',
+          voter: {
+            id: voterId,
+            username: voter.username,
+            displayName: voter.displayName
+          },
+          candidate: {
+            id: candidateId,
+            username: candidate.username,
+            displayName: candidate.displayName
+          }
+        });
+
+        console.log('📡 Sent vote-updated event:', {
+          candidateId,
+          voteType,
+          voteStats: voteData
+        });
+      }
+    } catch (socketError) {
+      console.error('Error sending socket update:', socketError);
+      // ไม่ให้ socket error รบกวนการตอบกลับ API
+    }
 
     res.json({
       success: true,
@@ -131,6 +191,123 @@ router.post('/cast', async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Failed to cast vote',
+      error: error.message
+    });
+  }
+});
+
+// POST /api/vote/uncast - ยกเลิกการโหวต
+router.post('/uncast', async (req, res) => {
+  try {
+    const { voterId, candidateId, voteType } = req.body;
+
+    if (!voterId || !candidateId || !voteType) {
+      return res.status(400).json({
+        success: false,
+        message: 'Voter ID, Candidate ID, and Vote Type are required'
+      });
+    }
+
+    // ค้นหาการโหวตที่มีอยู่
+    const existingVote = await VoteTransaction.findOne({
+      voter: voterId,
+      candidate: candidateId,
+      voteType,
+      status: 'active'
+    });
+
+    if (!existingVote) {
+      return res.status(404).json({
+        success: false,
+        message: 'No active vote found to remove'
+      });
+    }
+
+    // เปลี่ยนสถานะเป็น expired แทนการลบ
+    existingVote.status = 'expired';
+    await existingVote.save();
+
+    const candidate = await User.findById(candidateId);
+
+    // ส่ง real-time update ผ่าน Socket.IO
+    try {
+      const io = getSocketInstance();
+      if (io) {
+        // คำนวณคะแนนโหวตใหม่
+        const newVoteStats = await VoteTransaction.aggregate([
+          {
+            $match: {
+              candidate: new mongoose.Types.ObjectId(candidateId),
+              status: 'active'
+            }
+          },
+          {
+            $group: {
+              _id: '$voteType',
+              totalVotes: { $sum: '$votePoints' },
+              uniqueVoters: { $addToSet: '$voter' }
+            }
+          }
+        ]);
+
+        const voteData = {};
+        newVoteStats.forEach(stat => {
+          voteData[stat._id] = {
+            totalVotes: stat.totalVotes,
+            uniqueVoters: stat.uniqueVoters.length
+          };
+        });
+
+        // ส่ง event ไปยังทุก client
+        io.emit('vote-updated', {
+          candidateId,
+          voteType,
+          voteStats: voteData,
+          action: 'uncast',
+          voter: {
+            id: voterId,
+            username: existingVote.voter?.username || 'Unknown',
+            displayName: existingVote.voter?.displayName || 'Unknown'
+          },
+          candidate: {
+            id: candidateId,
+            username: candidate.username,
+            displayName: candidate.displayName
+          }
+        });
+
+        console.log('📡 Sent vote-updated event (uncast):', {
+          candidateId,
+          voteType,
+          voteStats: voteData
+        });
+      }
+    } catch (socketError) {
+      console.error('Error sending socket update:', socketError);
+      // ไม่ให้ socket error รบกวนการตอบกลับ API
+    }
+
+    res.json({
+      success: true,
+      message: `Successfully removed vote for ${candidate.displayName}`,
+      data: {
+        removedVote: {
+          id: existingVote._id,
+          votePoints: existingVote.votePoints,
+          voteType: existingVote.voteType
+        },
+        candidate: {
+          username: candidate.username,
+          displayName: candidate.displayName
+        }
+      }
+    });
+
+  } catch (error) {
+    console.error('Error removing vote:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to remove vote',
       error: error.message
     });
   }
@@ -229,9 +406,15 @@ router.get('/ranking', async (req, res) => {
     }
 
     let matchStage = { 
-      voteType,
       status: 'active'
     };
+
+    // จัดการ voteType สำหรับ popularity_combined
+    if (voteType === 'popularity_combined') {
+      matchStage.voteType = { $in: ['popularity_male', 'popularity_female'] };
+    } else {
+      matchStage.voteType = voteType;
+    }
 
     // กรองตามช่วงเวลา
     const now = new Date();
@@ -261,13 +444,28 @@ router.get('/ranking', async (req, res) => {
           from: 'users',
           localField: '_id',
           foreignField: '_id',
-          as: 'user'
+          as: 'user',
+          pipeline: [
+            {
+              $project: {
+                _id: 1,
+                username: 1,
+                displayName: 1,
+                gender: 1,
+                profileImages: 1,
+                mainProfileImageIndex: 1,
+                'membership.tier': 1,
+                verificationBadge: 1
+              }
+            }
+          ]
         }
       },
       { $unwind: '$user' }
     ];
 
     const ranking = await VoteTransaction.aggregate(pipeline);
+    
 
     // คำนวณรางวัล
     const calculateReward = (rank, voteType) => {
@@ -295,22 +493,32 @@ router.get('/ranking', async (req, res) => {
       return null;
     };
 
-    res.json({
+    // Create response data
+    const responseData = {
       success: true,
       data: {
         ranking: ranking.map((item, index) => {
           const rank = index + 1;
           const reward = calculateReward(rank, voteType);
           
+          // ตรวจสอบว่า user object มีค่าหรือไม่
+          if (!item.user || !item.user._id) {
+            console.error(`❌ Backend - User data is missing for ranking item ${index}:`, item);
+            return null; // ข้าม item นี้
+          }
+          
           return {
             rank,
             user: {
+              _id: item.user._id,
               id: item.user._id,
               username: item.user.username,
               displayName: item.user.displayName,
               gender: item.user.gender,
-              membershipTier: item.user.membershipTier,
-              verificationBadge: item.user.verificationBadge
+              membershipTier: item.user.membership?.tier || 'member',
+              verificationBadge: item.user.verificationBadge,
+              profileImages: Array.isArray(item.user.profileImages) ? item.user.profileImages : [],
+              mainProfileImageIndex: item.user.mainProfileImageIndex || 0
             },
             stats: {
               totalVotes: item.totalVotes,
@@ -320,7 +528,7 @@ router.get('/ranking', async (req, res) => {
             },
             reward
           };
-        }),
+        }).filter(item => item !== null), // กรอง null items ออก
         metadata: {
           voteType,
           period,
@@ -334,13 +542,101 @@ router.get('/ranking', async (req, res) => {
           }
         }
       }
-    });
+    };
+    
+    // Send response with proper JSON serialization
+    res.json(responseData);
 
   } catch (error) {
     console.error('Error fetching vote ranking:', error);
     res.status(500).json({
       success: false,
       message: 'Failed to fetch vote ranking',
+      error: error.message
+    });
+  }
+});
+
+// GET /api/vote/status/:candidateId - ตรวจสอบสถานะการโหวตและคะแนน
+router.get('/status/:candidateId', async (req, res) => {
+  try {
+    const { candidateId } = req.params;
+    const { voterId, voteType = 'popularity_male' } = req.query;
+
+    if (!candidateId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Candidate ID is required'
+      });
+    }
+
+    // ดึงข้อมูลผู้ใช้
+    const candidate = await User.findById(candidateId);
+    if (!candidate) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
+    // นับคะแนนโหวตทั้งหมดของผู้ใช้
+    const voteStats = await VoteTransaction.aggregate([
+      {
+        $match: {
+          candidate: new mongoose.Types.ObjectId(candidateId),
+          status: 'active'
+        }
+      },
+      {
+        $group: {
+          _id: '$voteType',
+          totalVotes: { $sum: '$votePoints' },
+          uniqueVoters: { $addToSet: '$voter' }
+        }
+      }
+    ]);
+
+    // แปลงข้อมูลให้อ่านง่าย
+    const voteData = {};
+    voteStats.forEach(stat => {
+      voteData[stat._id] = {
+        totalVotes: stat.totalVotes,
+        uniqueVoters: stat.uniqueVoters.length
+      };
+    });
+
+    // ตรวจสอบว่า voterId โหวตแล้วหรือยัง (ถ้ามี voterId)
+    let hasVoted = false;
+    if (voterId) {
+      const userVote = await VoteTransaction.findOne({
+        voter: voterId,
+        candidate: candidateId,
+        voteType,
+        status: 'active'
+      });
+      hasVoted = !!userVote;
+    }
+
+    res.json({
+      success: true,
+      data: {
+        candidate: {
+          id: candidate._id,
+          username: candidate.username,
+          displayName: candidate.displayName,
+          gender: candidate.gender
+        },
+        voteStats: voteData,
+        hasVoted,
+        requestedVoteType: voteType
+      }
+    });
+
+  } catch (error) {
+    console.error('Error getting vote status:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to get vote status',
       error: error.message
     });
   }

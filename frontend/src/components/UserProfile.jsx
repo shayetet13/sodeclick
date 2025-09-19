@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Button } from './ui/button';
 import { Card } from './ui/card';
 import { Badge } from './ui/badge';
@@ -10,6 +10,7 @@ import { useToast } from './ui/toast';
 import { membershipHelpers } from '../services/membershipAPI';
 import { profileAPI } from '../services/profileAPI';
 import { useLazyData } from '../hooks/useLazyData';
+import { getProfileImageUrl, getMainProfileImage } from '../utils/profileImageUtils';
 import {
   User,
   Edit3,
@@ -55,6 +56,7 @@ import {
   CheckCircle,
   Info
 } from 'lucide-react';
+import HeartVote from './HeartVote';
 
 const UserProfile = ({ userId, isOwnProfile = false }) => {
   const [editMode, setEditMode] = useState(false);
@@ -62,7 +64,9 @@ const UserProfile = ({ userId, isOwnProfile = false }) => {
   const [saving, setSaving] = useState(false);
   const [uploadingImage, setUploadingImage] = useState(false);
   const [petsInput, setPetsInput] = useState('');
+  const [previewImages, setPreviewImages] = useState([]); // สำหรับแสดง preview รูปที่กำลังอัพโหลด
   const { success, error: showError } = useToast();
+  const retryCountRef = useRef(0); // เพิ่ม ref สำหรับนับ retry
 
   // ใช้ lazy loading สำหรับข้อมูลโปรไฟล์
   const {
@@ -70,13 +74,15 @@ const UserProfile = ({ userId, isOwnProfile = false }) => {
     loading: profileLoading,
     error: profileError,
     refetch: refetchProfile,
-    updateData: updateProfile
+    updateData: updateProfile,
+    invalidateCache: invalidateProfileCache
   } = useLazyData(
     useCallback(() => profileAPI.getUserProfile(userId), [userId]),
     [userId],
     {
       cacheKey: `profile_${userId}`,
-      staleTime: 2 * 60 * 1000, // 2 นาที
+      staleTime: 10 * 60 * 1000, // เพิ่มเป็น 10 นาที เพื่อลดการโหลดซ้ำ
+      backgroundRefresh: false, // ปิด background refresh เพื่อป้องกันการ overwrite ข้อมูลใหม่
       onSuccess: (response) => {
         console.log('✅ Profile loaded successfully:', response);
         if (response && response.success && response.data && response.data.profile) {
@@ -90,8 +96,16 @@ const UserProfile = ({ userId, isOwnProfile = false }) => {
           setPetsInput(formatPetsForInput(response.data.profile?.pets));
         } else {
           console.error('❌ Profile response missing data:', response);
-          // ถ้าไม่มีข้อมูลโปรไฟล์ ให้แสดง error และไม่เรียก showError เพื่อไม่ให้เกิด loop
-          // showError('ไม่สามารถโหลดข้อมูลโปรไฟล์ได้');
+          // ลด auto-refetch เพื่อไม่ให้เกิด infinite loop
+          if (retryCountRef.current < 1) { // จำกัดการ retry เพียง 1 ครั้ง
+            console.log('🔄 Attempting to refetch profile...');
+            retryCountRef.current++;
+            setTimeout(() => {
+              refetchProfile();
+            }, 500); // ลดเวลารอจาก 1000ms เป็น 500ms
+          } else {
+            console.warn('⚠️ Max retry attempts reached for profile fetch');
+          }
         }
       },
       onError: (err) => {
@@ -280,11 +294,64 @@ const UserProfile = ({ userId, isOwnProfile = false }) => {
 
     try {
       setUploadingImage(true);
-      await profileAPI.uploadProfileImage(userId, file);
-      // อัปเดตข้อมูลโดยไม่ต้องรีเฟรช
-      refetchProfile();
+      
+      // สร้าง preview รูปภาพทันทีก่อนอัพโหลด
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const previewUrl = e.target.result;
+        console.log('📸 Created preview URL for immediate display');
+        
+        // เพิ่ม preview image ลงใน state
+        setPreviewImages(prev => [...prev, previewUrl]);
+        
+        // อัพเดท profileData ด้วย preview image ทันที
+        if (profileData) {
+          const tempProfileData = {
+            ...profileData,
+            profileImages: [...(profileData.profileImages || []), previewUrl]
+          };
+          updateProfile({ data: { profile: tempProfileData } });
+        }
+      };
+      reader.readAsDataURL(file);
+      
+      const response = await profileAPI.uploadProfileImage(userId, file);
+      console.log('📤 Upload response:', response);
+      
+      // อัพเดต UI ด้วยข้อมูลจริงจาก response และลบ preview
+      if (response && response.success && response.data && response.data.profileImages) {
+        console.log('🔄 Updating profile data with real images');
+        
+        // ลบ preview images
+        setPreviewImages([]);
+        
+        // สร้าง profile object ใหม่ที่มี profileImages อัพเดท
+        const updatedProfileData = {
+          ...profileData,
+          profileImages: response.data.profileImages
+        };
+        
+        // อัพเดทข้อมูลใน cache แบบถาวร (ไม่ต้อง invalidate)
+        updateProfile({ data: { profile: updatedProfileData } });
+        console.log('✅ Profile images updated permanently in real-time:', response.data.profileImages);
+      }
+      
       success('อัปโหลดรูปภาพสำเร็จ');
     } catch (err) {
+      console.error('❌ Upload error:', err);
+      
+      // ลบ preview images เมื่อเกิด error
+      setPreviewImages([]);
+      
+      // คืนค่า profileData เดิมโดยลบ preview images ออก
+      if (profileData) {
+        const cleanProfileData = {
+          ...profileData,
+          profileImages: profileData.profileImages.filter(img => !img.startsWith('data:image/'))
+        };
+        updateProfile({ data: { profile: cleanProfileData } });
+      }
+      
       showError(err.response?.data?.message || 'ไม่สามารถอัปโหลดรูปภาพได้');
     } finally {
       setUploadingImage(false);
@@ -294,12 +361,49 @@ const UserProfile = ({ userId, isOwnProfile = false }) => {
   // ลบรูปภาพ
   const deleteImage = async (imageIndex) => {
     try {
-      await profileAPI.deleteProfileImage(userId, imageIndex);
-      // อัปเดตข้อมูลโดยไม่ต้องรีเฟรช
-      refetchProfile();
+      console.log('🗑️ Deleting image at index:', imageIndex);
+      console.log('🗑️ Current profile images:', profileData?.profileImages);
+      console.log('🗑️ Profile images length:', profileData?.profileImages?.length);
+      
+      // ตรวจสอบว่า index ถูกต้องหรือไม่
+      if (imageIndex < 0 || imageIndex >= (profileData?.profileImages?.length || 0)) {
+        throw new Error(`ไม่พบรูปภาพที่ต้องการลบ (index: ${imageIndex}, total: ${profileData?.profileImages?.length || 0})`);
+      }
+      
+      // ตรวจสอบว่ามีรูปภาพจริงๆ หรือไม่ (ไม่ใช่ default avatar)
+      const imageToDelete = profileData.profileImages[imageIndex];
+      if (imageToDelete && imageToDelete.startsWith('data:image/svg+xml')) {
+        throw new Error('ไม่สามารถลบรูป default avatar ได้');
+      }
+      
+      console.log('🗑️ Image to delete:', imageToDelete);
+      
+      const response = await profileAPI.deleteProfileImage(userId, imageIndex);
+      console.log('🗑️ Delete response:', response);
+      
+      // อัพเดต UI ทันทีด้วยข้อมูลจาก response
+      if (response && response.success && response.data && response.data.profileImages) {
+        console.log('🔄 Updating profile data immediately after delete');
+        
+        // สร้าง profile object ใหม่ที่มี profileImages อัพเดท
+        const updatedProfileData = {
+          ...profileData,
+          profileImages: response.data.profileImages,
+          // อัพเดท mainProfileImageIndex ถ้ามี
+          ...(response.data.mainProfileImageIndex !== undefined && {
+            mainProfileImageIndex: response.data.mainProfileImageIndex
+          })
+        };
+        
+        // อัพเดทข้อมูลใน cache แบบถาวร (ไม่ต้อง invalidate)
+        updateProfile({ data: { profile: updatedProfileData } });
+        console.log('✅ Profile images updated permanently after delete:', response.data.profileImages);
+      }
+      
       success('ลบรูปภาพสำเร็จ');
     } catch (err) {
-      showError(err.response?.data?.message || 'ไม่สามารถลบรูปภาพได้');
+      console.error('❌ Error deleting image:', err);
+      showError(err.response?.data?.message || err.message || 'ไม่สามารถลบรูปภาพได้');
     }
   };
 
@@ -310,15 +414,29 @@ const UserProfile = ({ userId, isOwnProfile = false }) => {
       const response = await profileAPI.setMainProfileImage(userId, imageIndex);
       console.log('API response:', response);
       
-      // อัปเดตข้อมูลโดยไม่ต้องรีเฟรช
-      refetchProfile();
+      // อัพเดต UI ทันทีด้วยข้อมูลจาก response
+      if (response && response.success && response.data && response.data.profileImages) {
+        console.log('🔄 Updating profile data immediately after setting main image');
+        
+        // สร้าง profile object ใหม่ที่มี profileImages อัพเดทและ mainProfileImageIndex = 0
+        // เนื่องจาก backend ย้ายรูปที่เลือกมาเป็นรูปแรก
+        const updatedProfileData = {
+          ...profileData,
+          profileImages: response.data.profileImages,
+          mainProfileImageIndex: 0 // รูปหลักจะอยู่ที่ index 0 เสมอ
+        };
+        
+        // อัพเดทข้อมูลใน cache แบบถาวร (ไม่ต้อง invalidate)
+        updateProfile({ data: { profile: updatedProfileData } });
+        console.log('✅ Main profile image updated permanently:', response.data.profileImages);
+      }
       
       // รีเฟรช avatar ใน header โดยไม่ต้องรีเฟรชหน้าเว็บ
       const event = new CustomEvent('profileImageUpdated', { 
         detail: { 
           userId, 
-          profileImages: response.data.profileImages,
-          mainProfileImageIndex: response.data.mainProfileImageIndex
+          profileImages: response.data?.profileImages || profileData?.profileImages,
+          mainProfileImageIndex: 0
         } 
       });
       window.dispatchEvent(event);
@@ -333,13 +451,16 @@ const UserProfile = ({ userId, isOwnProfile = false }) => {
   // ดึงข้อมูลโปรไฟล์จาก response (ย้ายมาที่นี่เพื่อให้ใช้ได้ใน useEffect)
   const profileData = profile && profile.data && profile.data.profile ? profile.data.profile : null;
 
-  // ตรวจสอบว่าข้อมูลโปรไฟล์มีเนื้อหาหรือไม่
+  // ตรวจสอบว่าข้อมูลโปรไฟล์มีเนื้อหาหรือไม่ (ปรับปรุงให้ยืดหยุ่นมากขึ้น)
   const hasValidProfileData = profileData && (
     profileData.firstName || 
     profileData.displayName || 
     profileData.username ||
     profileData._id ||
-    profileData.id
+    profileData.id ||
+    profileData.email ||
+    profileData.gender ||
+    profileData.location
   );
 
   useEffect(() => {
@@ -579,6 +700,17 @@ const UserProfile = ({ userId, isOwnProfile = false }) => {
   }
 
   if (!profile || !profile.data || !hasValidProfileData) {
+    // ถ้ายังกำลังโหลด ให้แสดง loading
+    if (profileLoading) {
+      return (
+        <div className="flex items-center justify-center py-12">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-pink-500"></div>
+          <span className="ml-3 text-gray-600">กำลังโหลดโปรไฟล์...</span>
+        </div>
+      );
+    }
+    
+    // ถ้าไม่มีข้อมูลโปรไฟล์ ให้แสดง error และปุ่มลองใหม่
     return (
       <div className="text-center py-12">
         <div className="text-gray-400 mb-2">
@@ -624,57 +756,35 @@ const UserProfile = ({ userId, isOwnProfile = false }) => {
         <div className="flex flex-col sm:flex-row items-start justify-between mb-4 sm:mb-6 gap-4">
           <div className="flex items-center space-x-3 sm:space-x-4 w-full sm:w-auto">
             <div className="relative">
-              <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-full bg-gradient-to-r from-pink-500 to-violet-500 flex items-center justify-center text-white text-lg sm:text-2xl font-bold">
+              <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-full bg-gradient-to-r from-pink-500 to-violet-500 flex items-center justify-center text-white text-lg sm:text-2xl font-bold overflow-hidden">
                 {(() => {
                   // สร้าง profile image URL ที่ถูกต้อง
-                  let profileImageUrl = ''
-                  if (profileData.profileImages && profileData.profileImages.length > 0) {
-                    // ใช้ mainProfileImageIndex หรือ 0 เป็นค่าเริ่มต้น
-                    const mainImageIndex = profileData.mainProfileImageIndex || 0
-                    const mainImage = profileData.profileImages[mainImageIndex]
-                    console.log('🎯 Profile header image:', {
-                      mainProfileImageIndex: profileData.mainProfileImageIndex,
-                      mainImageIndex,
-                      mainImage,
-                      allImages: profileData.profileImages
-                    })
-                    if (mainImage.startsWith('http')) {
-                      profileImageUrl = mainImage
-                    } else if (mainImage.startsWith('data:image/svg+xml')) {
-                      profileImageUrl = mainImage
-                    } else {
-                      const baseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000'
-                      profileImageUrl = `${baseUrl}/uploads/profiles/${mainImage}`
-                    }
-                  }
+                  const profileImageUrl = getMainProfileImage(
+                    profileData.profileImages || [], 
+                    profileData.mainProfileImageIndex, 
+                    userId
+                  )
                   
                   return profileImageUrl && !profileImageUrl.startsWith('data:image/svg+xml') ? (
                     <img 
                       src={profileImageUrl}
                       alt="Profile"
-                      className="w-16 h-16 sm:w-20 sm:h-20 rounded-full object-cover"
+                      className="w-full h-full rounded-full object-cover object-center"
+                      style={{ objectFit: 'cover', width: '100%', height: '100%' }}
                       onError={(e) => {
-                        console.error('❌ Profile image failed to load:', {
-                          imageUrl: profileImageUrl,
-                          originalImage: profileData.profileImages[0],
-                          userId: profileData._id || profileData.id
-                        });
+                        console.error('❌ Profile image failed to load:', profileImageUrl);
                         e.target.style.display = 'none';
                         e.target.nextSibling.style.display = 'flex';
                       }}
                       onLoad={() => {
-                        console.log('✅ Profile image loaded successfully:', {
-                          imageUrl: profileImageUrl,
-                          originalImage: profileData.profileImages[0],
-                          userId: profileData._id || profileData.id
-                        });
+                        console.log('✅ Profile image loaded successfully');
                       }}
                     />
                   ) : (
                     <User className="h-8 w-8 sm:h-10 sm:w-10" />
                   )
                 })()}
-                <div className={`w-16 h-16 sm:w-20 sm:h-20 rounded-full bg-gradient-to-r from-pink-500 to-violet-500 flex items-center justify-center text-white text-lg sm:text-2xl font-bold hidden`}>
+                <div className={`absolute inset-0 w-full h-full rounded-full bg-gradient-to-r from-pink-500 to-violet-500 flex items-center justify-center text-white text-lg sm:text-2xl font-bold hidden`}>
                   <User className="h-8 w-8 sm:h-10 sm:w-10" />
                 </div>
               </div>
@@ -717,6 +827,17 @@ const UserProfile = ({ userId, isOwnProfile = false }) => {
                   </Badge>
                 )}
               </div>
+            </div>
+
+            {/* Heart Vote Section */}
+            <div className="mt-4 pt-4 border-t border-gray-100">
+              <HeartVote
+                candidateId={userId}
+                candidateGender={profileData.gender}
+                candidateDisplayName={profileData.displayName || `${profileData.firstName} ${profileData.lastName}`}
+                isOwnProfile={isOwnProfile}
+                className=""
+              />
             </div>
           </div>
           
@@ -787,39 +908,45 @@ const UserProfile = ({ userId, isOwnProfile = false }) => {
                 // ข้ามรูป default
                 if (image.startsWith('data:image/svg+xml')) return null;
                 
+                // ตรวจสอบว่าเป็น preview image หรือไม่
+                const isPreviewImage = image.startsWith('data:image/');
+                
                 // สร้าง image URL ที่ถูกต้อง
-                let imageUrl = image
-                if (!image.startsWith('http') && !image.startsWith('data:')) {
-                  const baseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000'
-                  imageUrl = `${baseUrl}/uploads/profiles/${image}`
-                }
+                const imageUrl = isPreviewImage ? image : getProfileImageUrl(image, userId)
+                
                 
                 return (
                 <div key={originalIndex} className="relative group">
-                  <div className="aspect-square w-full bg-gray-100 rounded-lg overflow-hidden">
+                  <div className={`aspect-square w-full bg-gray-100 rounded-lg overflow-hidden ${
+                    originalIndex === (profileData.mainProfileImageIndex || 0) 
+                      ? 'ring-4 ring-red-500 ring-opacity-75 shadow-lg profile-image-main' 
+                      : 'ring-2 ring-transparent hover:ring-red-300 hover:ring-opacity-50'
+                  } transition-all duration-300 ${isPreviewImage ? 'opacity-75' : ''}`}>
                     <img
                       src={imageUrl}
                       alt={`Profile ${originalIndex + 1}`}
                       className="w-full h-full object-cover object-center"
                       style={{ objectFit: 'cover' }}
                       onError={(e) => {
-                        console.error('❌ Gallery image failed to load:', {
-                          imageUrl: imageUrl,
-                          originalImage: image,
-                          userId: profileData._id || profileData.id
-                        });
-                        e.target.style.display = 'none';
+                        if (!isPreviewImage) {
+                          console.error('❌ Gallery image failed to load:', imageUrl);
+                          e.target.style.display = 'none';
+                        }
                       }}
                       onLoad={() => {
-                        console.log('✅ Gallery image loaded successfully:', {
-                          imageUrl: imageUrl,
-                          originalImage: image,
-                          userId: profileData._id || profileData.id
-                        });
+                        if (!isPreviewImage) {
+                          console.log('✅ Gallery image loaded successfully');
+                        }
                       }}
                     />
+                    {/* แสดง loading indicator สำหรับ preview images */}
+                    {isPreviewImage && uploadingImage && (
+                      <div className="absolute inset-0 bg-black bg-opacity-40 flex items-center justify-center">
+                        <div className="animate-spin h-6 w-6 border-2 border-white border-t-transparent rounded-full"></div>
+                      </div>
+                    )}
                   </div>
-                  {isOwnProfile && sessionStorage.getItem('token') && (
+                  {isOwnProfile && sessionStorage.getItem('token') && !isPreviewImage && (
                     <div className="absolute top-1 right-1 sm:top-2 sm:right-2 flex space-x-1">
                       {/* ปุ่มตั้งรูปโปรไฟล์หลัก */}
                       <button
@@ -840,10 +967,17 @@ const UserProfile = ({ userId, isOwnProfile = false }) => {
                     </div>
                   )}
                   {/* แสดงเครื่องหมายรูปโปรไฟล์หลัก */}
-                  {originalIndex === (profileData.mainProfileImageIndex || 0) && (
-                    <div className="absolute top-1 left-1 sm:top-2 sm:left-2 bg-green-500 text-white rounded-full px-1 py-0.5 sm:px-2 sm:py-1 text-xs flex items-center">
-                      <Star className="h-2 w-2 mr-1" />
-                      หลัก
+                  {originalIndex === (profileData.mainProfileImageIndex || 0) && !isPreviewImage && (
+                    <div className="absolute top-1 left-1 sm:top-2 sm:left-2 bg-red-500 text-white rounded-full px-1 py-0.5 sm:px-2 sm:py-1 text-xs flex items-center shadow-lg">
+                      <Star className="h-2 w-2 mr-1 fill-current" />
+                      รูปหลัก
+                    </div>
+                  )}
+                  {/* แสดงสถานะการอัพโหลดสำหรับ preview images */}
+                  {isPreviewImage && (
+                    <div className="absolute bottom-1 left-1 sm:bottom-2 sm:left-2 bg-blue-500 text-white rounded-full px-1 py-0.5 sm:px-2 sm:py-1 text-xs flex items-center shadow-lg">
+                      <Upload className="h-2 w-2 mr-1" />
+                      กำลังอัพโหลด...
                     </div>
                   )}
                 </div>
