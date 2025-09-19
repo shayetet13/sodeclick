@@ -90,6 +90,7 @@ type PublicUser = {
   bio?: string
   interests?: any[]
   membership?: { tier?: string }
+  gender?: string
 }
 
 type FeaturedProfile = {
@@ -113,6 +114,14 @@ type FeaturedProfile = {
   personality?: string
   membershipTier?: string
   membership?: { tier?: string }
+  username?: string
+  firstName?: string
+  lastName?: string
+  email?: string
+  phone?: string
+  occupation?: string
+  weight?: string
+  relationshipStatus?: string
 }
 
 // Sample profile data
@@ -4079,27 +4088,19 @@ function App() {
                   {/* Chat Content */}
                   <div className="flex-1 overflow-y-auto bg-white rounded-b-lg">
                     {chatType === 'public' ? (
-                      <div className="flex flex-col h-full">
-                        {/* Room Selection Buttons */}
-                        <div className="flex-shrink-0 p-2 sm:p-4 border-b border-gray-200">
-                          <ChatRoomList
-                            currentUser={user}
-                            onSelectRoom={handleSelectRoom}
-                            onCreatePrivateRoom={() => setShowCreateRoomModal(true)}
-                          />
-                        </div>
-                        
-                        {/* Chat Interface - Mobile Optimized */}
-                        <div className="flex-1 min-h-0 flex flex-col">
-                          <div className="flex-1 min-h-0">
-                            <RealTimeChat
-                              roomId={selectedRoomId}
-                              currentUser={user}
-                              onBack={handleBackToRoomList}
-                            />
-                          </div>
-                        </div>
-                      </div>
+                      chatView === 'list' ? (
+                        <ChatRoomList
+                          currentUser={user}
+                          onSelectRoom={handleSelectRoom}
+                          onCreatePrivateRoom={() => setShowCreateRoomModal(true)}
+                        />
+                      ) : (
+                        <RealTimeChat
+                          roomId={selectedRoomId}
+                          currentUser={user}
+                          onBack={handleBackToRoomList}
+                        />
+                      )
                     ) : (
                       privateChatView === 'list' ? (
                         <PrivateChatList
@@ -4666,8 +4667,6 @@ function App() {
                     
                     {/* Profile Data */}
                     {(profileData || selectedProfile) && (() => {
-                      // Use profileData if available, otherwise fallback to selectedProfile
-                      const currentProfile = profileData || selectedProfile;
                       // Create a unified profile object with all available data
                       const unifiedProfile = {
                         ...selectedProfile,
