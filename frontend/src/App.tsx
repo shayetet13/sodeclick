@@ -4339,36 +4339,8 @@ function App() {
                 View profile images for {selectedProfile.name}, age {selectedProfile.age} from {selectedProfile.location}
               </DialogDescription>
             </VisuallyHidden>
+            {/* Image Container */}
             <div className="relative w-full h-full">
-              
-              {/* Close Button */}
-              <button
-                onClick={() => {
-                  setShowProfileModal(false);
-                  setModalAction(null);
-                  setShowProfileDetails(false);
-                  setProfileData(null);
-                  setProfileAlert(null);
-                }}
-                className="absolute top-3 right-3 sm:top-4 sm:right-4 z-20 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-full p-2 sm:p-3 transition-colors"
-              >
-                <X className="h-4 w-4 sm:h-5 sm:w-5" />
-              </button>
-
-              {/* Back Button (when showing profile details) */}
-              {showProfileDetails && (
-                <button
-                  onClick={() => {
-                    setShowProfileDetails(false);
-                    setProfileData(null);
-                    setProfileAlert(null);
-                  }}
-                  className="absolute top-3 left-3 sm:top-4 sm:left-4 z-20 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-full p-2 sm:p-3 transition-colors"
-                >
-                  <ArrowLeft className="h-4 w-4 sm:h-5 sm:w-5" />
-                </button>
-              )}
-
               {/* Full Size Image */}
               {selectedProfile.images && selectedProfile.images.length > 0 && selectedProfile.images[activeImageIndex] && !selectedProfile.images[activeImageIndex].startsWith('data:image/svg+xml') ? (
                 <img
@@ -4386,13 +4358,42 @@ function App() {
                   </div>
                 </div>
               )}
+            </div>
+
+            {/* Control Buttons - ต้องอยู่นอก image container */}
+            <button
+              onClick={() => {
+                setShowProfileModal(false);
+                setModalAction(null);
+                setShowProfileDetails(false);
+                setProfileData(null);
+                setProfileAlert(null);
+              }}
+              className="absolute top-3 right-3 sm:top-4 sm:right-4 z-30 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-full p-2 sm:p-3 transition-colors"
+            >
+              <X className="h-4 w-4 sm:h-5 sm:w-5" />
+            </button>
+
+            {/* Back Button (when showing profile details) */}
+            {showProfileDetails && (
+              <button
+                onClick={() => {
+                  setShowProfileDetails(false);
+                  setProfileData(null);
+                  setProfileAlert(null);
+                }}
+                className="absolute top-3 left-3 sm:top-4 sm:left-4 z-30 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-full p-2 sm:p-3 transition-colors"
+              >
+                <ArrowLeft className="h-4 w-4 sm:h-5 sm:w-5" />
+              </button>
+            )}
               
-              {/* Fixed Profile Info Overlay - ล็อคที่ขอบกรอบ Modal */}
-              <div className="absolute bottom-0 left-0 right-0 h-48 sm:h-52 pointer-events-none">
+            {/* Fixed Profile Info Overlay - ล็อคที่ขอบล่างของ Modal Container (ไม่ใช่ภาพ) */}
+            <div className="absolute bottom-0 left-0 right-0 h-48 sm:h-52 z-20 pointer-events-none">
                 {/* Background overlay for better text visibility */}
                 <div className="absolute inset-0 bg-gradient-to-t from-black/95 via-black/70 to-transparent"></div>
                 
-                {/* Content positioned at very bottom */}
+                {/* Content positioned at very bottom - ล็อคตำแหน่งไม่ให้เลื่อนตามความสูงของภาพ */}
                 <div className="absolute bottom-4 left-4 right-4 text-white pointer-events-auto">
                   {/* Alert Message */}
                   {profileAlert && (
@@ -4632,7 +4633,7 @@ function App() {
                     </div>
                   )}
                 </div>
-              </div>
+            </div>
               
               {/* Full Profile Details View */}
               {showProfileDetails && (
@@ -5020,7 +5021,6 @@ function App() {
                   </div>
                 </div>
               )}
-            </div>
           </DialogContent>
         </Dialog>
       )}

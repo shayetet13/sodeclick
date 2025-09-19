@@ -1669,7 +1669,7 @@ const AIMatchingSystem = ({ currentUser }) => {
         <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto p-0">
           {selectedUserProfile && (
             <div className="relative">
-              {/* Header with Background */}
+              {/* Header with Background - ล็อคความสูงไม่ให้เปลี่ยนตามภาพโปรไฟล์ */}
               <div className="relative h-48 bg-gradient-to-br from-purple-500 via-pink-500 to-violet-600 overflow-hidden">
                 {/* Background Pattern */}
                 <div className="absolute inset-0 opacity-20">
@@ -1686,7 +1686,7 @@ const AIMatchingSystem = ({ currentUser }) => {
                   <X className="h-5 w-5" />
                 </button>
                 
-                {/* Profile Header Info */}
+                {/* Profile Header Info - ล็อคตำแหน่งที่ด้านล่างของ header ไม่ให้เลื่อนตามภาพโปรไฟล์ */}
                 <div className="absolute bottom-6 left-6 right-6 text-white">
                   <div className="flex items-end gap-4">
                     {/* Profile Image */}
