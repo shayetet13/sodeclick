@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from './ui/dialog';
 import { useAuth } from '../contexts/AuthContext';
+import RealTimeChat from './RealTimeChat';
 
 const ChatRoomList = ({ currentUser, onSelectRoom, onCreatePrivateRoom }) => {
   const { user: authUser } = useAuth();
@@ -27,6 +28,7 @@ const ChatRoomList = ({ currentUser, onSelectRoom, onCreatePrivateRoom }) => {
   const [onlineUsers, setOnlineUsers] = useState({}); // roomId -> onlineCount
   const [totalOnlineUsers, setTotalOnlineUsers] = useState(0); // รวมคนออนไลน์ทั้งหมด
   const [selectedRoomId, setSelectedRoomId] = useState(null); // เพิ่ม state สำหรับห้องที่เลือก
+  const [showChatView, setShowChatView] = useState(false); // state สำหรับแสดง chat view
   
   // เพิ่ม state สำหรับ popup จ่ายเหรียญ
   const [showPaymentDialog, setShowPaymentDialog] = useState(false);
@@ -40,16 +42,16 @@ const ChatRoomList = ({ currentUser, onSelectRoom, onCreatePrivateRoom }) => {
     fetchChatRooms();
   }, [filterType]);
 
-  // เลือกห้องสาธารณะแรกโดยค่าเริ่มต้น
+  // เลือกห้องสาธารณะแรกโดยค่าเริ่มต้น - เปิดใช้งานและแสดงแชททันที
   useEffect(() => {
     if (chatRooms.length > 0 && !selectedRoomId) {
       const firstPublicRoom = chatRooms.find(room => room.type === 'public');
       if (firstPublicRoom) {
         setSelectedRoomId(firstPublicRoom.id);
-        onSelectRoom(firstPublicRoom.id);
+        setShowChatView(true); // แสดงหน้าแชททันที
       }
     }
-  }, [chatRooms, selectedRoomId, onSelectRoom]);
+  }, [chatRooms, selectedRoomId]);
 
   // โหลดข้อมูลคนออนไลน์สำหรับทุกห้อง
   useEffect(() => {
@@ -272,7 +274,7 @@ const ChatRoomList = ({ currentUser, onSelectRoom, onCreatePrivateRoom }) => {
           setSelectedRoom(null);
           // เข้าห้องแชท
           setSelectedRoomId(selectedRoom.id);
-          onSelectRoom(selectedRoom.id);
+          setShowChatView(true);
         }, 2000);
       } else {
         setPaymentError(data.message || 'เกิดข้อผิดพลาดในการจ่ายเหรียญ');
@@ -292,6 +294,26 @@ const ChatRoomList = ({ currentUser, onSelectRoom, onCreatePrivateRoom }) => {
     setPaymentSuccess(false);
   };
 
+  const handleCreateRoom = () => {
+    // Check if user has permission to create rooms
+    const userTier = currentUser.membership?.tier || 'member';
+    const userRole = currentUser.role || 'user';
+    
+    // Check if user can create chat rooms
+    if (!canCreateChatRoom(userTier, userRole)) {
+      alert('เฉพาะสมาชิก Platinum, Diamond หรือ Admin เท่านั้นที่สามารถสร้างห้องแชทได้');
+      return;
+    }
+    
+    // Call the parent function to open create room modal
+    if (onCreatePrivateRoom) {
+      onCreatePrivateRoom();
+    } else {
+      // Fallback: show alert if no handler provided
+      alert('ฟีเจอร์สร้างห้องแชทยังไม่พร้อมใช้งาน');
+    }
+  };
+
   const handleRoomClick = async (room) => {
     if (room.type === 'private' && !canAccessPrivateChat(currentUser.membership?.tier || 'member')) {
       alert('คุณต้องเป็นสมาชิก Gold ขึ้นไปเพื่อเข้าแชทส่วนตัว');
@@ -303,7 +325,7 @@ const ChatRoomList = ({ currentUser, onSelectRoom, onCreatePrivateRoom }) => {
 
     // สำหรับห้องสาธารณะ - เข้าได้เลย
     if (room.type === 'public') {
-      onSelectRoom(room.id);
+      setShowChatView(true);
       return;
     }
 
@@ -347,7 +369,7 @@ const ChatRoomList = ({ currentUser, onSelectRoom, onCreatePrivateRoom }) => {
         if (data.success) {
           fetchChatRooms();
           setSelectedRoomId(room.id);
-          onSelectRoom(room.id);
+          setShowChatView(true);
         } else {
           alert(data.message);
         }
@@ -357,7 +379,7 @@ const ChatRoomList = ({ currentUser, onSelectRoom, onCreatePrivateRoom }) => {
       }
     } else {
       setSelectedRoomId(room.id);
-      onSelectRoom(room.id);
+      setShowChatView(true);
     }
   };
 
@@ -381,6 +403,16 @@ const ChatRoomList = ({ currentUser, onSelectRoom, onCreatePrivateRoom }) => {
 
   const canCreatePrivateRoom = (tier) => {
     return tier === 'platinum' || tier === 'diamond' || tier === 'vip1' || tier === 'vip2';
+  };
+
+  const canCreateChatRoom = (tier, role) => {
+    // Admin users can always create chat rooms
+    if (role === 'admin' || role === 'superadmin') {
+      return true;
+    }
+    
+    // Only Platinum and Diamond tier users can create chat rooms
+    return tier === 'platinum' || tier === 'diamond';
   };
 
   const getMembershipBadgeColor = (tier) => {
@@ -420,10 +452,19 @@ const ChatRoomList = ({ currentUser, onSelectRoom, onCreatePrivateRoom }) => {
     return isOwner || isMember;
   };
 
-  const filteredRooms = chatRooms.filter(room => 
-    room.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    room.description?.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const filteredRooms = chatRooms
+    .filter(room => 
+      room.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      room.description?.toLowerCase().includes(searchTerm.toLowerCase())
+    )
+    .sort((a, b) => {
+      // ห้องสาธารณะอยู่อันดับแรกเสมอ
+      if (a.type === 'public' && b.type !== 'public') return -1;
+      if (b.type === 'public' && a.type !== 'public') return 1;
+      
+      // ถ้าเป็นประเภทเดียวกัน เรียงตามวันที่สร้าง (ใหม่ที่สุดก่อน)
+      return new Date(b.createdAt || 0) - new Date(a.createdAt || 0);
+    });
 
   if (loading) {
     return (
@@ -436,24 +477,14 @@ const ChatRoomList = ({ currentUser, onSelectRoom, onCreatePrivateRoom }) => {
     );
   }
 
+
   return (
-    <div className="w-full">
-      {/* Search and Filters */}
-      <div className="space-y-3 sm:space-y-4">
-        {/* Search Bar */}
-        <div className="relative">
-          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 sm:h-5 sm:w-5 text-gray-400" />
-          <input
-            type="text"
-            placeholder="ค้นหาห้องแชท..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full pl-10 sm:pl-12 pr-3 sm:pr-4 py-2 sm:py-3 bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500 focus:border-transparent text-gray-900 placeholder-gray-500 text-sm sm:text-base"
-          />
-        </div>
+    <div className="w-full flex flex-col h-full">
+      {/* Search and Filters - Always Visible */}
+      <div className="bg-white rounded-xl shadow-lg border border-gray-200 p-4 sm:p-6 mb-4 space-y-4 sm:space-y-5 flex-shrink-0">
 
         {/* Filter Tabs */}
-        <div className="flex gap-1 sm:gap-2 overflow-x-auto">
+        <div className="grid grid-cols-2 gap-2 sm:flex sm:gap-3">
           {[
             { key: 'all', label: 'ทั้งหมด', icon: MessageCircle },
             { key: 'public', label: 'สาธารณะ', icon: Globe },
@@ -464,21 +495,33 @@ const ChatRoomList = ({ currentUser, onSelectRoom, onCreatePrivateRoom }) => {
             <button
               key={filter.key}
               onClick={() => setFilterType(filter.key)}
-              className={`flex items-center gap-1 sm:gap-2 px-3 py-2 sm:px-4 sm:py-2 rounded-lg text-xs sm:text-sm font-medium transition-all duration-200 whitespace-nowrap ${
+              className={`flex items-center justify-center gap-1 sm:gap-2 px-2 py-2 sm:px-6 sm:py-3 rounded-xl text-xs sm:text-base font-bold transition-all duration-200 shadow-md hover:shadow-lg transform hover:scale-105 ${
                 filterType === filter.key
-                  ? 'bg-pink-500 text-white shadow-sm'
-                  : 'bg-white text-gray-600 hover:bg-gray-50 border border-gray-200'
+                  ? 'bg-gradient-to-r from-pink-500 to-purple-600 text-white shadow-pink-300'
+                  : 'bg-white text-gray-700 hover:bg-gradient-to-r hover:from-gray-50 hover:to-gray-100 border-2 border-gray-200 hover:border-pink-200'
               }`}
             >
-              <filter.icon className="h-3 w-3 sm:h-4 sm:w-4" />
-              {filter.label}
+              <filter.icon className="h-3 w-3 sm:h-5 sm:w-5" />
+              <span className="text-xs sm:text-base">{filter.label}</span>
             </button>
           ))}
+          
+          {/* Create Room Button - Only show for eligible users */}
+          {canCreateChatRoom(currentUser.membership?.tier || 'member', currentUser.role || 'user') && (
+            <button
+              onClick={handleCreateRoom}
+              className="flex items-center justify-center gap-1 sm:gap-2 px-2 py-2 sm:px-6 sm:py-3 rounded-xl text-xs sm:text-base font-bold transition-all duration-200 bg-gradient-to-r from-green-500 to-emerald-600 text-white hover:from-green-600 hover:to-emerald-700 shadow-md hover:shadow-lg transform hover:scale-105 shadow-green-300"
+              title="สร้างห้องแชท"
+            >
+              <Plus className="h-3 w-3 sm:h-5 sm:w-5" />
+              <span className="text-xs sm:text-base">สร้างห้อง</span>
+            </button>
+          )}
         </div>
       </div>
 
-      {/* Chat Room Buttons */}
-      <div className="mt-4">
+      {/* Room List - Always Visible */}
+      <div className="mb-4">
         {filteredRooms.length === 0 ? (
           <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-8 sm:p-12 text-center">
             <MessageCircle className="h-12 w-12 sm:h-16 sm:w-16 text-gray-300 mx-auto mb-3 sm:mb-4" />
@@ -486,7 +529,7 @@ const ChatRoomList = ({ currentUser, onSelectRoom, onCreatePrivateRoom }) => {
             <p className="text-sm sm:text-base text-gray-500">ลองค้นหาด้วยคำอื่นหรือเปลี่ยนตัวกรอง</p>
           </div>
         ) : (
-          <div className="grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-6 gap-1 sm:gap-2">
+          <div className="grid grid-cols-3 gap-2 max-h-48 overflow-y-auto">
             {filteredRooms.map((room) => {
               const canAccess = room.type === 'public' ||
                               (room.type === 'private' && canAccessPrivateChat(currentUser.membership?.tier || 'member'));
@@ -496,7 +539,7 @@ const ChatRoomList = ({ currentUser, onSelectRoom, onCreatePrivateRoom }) => {
                   key={room.id}
                   onClick={() => canAccess ? handleRoomClick(room) : null}
                   disabled={!canAccess}
-                  className={`relative p-2 rounded-lg border transition-all duration-200 ${
+                  className={`relative p-2 rounded-lg border transition-all duration-200 flex flex-col items-center justify-center min-h-[60px] ${
                     selectedRoomId === room.id
                       ? 'bg-pink-100 border-pink-300 shadow-md'
                       : canAccess 
@@ -504,28 +547,15 @@ const ChatRoomList = ({ currentUser, onSelectRoom, onCreatePrivateRoom }) => {
                         : 'bg-gray-100 border-gray-200 opacity-60 cursor-not-allowed'
                   }`}
                 >
-                  {/* Room Icon */}
-                  <div className="flex items-center justify-center mb-1">
-                    {room.type === 'public' ? (
-                      <div className="w-6 h-6 bg-green-100 rounded-md flex items-center justify-center">
-                        <Globe className="h-3 w-3 text-green-600" />
-                      </div>
-                    ) : (
-                      <div className="w-6 h-6 bg-orange-100 rounded-md flex items-center justify-center">
-                        <Lock className="h-3 w-3 text-orange-600" />
-                      </div>
-                    )}
-                  </div>
-
                   {/* Room Name */}
-                  <h3 className={`text-xs font-medium text-center mb-1 truncate ${
+                  <h3 className={`text-xs font-medium text-center truncate w-full mb-1 ${
                     canAccess ? 'text-gray-900' : 'text-gray-500'
                   }`}>
                     {room.name}
                   </h3>
 
                   {/* Online Count */}
-                  <div className="flex items-center justify-center gap-1 text-xs text-gray-500">
+                  <div className="flex items-center gap-1 text-xs text-gray-500">
                     <div className="w-1 h-1 bg-green-500 rounded-full animate-pulse"></div>
                     <span>{onlineUsers[room.id] || 0}</span>
                   </div>
@@ -552,7 +582,17 @@ const ChatRoomList = ({ currentUser, onSelectRoom, onCreatePrivateRoom }) => {
           </div>
         )}
       </div>
-      
+
+      {/* Chat View - Shows when room is selected */}
+      {showChatView && selectedRoomId && (
+        <div className="flex-1 min-h-[500px]">
+          <RealTimeChat
+            roomId={selectedRoomId}
+            currentUser={currentUser}
+          />
+        </div>
+      )}
+
       {/* Clean Payment Dialog */}
       <Dialog open={showPaymentDialog} onOpenChange={setShowPaymentDialog}>
         <DialogContent className="w-[95vw] sm:w-[90vw] md:w-[500px] max-w-2xl">

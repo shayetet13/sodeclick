@@ -210,15 +210,20 @@ const UserProfile = ({ userId, isOwnProfile = false }) => {
       
       const response = await profileAPI.updateUserProfile(userId, cleanData);
       console.log('Response from backend:', response);
-      console.log('Updated profile:', response.data.profile);
-      console.log('Interests data:', response.data.profile?.interests);
+      console.log('Updated profile:', response.data?.profile);
+      console.log('Interests data:', response.data?.profile?.interests);
       
       // อัปเดตข้อมูลใน cache แทนการรีเฟรช
-      updateProfile(response.data.profile);
-      setEditData(response.data.profile);
-      setPetsInput(formatPetsForInput(response.data.profile?.pets));
-      setEditMode(false);
-      success('อัปเดตโปรไฟล์สำเร็จ');
+      if (response.data?.profile) {
+        updateProfile(response.data.profile);
+        setEditData(response.data.profile);
+        setPetsInput(formatPetsForInput(response.data.profile?.pets));
+        setEditMode(false);
+        success('อัปเดตโปรไฟล์สำเร็จ');
+      } else {
+        throw new Error('ไม่พบข้อมูลโปรไฟล์ที่อัปเดต');
+      }
+      
     } catch (err) {
       console.error('Error saving profile:', err);
       

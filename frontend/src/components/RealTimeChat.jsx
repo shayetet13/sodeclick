@@ -47,12 +47,6 @@ const RealTimeChat = ({ roomId, currentUser, onBack }) => {
 
   // เชื่อมต่อ Socket.IO
   useEffect(() => {
-    // ตรวจสอบว่า roomId และ currentUser มีค่าหรือไม่
-    if (!roomId || roomId === 'null' || !currentUser || !currentUser._id) {
-      console.log('❌ RealTimeChat: Cannot connect socket - invalid roomId or currentUser:', { roomId, currentUser: !!currentUser });
-      return;
-    }
-
     const newSocket = io(import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000', {
       withCredentials: true,
       timeout: 20000,
@@ -211,12 +205,6 @@ const RealTimeChat = ({ roomId, currentUser, onBack }) => {
   useEffect(() => {
     const fetchMessages = async () => {
       try {
-        // ตรวจสอบว่า roomId และ currentUser มีค่าหรือไม่
-        if (!roomId || roomId === 'null' || !currentUser || !currentUser._id) {
-          console.log('❌ RealTimeChat: Cannot fetch messages - invalid roomId or currentUser:', { roomId, currentUser: !!currentUser });
-          return;
-        }
-
         const response = await fetch(
           `${import.meta.env.VITE_API_URL || 'http://localhost:5000'}/api/messages/${roomId}?userId=${currentUser._id}`,
           {
@@ -241,12 +229,6 @@ const RealTimeChat = ({ roomId, currentUser, onBack }) => {
   useEffect(() => {
     const fetchRoomInfo = async () => {
       try {
-        // ตรวจสอบว่า roomId และ currentUser มีค่าหรือไม่
-        if (!roomId || roomId === 'null' || !currentUser || !currentUser._id) {
-          console.log('❌ RealTimeChat: Invalid roomId or currentUser:', { roomId, currentUser: !!currentUser });
-          return;
-        }
-
         console.log(`🔍 RealTimeChat: Fetching room info for: ${roomId}`);
         const token = sessionStorage.getItem('token');
         const headers = {
@@ -738,9 +720,6 @@ const RealTimeChat = ({ roomId, currentUser, onBack }) => {
             </div>
             <div className="flex items-center space-x-2">
               <span className="text-xs sm:text-sm">{onlineCount} ใช้งาน</span>
-              <Button variant="ghost" size="icon" className="text-white hover:bg-white/20">
-                <MoreVertical className="h-4 w-4 sm:h-5 sm:w-5" />
-              </Button>
             </div>
           </div>
         </div>

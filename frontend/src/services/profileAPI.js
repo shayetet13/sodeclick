@@ -95,7 +95,7 @@ class ProfileAPI {
         throw new Error('Authentication token not found. Please login again.');
       }
       
-      const response = await enhancedAPI.enhancedFetch(`${this.baseURL}/${userId}`, {
+      const result = await enhancedAPI.enhancedFetch(`${this.baseURL}/${userId}`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
@@ -104,40 +104,35 @@ class ProfileAPI {
         body: JSON.stringify(profileData)
       });
 
-      const responseData = await response.json();
+      console.log('ProfileAPI: Enhanced fetch result:', result);
       
-      if (!response.ok) {
-        console.error('ProfileAPI: Backend error response:', responseData);
+      // enhancedAPI.enhancedFetch return object ไม่ใช่ Response
+      if (!result.success) {
+        console.error('ProfileAPI: Backend error response:', result);
         
         // จัดการ error ตาม status code
-        if (response.status === 401) {
+        if (result.status === 401) {
           // Unauthorized -> ล้าง token และให้ผู้ใช้เข้าสู่ระบบใหม่
           sessionStorage.removeItem('token');
           sessionStorage.removeItem('user');
           throw new Error('Session expired. Please login again.');
         }
-
-        if (response.status === 403) {
-          // Forbidden -> ล้าง token และให้ผู้ใช้เข้าสู่ระบบใหม่
-          sessionStorage.removeItem('token');
-          sessionStorage.removeItem('user');
-          throw new Error('Token ไม่ถูกต้อง กรุณาเข้าสู่ระบบใหม่');
+        
+        if (result.status === 403) {
+          throw new Error('Access denied. You do not have permission to update this profile.');
         }
         
-        // แสดง validation errors ถ้ามี
-        if (responseData.errors && responseData.errors.length > 0) {
-          console.error('ProfileAPI: Validation errors:', responseData.errors);
-          const errorMessages = responseData.errors.map(err => `${err.field}: ${err.message}`).join(', ');
-          throw new Error(`Validation error: ${errorMessages}`);
+        if (result.status >= 500) {
+          throw new Error('Server error. Please try again later.');
         }
         
-        throw new Error(responseData.message || `HTTP error! status: ${response.status}`);
+        throw new Error(result.error || 'Failed to update profile');
       }
-
-      console.log('ProfileAPI: Success response:', responseData);
-      return responseData;
+      
+      console.log('ProfileAPI: Update successful:', result.data);
+      return result.data; // result.data จะมี structure { success: true, message: "...", data: { profile: ... } }
     } catch (error) {
-      console.error('Error updating user profile:', error);
+      console.error('ProfileAPI: Update failed:', error);
       throw error;
     }
   }
