@@ -6,7 +6,8 @@ export default defineConfig({
   plugins: [react()],
   server: {
     port: 5173,
-    open: true,
+    host: '0.0.0.0', // Allow external connections
+    open: false, // Disable auto-opening browser for server deployment
     proxy: {
       '/api': {
         target: 'http://localhost:5000',

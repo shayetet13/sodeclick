@@ -4,8 +4,8 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "start": "shx cp env.development .env && vite",
-    "start:prod": "shx cp env.production .env && vite",
+    "start": "shx cp env.production .env && vite --host 0.0.0.0",
+    "start:prod": "shx cp env.production .env && vite --host 0.0.0.0",
     "dev": "node -e \"require('fs').copyFileSync('env.development', '.env')\" && vite",
     "dev:clean": "shx rm -f .env && shx cp env.development .env && vite",
     "build": "shx cp env.production .env && tsc -b && vite build",

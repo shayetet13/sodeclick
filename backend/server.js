@@ -8,7 +8,7 @@ const socketIo = require('socket.io');
 const axios = require('axios');
 const QRCode = require('qrcode');
 // Load environment variables
-const NODE_ENV = process.env.NODE_ENV || 'production';
+const NODE_ENV = process.env.NODE_ENV || 'development';
 require('dotenv').config({
   path: path.join(__dirname, `env.${NODE_ENV}`)
 });
