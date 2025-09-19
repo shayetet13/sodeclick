@@ -108,10 +108,3 @@ temp/
 .Trashes
 ehthumbs.db
 Thumbs.db
-
-# Uploads (keep structure but ignore files)
-uploads/*
-!uploads/.gitkeep
-!uploads/profiles/.gitkeep
-!uploads/chat-files/.gitkeep
-!uploads/profile-videos/.gitkeep
