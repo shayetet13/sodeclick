@@ -33,7 +33,8 @@ const corsOptions = {
       'http://127.0.0.1:5173',
       'https://sodeclick.com',
       'https://www.sodeclick.com',
-      'https://sodeclick-frontend-production.up.railway.app'
+      'https://sodeclick-frontend-production.up.railway.app',
+      'sodeclick-frontend-production-8907.up.railway.app'
     ];
     
     console.log('🌐 CORS check - Origin:', origin);
