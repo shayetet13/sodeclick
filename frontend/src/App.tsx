@@ -125,7 +125,8 @@ type FeaturedProfile = {
   relationshipStatus?: string
 }
 
-// Sample profile data
+// Sample profile data - Not used in production, kept for reference
+// @ts-ignore - Unused variable kept for reference
 const profiles: FeaturedProfile[] = [
   {
     id: 1,
@@ -818,16 +819,6 @@ function App() {
   // Profile data state
   const [profileData, setProfileData] = useState<any>(null)
   
-  // Top voted profiles - ใช้ profiles ที่มี voteCount สูงสุด
-  const [topVotedProfiles] = useState(() => {
-    return profiles
-      .map(profile => ({
-        ...profile,
-        voteCount: (profile as any).voteCount || 0 // ใช้ vote count จริงจากฐานข้อมูล
-      }))
-      .sort((a, b) => b.voteCount - a.voteCount)
-      .slice(0, 5) // เก็บ top 5
-  })
   
   // ฟังก์ชันลบแชทซ้ำจากอาร์เรย์
   const removeDuplicateChatsFromArray = (chats: any[]) => {
