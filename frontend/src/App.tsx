@@ -32,6 +32,7 @@ const PrivateChat = lazy(() => import('./components/PrivateChat.jsx')) as any
 const NewPrivateChatModal = lazy(() => import('./components/NewPrivateChatModal.jsx')) as any
 const HeartVote = lazy(() => import('./components/HeartVote.jsx')) as any
 const VoteRankingMini = lazy(() => import('./components/VoteRankingMini.jsx')) as any
+const TopVotedCarousel = lazy(() => import('./components/TopVotedCarousel.jsx')) as any
 import { useAuth } from './contexts/AuthContext'
 import { membershipAPI } from './services/membershipAPI'
 import { useToast, ToastProvider } from './components/ui/toast'
@@ -2894,68 +2895,16 @@ function App() {
                 </Button>
               </div>
             </div>
-            {/* 
-              สลับรูป user ที่ถูกโหวตเยอะที่สุดแบบเรียลไทม์ 
-              - แสดง 2 อันดับแรก (top 2 voted)
-              - ถ้ามีการเปลี่ยนแปลงอันดับ เรียลไทม์จะอัปเดตทันที
-            */}
-            <div className="relative hidden sm:flex justify-center lg:justify-end items-center">
-              <div className="relative w-[280px] h-[280px] sm:w-[320px] sm:h-[320px] md:w-[340px] md:h-[340px]">
-                {topVotedProfiles.slice(0, 2).map((profile, idx) => (
-                  <div
-                    key={profile.id}
-                    className={
-                      "absolute " +
-                      (idx === 0
-                        ? "top-0 right-0 z-20 rotate-3"
-                        : "bottom-0 left-4 sm:left-8 z-10 -rotate-3 border-2 sm:border-4 border-white") +
-                      " w-48 h-60 sm:w-56 sm:h-70 md:w-64 md:h-80 rounded-2xl sm:rounded-3xl overflow-hidden shadow-2xl transition-all duration-700"
-                    }
-                    style={{
-                      // เพิ่ม transition effect เวลาสลับ
-                      transition: "all 0.7s cubic-bezier(.4,2,.6,1)",
-                    }}
-                  >
-                    {profile.images?.[0] ? (
-                      <img
-                        src={profile.images[0]}
-                        alt={profile.name}
-                        className="w-full h-full object-cover"
-                        onError={(e) => {
-                          (e.target as HTMLImageElement).style.display = 'none';
-                        }}
-                      />
-                    ) : null}
-                    {/* Mobile-First Badge โหวต */}
-                    <div className="absolute bottom-2 right-2 sm:bottom-3 sm:right-3 bg-white/90 px-2 py-1 sm:px-3 sm:py-1 rounded-full text-xs font-bold text-pink-700 shadow-lg border border-pink-200">
-                      ❤️ {(profile as any).voteCount ?? 0} votes
-                    </div>
-                    {/* Mobile-First ปุ่มแชท */}
-                    <div className="absolute bottom-2 left-2 sm:bottom-3 sm:left-3">
-                      <Button
-                        size="icon"
-                        variant="ghost"
-                        className="rounded-full bg-white/80 hover:bg-white text-pink-600 hover:text-pink-700 h-6 w-6 sm:h-8 sm:w-8 shadow"
-                        onClick={(e: any) => {
-                          e.preventDefault();
-                          e.stopPropagation();
-                          
-                          const token = sessionStorage.getItem('token');
-                          if (!token) {
-                            showWebappNotification('กรุณาเข้าสู่ระบบก่อน')
-                            return
-                          }
-                          
-                          // เริ่มแชทส่วนตัว (สร้าง user object จาก profile)
-                          const userForChat = createUserObject(profile);
-                          handleStartPrivateChat(userForChat)
-                        }}
-                      >
-                        <MessageCircle className="h-3 w-3 sm:h-4 sm:w-4" />
-                      </Button>
-                    </div>
+            {/* Top Voted Users Carousel */}
+            <div className="relative flex justify-center lg:justify-end items-center">
+              <div className="w-full max-w-xs">
+                <Suspense fallback={
+                  <div className="w-full max-w-xs mx-auto h-[500px] bg-gradient-to-br from-pink-100 to-purple-100 rounded-3xl flex items-center justify-center">
+                    <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-pink-500"></div>
                   </div>
-                ))}
+                }>
+                  <TopVotedCarousel />
+                </Suspense>
               </div>
             </div>
           </div>
