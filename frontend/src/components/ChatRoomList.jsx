@@ -529,7 +529,7 @@ const ChatRoomList = ({ currentUser, onSelectRoom, onCreatePrivateRoom }) => {
             <p className="text-sm sm:text-base text-gray-500">ลองค้นหาด้วยคำอื่นหรือเปลี่ยนตัวกรอง</p>
           </div>
         ) : (
-          <div className="grid grid-cols-3 gap-2 max-h-48 overflow-y-auto">
+          <div className="grid grid-cols-3 gap-1.5 max-h-40 overflow-y-auto">
             {filteredRooms.map((room) => {
               const canAccess = room.type === 'public' ||
                               (room.type === 'private' && canAccessPrivateChat(currentUser.membership?.tier || 'member'));
@@ -539,25 +539,25 @@ const ChatRoomList = ({ currentUser, onSelectRoom, onCreatePrivateRoom }) => {
                   key={room.id}
                   onClick={() => canAccess ? handleRoomClick(room) : null}
                   disabled={!canAccess}
-                  className={`relative p-2 rounded-lg border transition-all duration-200 flex flex-col items-center justify-center min-h-[60px] ${
+                  className={`relative p-1.5 rounded-md border transition-all duration-200 flex flex-col items-center justify-center min-h-[45px] ${
                     selectedRoomId === room.id
-                      ? 'bg-pink-100 border-pink-300 shadow-md'
+                      ? 'bg-pink-100 border-pink-300 shadow-sm'
                       : canAccess 
-                        ? 'bg-white border-gray-200 hover:border-pink-300 hover:shadow-md cursor-pointer' 
+                        ? 'bg-white border-gray-200 hover:border-pink-300 hover:shadow-sm cursor-pointer' 
                         : 'bg-gray-100 border-gray-200 opacity-60 cursor-not-allowed'
                   }`}
                 >
                   {/* Room Name */}
-                  <h3 className={`text-xs font-medium text-center truncate w-full mb-1 ${
+                  <h3 className={`text-xs font-medium text-center truncate w-full mb-0.5 leading-tight ${
                     canAccess ? 'text-gray-900' : 'text-gray-500'
                   }`}>
                     {room.name}
                   </h3>
 
                   {/* Online Count */}
-                  <div className="flex items-center gap-1 text-xs text-gray-500">
+                  <div className="flex items-center gap-0.5 text-xs text-gray-500">
                     <div className="w-1 h-1 bg-green-500 rounded-full animate-pulse"></div>
-                    <span>{onlineUsers[room.id] || 0}</span>
+                    <span className="text-xs">{onlineUsers[room.id] || 0}</span>
                   </div>
 
                   {/* Entry Fee Icon */}

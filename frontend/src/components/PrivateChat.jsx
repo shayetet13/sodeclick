@@ -3,6 +3,8 @@ import socketManager from '../services/socketManager';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { getProfileImageUrl } from '../utils/profileImageUtils';
+import YouTubePreview from './YouTubePreview';
+import { separateYouTubeFromText } from '../utils/linkUtils';
 import { 
   ArrowLeft, 
   Send, 
@@ -11,9 +13,7 @@ import {
   Video, 
   FileText,
   Smile,
-  MoreVertical,
-  Phone,
-  Video as VideoCall
+  MoreVertical
 } from 'lucide-react';
 
 const PrivateChat = ({ 
@@ -27,7 +27,8 @@ const PrivateChat = ({
   onSimulateTyping = null,
   onSimulateRead = null,
   onMessageRead = null,
-  chatRoomId = null
+  chatRoomId = null,
+  showWebappNotification = null
 }) => {
   const [newMessage, setNewMessage] = useState('');
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
@@ -44,7 +45,39 @@ const PrivateChat = ({
     if (!chatRoomId || !currentUser?._id) return;
     
     // ตรวจสอบการเปลี่ยนแปลงจริงๆ
-    const socket = socketManager.connect(import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000');
+    const token = sessionStorage.getItem('token');
+    console.log('🔑 Token check before connect:', token ? 'available' : 'missing');
+    
+    const connectSocket = async () => {
+      try {
+        const socket = await socketManager.connect(import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000');
+        return socket;
+      } catch (error) {
+        console.error('❌ Failed to connect socket:', error);
+        return null;
+      }
+    };
+    
+    connectSocket().then(socket => {
+      if (!socket) {
+        console.error('❌ Failed to establish socket connection');
+        if (showWebappNotification) {
+          showWebappNotification('ไม่สามารถเชื่อมต่อได้ กรุณารีเฟรชหน้าเว็บ', 'error');
+        }
+        return;
+      }
+      
+      // ตรวจสอบสถานะการเชื่อมต่ออีกครั้ง (รอสักครู่ให้ socket setup เสร็จ)
+      setTimeout(() => {
+        const connectionStatus = socketManager.getConnectionStatus();
+        if (!connectionStatus.isConnected || !connectionStatus.socketId) {
+          console.warn('⚠️ Socket connection status check failed:', connectionStatus);
+          // ไม่ต้อง return ที่นี่ เพราะอาจเป็น false positive
+          // ให้ลองทำการ setup ต่อไป
+        } else {
+          console.log('✅ Socket connection verified:', connectionStatus);
+        }
+      }, 1000);
     const isAlreadyInCorrectRoom = socket.currentRoom === chatRoomId && 
                                  socket.currentUserId === currentUser._id;
     
@@ -87,13 +120,29 @@ const PrivateChat = ({
         messageType: message.messageType
       };
       
-      if (onSendMessage && typeof onSendMessage === 'function') {
-        onSendMessage(null, null, formattedMessage, 'socket-message');
-      }
+      // ส่ง custom event ไปยัง App.tsx เพื่อ real-time update
+      window.dispatchEvent(new CustomEvent('private-chat-message', {
+        detail: { chatRoomId, message: formattedMessage }
+      }));
+      
+      // ไม่เรียก onSendMessage เพื่อป้องกัน duplicate
+      // เพราะข้อความจะถูกจัดการผ่าน custom event แล้ว
       
       window.dispatchEvent(new CustomEvent('unread-count-update', {
         detail: { chatRoomId, unreadCount: 1 }
       }));
+    };
+
+    const handleError = (error) => {
+      console.error('❌ Socket error:', error);
+      if (error.message === 'Authentication required') {
+        console.error('❌ Authentication failed - token may be invalid or expired');
+        alert('การเข้าสู่ระบบหมดอายุ กรุณาเข้าสู่ระบบใหม่');
+        // Redirect to login or refresh token
+        window.location.reload();
+      } else if (error.message && error.message.includes('send-message')) {
+        alert('ไม่สามารถส่งข้อความได้ กรุณาลองใหม่');
+      }
     };
 
     const handleUnreadCountUpdate = (data) => {
@@ -125,11 +174,15 @@ const PrivateChat = ({
     socketManager.on('unread-count-update', handleUnreadCountUpdate);
     socketManager.on('message-delivered', handleMessageDelivered);
     socketManager.on('message-read', handleMessageRead);
+    socketManager.on('error', handleError);
     
     // รอแล้วค่อย join room เพื่อป้องกัน rate limiting
     const joinTimeout = setTimeout(() => {
       console.log('🔌 Joining room:', chatRoomId);
-      socketManager.joinRoom(chatRoomId, currentUser._id);
+      const token = sessionStorage.getItem('token');
+      console.log('🔑 Token available:', token ? 'Yes' : 'No');
+      
+      socketManager.joinRoom(chatRoomId, currentUser._id, token);
     }, 200);
 
     // Cleanup function
@@ -142,7 +195,10 @@ const PrivateChat = ({
       socketManager.off('unread-count-update', handleUnreadCountUpdate);
       socketManager.off('message-delivered', handleMessageDelivered);
       socketManager.off('message-read', handleMessageRead);
+      socketManager.off('error', handleError);
     };
+    
+    }); // ปิด connectSocket().then()
   }, [chatRoomId, currentUser?._id]); // ลด dependencies และใช้ optional chaining
 
   // Cleanup เมื่อ component unmount
@@ -151,6 +207,12 @@ const PrivateChat = ({
       console.log('🧹 PrivateChat component unmounting, leaving room');
       if (chatRoomId) {
         socketManager.leaveRoom(chatRoomId);
+      }
+      
+      // ตรวจสอบสถานะการเชื่อมต่อก่อน unmount
+      const connectionStatus = socketManager.getConnectionStatus();
+      if (!connectionStatus.isConnected) {
+        console.warn('⚠️ Socket disconnected during component unmount');
       }
     };
   }, []); // รันแค่ครั้งเดียวเมื่อ mount/unmount
@@ -245,7 +307,28 @@ const PrivateChat = ({
 
   // Handle sending messages
   const handleSendMessage = async () => {
-    if (!newMessage.trim() || !currentUser || !chatRoomId) return;
+    console.log('📤 Attempting to send message...');
+    console.log('📤 Debug info:', {
+      newMessage: newMessage.trim(),
+      currentUser: currentUser?._id,
+      chatRoomId: chatRoomId,
+      isConnected: isConnected
+    });
+
+    if (!newMessage.trim()) {
+      console.log('❌ Message is empty');
+      return;
+    }
+
+    if (!currentUser) {
+      console.log('❌ No current user');
+      return;
+    }
+
+    if (!chatRoomId) {
+      console.log('❌ No chat room ID');
+      return;
+    }
 
     const now = Date.now();
     
@@ -263,9 +346,46 @@ const PrivateChat = ({
       messageType: 'text'
     };
 
+    console.log('📤 Message data to send:', messageData);
+
+    // ตรวจสอบ socket connection
+    const socketStatus = socketManager.getConnectionStatus();
+    console.log('🔌 Socket status:', socketStatus);
+
+    if (!socketStatus.isConnected || !socketStatus.socketId) {
+      console.error('❌ Socket not connected! Attempting to reconnect...');
+      
+      // พยายามเชื่อมต่อใหม่แบบ async
+      try {
+        const socket = await socketManager.connect(import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000');
+        
+        // ตรวจสอบสถานะการเชื่อมต่อ
+        const newStatus = socketManager.getConnectionStatus();
+        if (!newStatus.isConnected) {
+          console.error('❌ Failed to reconnect socket');
+          if (showWebappNotification) {
+            showWebappNotification('การเชื่อมต่อขาดหาย กรุณารีเฟรชหน้าเว็บ', 'error');
+          }
+          return;
+        }
+        
+        console.log('✅ Socket reconnected successfully');
+        // ลองส่งข้อความอีกครั้งหลังเชื่อมต่อสำเร็จ
+        console.log('🔄 Retrying message send after reconnection');
+        handleSendMessage();
+      } catch (error) {
+        console.error('❌ Error reconnecting socket:', error);
+        if (showWebappNotification) {
+          showWebappNotification('ไม่สามารถเชื่อมต่อได้ กรุณารีเฟรชหน้าเว็บ', 'error');
+        }
+      }
+      
+      return;
+    }
+
     // สร้างข้อความชั่วคราว
     const tempMessage = {
-      _id: `temp_${Date.now()}`,
+      _id: `temp_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
       content: newMessage.trim(),
       senderId: currentUser._id,
       timestamp: new Date(),
@@ -275,13 +395,37 @@ const PrivateChat = ({
       isTemporary: true
     };
 
-    // ส่งข้อความชั่วคราวไปยัง parent component
-    if (onSendMessage && typeof onSendMessage === 'function') {
-      onSendMessage(null, null, tempMessage, 'temp-message');
-    }
+    console.log('📤 Temp message created:', tempMessage);
 
-    // ส่งข้อความผ่าน Socket.IO
-    socketManager.emit('send-message', messageData);
+    // ไม่ส่ง temp message ไปยัง parent component เพื่อป้องกัน duplicate
+    // ให้รอ socket response แทน
+    console.log('📤 Skipping temp message callback to prevent duplicates');
+
+    try {
+      // ส่งข้อความผ่าน Socket.IO
+      console.log('📤 Emitting send-message event');
+      const emitResult = socketManager.emit('send-message', messageData);
+      
+      if (emitResult) {
+        console.log('✅ Message sent via socket successfully');
+        
+        // แสดงข้อความทันทีโดยไม่รอ socket response
+        if (onSendMessage && typeof onSendMessage === 'function') {
+          console.log('📤 Calling onSendMessage callback for immediate display');
+          onSendMessage(null, null, {
+            ...tempMessage,
+            isDelivered: true
+          }, 'own-message');
+        }
+      } else {
+        console.error('❌ Failed to emit message - socket not ready');
+        alert('การเชื่อมต่อไม่พร้อม กรุณาลองใหม่');
+      }
+      
+    } catch (error) {
+      console.error('❌ Error sending message:', error);
+      alert('เกิดข้อผิดพลาดในการส่งข้อความ');
+    }
 
     setNewMessage('');
   };
@@ -361,21 +505,21 @@ const PrivateChat = ({
   };
 
   return (
-    <div className="flex flex-col h-full bg-white">
-      {/* Header */}
-      <div className="flex items-center justify-between p-4 border-b border-gray-200 bg-gradient-to-r from-pink-500 to-violet-500 text-white">
-        <div className="flex items-center space-x-3">
+    <div className="flex flex-col h-full bg-white relative">
+      {/* Header - Fixed at top */}
+      <div className="flex items-center justify-between p-1.5 sm:p-2 border-b border-gray-200 bg-gradient-to-r from-pink-500 to-violet-500 text-white z-10 sticky top-0">
+        <div className="flex items-center space-x-1.5 sm:space-x-2">
           <Button
             variant="ghost"
             size="icon"
             onClick={onBack}
-            className="text-white hover:bg-white/20"
+            className="text-white hover:bg-white/20 h-7 w-7 sm:h-8 sm:w-8"
           >
-            <ArrowLeft className="h-5 w-5" />
+            <ArrowLeft className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
           </Button>
           
-          <div className="flex items-center space-x-3">
-            <div className="w-10 h-10 bg-white/20 rounded-full flex items-center justify-center overflow-hidden">
+          <div className="flex items-center space-x-1.5 sm:space-x-2">
+            <div className="w-7 h-7 sm:w-8 sm:h-8 bg-white/20 rounded-full flex items-center justify-center overflow-hidden">
               {otherUser?.profileImages?.[0] ? (
                 <img
                   src={getProfileImageUrl(otherUser.profileImages[0], otherUser._id || otherUser.id)}
@@ -391,48 +535,39 @@ const PrivateChat = ({
             </div>
             
             <div>
-              <h2 className="text-lg font-semibold">
+              <h2 className="text-xs sm:text-sm font-semibold">
                 {otherUser?.displayName || `${otherUser?.firstName} ${otherUser?.lastName}`}
               </h2>
-              <div className="flex items-center space-x-2">
-                <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-green-400' : 'bg-gray-400'}`}></div>
-                <span className="text-sm opacity-80">
-                  {isConnected ? 'ออนไลน์' : 'ออฟไลน์'}
+              <div className="flex items-center space-x-1">
+                <div className={`w-1 h-1 sm:w-1.5 sm:h-1.5 rounded-full ${isConnected ? 'bg-green-400 animate-pulse' : 'bg-red-400'}`}></div>
+                <span className="text-xs opacity-80">
+                  {isConnected ? 'เชื่อมต่อแล้ว' : 'การเชื่อมต่อขาดหาย'}
                 </span>
               </div>
             </div>
           </div>
         </div>
 
-        <div className="flex items-center space-x-2">
+        <div className="flex items-center space-x-1">
           <Button
             variant="ghost"
             size="icon"
-            className="text-white hover:bg-white/20"
+            className="text-white hover:bg-white/20 h-7 w-7 sm:h-8 sm:w-8"
           >
-            <Phone className="h-5 w-5" />
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="text-white hover:bg-white/20"
-          >
-            <VideoCall className="h-5 w-5" />
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="text-white hover:bg-white/20"
-          >
-            <MoreVertical className="h-5 w-5" />
+            <MoreVertical className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
           </Button>
         </div>
       </div>
 
-      {/* Messages */}
+      {/* Messages - Scrollable area with proper spacing */}
       <div 
         ref={messagesContainerRef}
         className="flex-1 overflow-y-auto p-4 space-y-4"
+        style={{ 
+          paddingTop: '0.5rem', 
+          paddingBottom: '0.5rem',
+          maxHeight: 'calc(-120px + 70vh)' // Reserve space for header and input
+        }}
       >
         {isLoading ? (
           <div className="flex justify-center items-center h-full">
@@ -440,9 +575,14 @@ const PrivateChat = ({
           </div>
         ) : (
           <>
-            {messages.map((message) => (
+            {messages
+              .filter((message, index, arr) => {
+                // ลบ duplicate messages โดยใช้ _id และ content เป็น unique identifier
+                return arr.findIndex(m => m._id === message._id && m.content === message.content) === index;
+              })
+              .map((message) => (
               <div
-                key={message._id}
+                key={`${message._id}_${message.content}_${message.timestamp || Date.now()}`}
                 ref={(el) => {
                   if (el) messageRefs.current[message._id] = el;
                 }}
@@ -457,9 +597,26 @@ const PrivateChat = ({
                       : 'bg-gray-100 text-gray-900'
                   }`}
                 >
-                  {message.content && (
-                    <p className="text-sm whitespace-pre-wrap">{message.content}</p>
-                  )}
+                  {message.content && (() => {
+                    const { text, youtubeUrls } = separateYouTubeFromText(message.content);
+                    return (
+                      <div className="space-y-2">
+                        {/* Display clean text if any */}
+                        {text && (
+                          <p className="text-sm whitespace-pre-wrap">{text}</p>
+                        )}
+                        
+                        {/* Display YouTube previews */}
+                        {youtubeUrls.map((youtubeData, index) => (
+                          <YouTubePreview
+                            key={`${message._id}-youtube-${index}`}
+                            url={youtubeData.url}
+                            className="max-w-80"
+                          />
+                        ))}
+                      </div>
+                    );
+                  })()}
                   
                   {message.fileUrl && (
                     <div className="mt-2">
@@ -517,8 +674,8 @@ const PrivateChat = ({
         )}
       </div>
 
-      {/* Message Input */}
-      <div className="p-4 border-t border-gray-200 bg-white">
+      {/* Message Input - Fixed at bottom */}
+      <div className="relative p-2 sm:p-3 border-t border-gray-200 bg-white z-10 sticky bottom-0">
         <div className="flex items-center space-x-2">
           <Button
             variant="ghost"
@@ -550,8 +707,13 @@ const PrivateChat = ({
           
           <Button
             onClick={handleSendMessage}
-            disabled={!newMessage.trim()}
-            className="bg-gradient-to-r from-pink-500 to-violet-500 hover:from-pink-600 hover:to-violet-600 text-white"
+            disabled={!newMessage.trim() || !isConnected}
+            className={`${
+              isConnected 
+                ? 'bg-gradient-to-r from-pink-500 to-violet-500 hover:from-pink-600 hover:to-violet-600' 
+                : 'bg-gray-400'
+            } text-white transition-all duration-200`}
+            title={isConnected ? 'ส่งข้อความ' : 'ไม่ได้เชื่อมต่อ'}
           >
             <Send className="h-5 w-5" />
           </Button>
@@ -559,7 +721,8 @@ const PrivateChat = ({
 
         {/* Attachment Menu */}
         {showAttachmentMenu && (
-          <div className="mt-2 flex space-x-2">
+          <div className="absolute bottom-full left-0 right-0 p-2 bg-white border border-gray-200 rounded-t-lg shadow-lg z-20">
+            <div className="flex space-x-2">
             <Button
               variant="outline"
               size="sm"
@@ -585,6 +748,7 @@ const PrivateChat = ({
               <FileText className="h-4 w-4" />
               <span>ไฟล์</span>
             </Button>
+            </div>
           </div>
         )}
 

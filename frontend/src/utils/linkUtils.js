@@ -20,6 +20,44 @@ export const detectLinks = (text) => {
   });
 };
 
+export const extractYouTubeUrls = (text) => {
+  const youtubeRegex = /(https?:\/\/)?(www\.)?(youtube\.com\/watch\?v=|youtu\.be\/)([a-zA-Z0-9_-]{11})/g;
+  const matches = [];
+  let match;
+  
+  while ((match = youtubeRegex.exec(text)) !== null) {
+    const fullUrl = match[0];
+    const videoId = match[4];
+    matches.push({
+      url: fullUrl.startsWith('http') ? fullUrl : `https://${fullUrl}`,
+      videoId,
+      startIndex: match.index,
+      endIndex: match.index + match[0].length
+    });
+  }
+  
+  return matches;
+};
+
+export const separateYouTubeFromText = (text) => {
+  const youtubeUrls = extractYouTubeUrls(text);
+  
+  if (youtubeUrls.length === 0) {
+    return { text, youtubeUrls: [] };
+  }
+  
+  // Remove YouTube URLs from text
+  let cleanText = text;
+  youtubeUrls.reverse().forEach(({ startIndex, endIndex }) => {
+    cleanText = cleanText.slice(0, startIndex) + cleanText.slice(endIndex);
+  });
+  
+  return {
+    text: cleanText.trim(),
+    youtubeUrls: youtubeUrls.reverse()
+  };
+};
+
 export const isYouTubeUrl = (url) => {
   const youtubeRegex = /^(https?:\/\/)?(www\.)?(youtube\.com|youtu\.be)\/.+/;
   return youtubeRegex.test(url);

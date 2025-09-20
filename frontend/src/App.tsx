@@ -297,6 +297,7 @@ function App() {
     // แสดง toast notification
     success(notification.message || 'มีการแจ้งเตือนใหม่');
   });
+
   
   // Function to handle Learn More button click - scrolls to specific Premium section
   const handleLearnMoreClick = () => {
@@ -880,12 +881,20 @@ function App() {
       console.log('✅ Private chats fetched successfully:', result);
       
       if (result.success && result.data && result.data.privateChats) {
+        console.log('📋 Raw private chats from API:', result.data.privateChats);
         // ลบแชทซ้ำก่อนตั้งค่า
         const uniqueChats = removeDuplicateChatsFromArray(result.data.privateChats);
+        console.log('📋 Unique chats after deduplication:', uniqueChats);
         setPrivateChats(uniqueChats);
         console.log('🔄 Updated private chats from API:', uniqueChats.length);
       } else {
         console.error('❌ Invalid response format:', result);
+        console.log('📋 Response structure:', {
+          success: result.success,
+          hasData: !!result.data,
+          hasPrivateChats: !!(result.data && result.data.privateChats),
+          dataKeys: result.data ? Object.keys(result.data) : 'no data'
+        });
       }
     } catch (error) {
       console.error('❌ Error fetching private chats:', error);
@@ -2051,19 +2060,43 @@ function App() {
       console.log('📨 Received temporary message:', socketMessage);
       
       // อัปเดตแชทที่เลือกด้วยข้อความชั่วคราว
-      setSelectedPrivateChat((prev: any) => ({
-        ...prev,
-        messages: [...(prev.messages || []), socketMessage],
-        lastMessage: socketMessage
-      }));
+      setSelectedPrivateChat((prev: any) => {
+        const existingMessages = prev.messages || [];
+        // ตรวจสอบว่ามีข้อความนี้อยู่แล้วหรือไม่
+        const isDuplicate = existingMessages.some((msg: any) => 
+          msg._id === socketMessage._id || 
+          (msg.content === socketMessage.content && msg.senderId === socketMessage.senderId && msg.isTemporary)
+        );
+        
+        if (isDuplicate) {
+          console.log('📨 Duplicate temp message detected, skipping');
+          return prev;
+        }
+        
+        return {
+          ...prev,
+          messages: [...existingMessages, socketMessage],
+          lastMessage: socketMessage
+        };
+      });
       
       // อัปเดตรายการแชทด้วยข้อความชั่วคราว
       setPrivateChats(prev => {
-        const updatedChats = prev.map(chat => 
-          chat.id === selectedPrivateChat.id 
-            ? { ...chat, messages: [...(chat.messages || []), socketMessage], lastMessage: socketMessage }
-            : chat
-        );
+        const updatedChats = prev.map(chat => {
+          if (chat.id === selectedPrivateChat.id) {
+            const existingMessages = chat.messages || [];
+            // ตรวจสอบ duplicate
+            const isDuplicate = existingMessages.some((msg: any) => 
+              msg._id === socketMessage._id || 
+              (msg.content === socketMessage.content && msg.senderId === socketMessage.senderId && msg.isTemporary)
+            );
+            
+            if (!isDuplicate) {
+              return { ...chat, messages: [...existingMessages, socketMessage], lastMessage: socketMessage };
+            }
+          }
+          return chat;
+        });
         saveChatsToStorage(updatedChats);
         return updatedChats;
       });
@@ -2077,7 +2110,20 @@ function App() {
       
       // อัปเดตแชทที่เลือกด้วยข้อความจริงแทนที่ข้อความชั่วคราว
       setSelectedPrivateChat((prev: any) => {
-        const updatedMessages = prev.messages?.map((msg: any) => {
+        const existingMessages = prev.messages || [];
+        
+        // ตรวจสอบว่ามีข้อความนี้อยู่แล้วหรือไม่ (อาจมาจาก custom event)
+        const isDuplicate = existingMessages.some((msg: any) => 
+          msg._id === socketMessage._id || 
+          (msg.content === socketMessage.content && msg.senderId === socketMessage.senderId && !msg.isTemporary)
+        );
+        
+        if (isDuplicate) {
+          console.log('📨 Duplicate own message detected, skipping');
+          return prev;
+        }
+        
+        const updatedMessages = existingMessages.map((msg: any) => {
           // หาข้อความชั่วคราวที่มีเนื้อหาเดียวกันและเป็นของตัวเอง
           if (msg.isTemporary && 
               msg.content === socketMessage.content && 
@@ -2086,7 +2132,10 @@ function App() {
             return socketMessage; // แทนที่ข้อความชั่วคราวด้วยข้อความจริง
           }
           return msg;
-        }) || [];
+        }).filter((msg: any, index: number, arr: any[]) => {
+          // ลบ duplicate messages โดยใช้ _id และ content เป็น unique identifier
+          return arr.findIndex(m => m._id === msg._id && m.content === msg.content) === index;
+        });
         
         return {
           ...prev,
@@ -2308,6 +2357,53 @@ function App() {
     setChatView('list');
     setSelectedRoomId(null);
   };
+
+  // เพิ่ม real-time listener สำหรับ private chat messages
+  useEffect(() => {
+    const handlePrivateChatMessage = (event: CustomEvent) => {
+      const { chatRoomId, message } = event.detail;
+      console.log('📨 Global private chat message received:', { chatRoomId, message });
+      
+      // อัปเดต private chats ถ้าข้อความมาจากแชทที่กำลังดู
+      if (selectedPrivateChat && selectedPrivateChat.id === chatRoomId) {
+        console.log('📨 Updating current selected chat with new message');
+        // อัปเดต selectedPrivateChat โดยตรงเพื่อป้องกัน duplicate
+        setSelectedPrivateChat((prev: any) => {
+          const existingMessages = prev.messages || [];
+          const isDuplicate = existingMessages.some((msg: any) => 
+            msg._id === message._id || 
+            (msg.content === message.content && msg.senderId === message.senderId)
+          );
+          
+          if (isDuplicate) {
+            console.log('📨 Duplicate message detected in custom event, skipping');
+            return prev;
+          }
+          
+          return {
+            ...prev,
+            messages: [...existingMessages, message],
+            lastMessage: message
+          };
+        });
+      } else {
+        // อัปเดต unread count สำหรับแชทอื่นๆ
+        console.log('📨 Updating unread count for other chats');
+        setPrivateChats(prev => prev.map(chat => 
+          chat.id === chatRoomId 
+            ? { ...chat, lastMessage: message, unreadCount: (chat.unreadCount || 0) + 1 }
+            : chat
+        ));
+      }
+    };
+
+    // ฟัง custom event จาก PrivateChat component
+    window.addEventListener('private-chat-message', handlePrivateChatMessage as EventListener);
+    
+    return () => {
+      window.removeEventListener('private-chat-message', handlePrivateChatMessage as EventListener);
+    };
+  }, [selectedPrivateChat]);
 
   // ฟัง event เมื่อมีการตั้งรูปโปรไฟล์ใหม่ เพื่อรีโหลด avatar ใน header
   useEffect(() => {
@@ -4068,10 +4164,9 @@ function App() {
                           setChatType('private');
                           setChatView('list');
                           setPrivateChatView('list');
-                          // รีเฟรชข้อมูลแชทส่วนตัวเมื่อเปลี่ยนไปหน้าแชทส่วนตัว (เฉพาะเมื่อไม่มีข้อมูล)
-                          if (privateChats.length === 0) {
-                            fetchPrivateChats();
-                          }
+                          console.log('🔄 Private chat tab clicked, fetching chats...');
+                          // รีเฟรชข้อมูลแชทส่วนตัวเมื่อเปลี่ยนไปหน้าแชทส่วนตัว
+                          fetchPrivateChats();
                         }}
                         className={`flex-1 px-3 py-2 sm:px-4 sm:py-2 rounded-lg text-sm sm:text-base font-medium transition-all duration-200 ${
                           chatType === 'private'
@@ -4125,6 +4220,7 @@ function App() {
                           onSimulateRead={() => {}}
                           onMessageRead={handleMessageRead}
                           chatRoomId={selectedPrivateChat?.id}
+                          showWebappNotification={showWebappNotification}
                         />
                       )
                     )}

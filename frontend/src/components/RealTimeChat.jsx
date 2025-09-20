@@ -4,13 +4,14 @@ import { Button } from './ui/button';
 import { Avatar, AvatarImage, AvatarFallback } from './ui/avatar';
 import { Badge } from './ui/badge';
 import MediaPreview from './MediaPreview';
+import YouTubePreview from './YouTubePreview';
+import { separateYouTubeFromText } from '../utils/linkUtils';
 
 import {
   Heart,
   Send,
   MoreVertical,
   Reply,
-  Mic,
   X,
   ArrowLeft,
   ThumbsUp,
@@ -49,12 +50,25 @@ const RealTimeChat = ({ roomId, currentUser, onBack }) => {
   useEffect(() => {
     const newSocket = io(import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000', {
       withCredentials: true,
-      timeout: 20000,
+      timeout: 30000,
       reconnection: true,
-      reconnectionAttempts: 10,
-      reconnectionDelay: 1000,
-      forceNew: true,
-      transports: ['websocket', 'polling']
+      reconnectionAttempts: 3,
+      reconnectionDelay: 3000,
+      reconnectionDelayMax: 10000,
+      forceNew: false,
+      transports: ['websocket', 'polling'],
+      upgrade: true,
+      rememberUpgrade: true,
+      autoConnect: true,
+      pingTimeout: 30000,
+      pingInterval: 15000,
+      allowEIO3: true,
+      polling: {
+        extraHeaders: {
+          'Access-Control-Allow-Origin': '*',
+          'Access-Control-Allow-Credentials': 'true'
+        }
+      }
     });
 
     newSocket.on('connect', () => {
@@ -206,7 +220,7 @@ const RealTimeChat = ({ roomId, currentUser, onBack }) => {
     const fetchMessages = async () => {
       try {
         const response = await fetch(
-          `${import.meta.env.VITE_API_URL || 'http://localhost:5000'}/api/messages/${roomId}?userId=${currentUser._id}`,
+          `${import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000'}/api/messages/${roomId}?userId=${currentUser._id}`,
           {
             credentials: 'include'
           }
@@ -431,7 +445,7 @@ const RealTimeChat = ({ roomId, currentUser, onBack }) => {
   const handleEditMessage = async (messageId, newContent) => {
     try {
       const response = await fetch(
-        `${import.meta.env.VITE_API_URL || 'http://localhost:5000'}/api/messages/${messageId}`,
+        `${import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000'}/api/messages/${messageId}`,
         {
           method: 'PUT',
           headers: {
@@ -562,7 +576,7 @@ const RealTimeChat = ({ roomId, currentUser, onBack }) => {
 
     try {
       const response = await fetch(
-        `${import.meta.env.VITE_API_URL || 'http://localhost:5000'}/api/messages/${messageId}`,
+        `${import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000'}/api/messages/${messageId}`,
         {
           method: 'DELETE',
           headers: {
@@ -667,8 +681,32 @@ const RealTimeChat = ({ roomId, currentUser, onBack }) => {
       );
     }
     
-    // Text only message
-    return message.content;
+    // Text message with potential YouTube links
+    if (message.content) {
+      const { text, youtubeUrls } = separateYouTubeFromText(message.content);
+      
+      return (
+        <div className="space-y-2">
+          {/* Display clean text if any */}
+          {text && (
+            <div className="text-sm whitespace-pre-wrap">
+              {text}
+            </div>
+          )}
+          
+          {/* Display YouTube previews */}
+          {youtubeUrls.map((youtubeData, index) => (
+            <YouTubePreview
+              key={`${message._id}-youtube-${index}`}
+              url={youtubeData.url}
+              className="max-w-80"
+            />
+          ))}
+        </div>
+      );
+    }
+    
+    return null;
   };
 
      const getReactionIcon = (type) => {
@@ -1011,10 +1049,6 @@ const RealTimeChat = ({ roomId, currentUser, onBack }) => {
               title="เพิ่มอีโมจิ"
             >
               <Smile className="h-4 w-4 sm:h-5 sm:w-5" />
-            </Button>
-
-            <Button size="icon" variant="ghost" className="text-gray-500 hover:text-gray-700 p-1 sm:p-2">
-              <Mic className="h-4 w-4 sm:h-5 sm:w-5" />
             </Button>
         
             <div className="flex-1 relative">

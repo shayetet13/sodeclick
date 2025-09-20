@@ -79,7 +79,7 @@ const MembershipCard = ({ plan, isCurrentTier = false, onUpgrade, isLoading = fa
         plan.tier === 'diamond' ? 'shadow-2xl shadow-amber-200/30' :
         plan.tier === 'platinum' ? 'shadow-2xl shadow-purple-200/30' :
         plan.tier === 'gold' ? 'shadow-2xl shadow-yellow-200/30' : ''
-      } overflow-hidden h-[420px] flex flex-col`}>
+      } overflow-hidden h-[320px] sm:h-[420px] flex flex-col`}>
       
 
       
@@ -103,24 +103,24 @@ const MembershipCard = ({ plan, isCurrentTier = false, onUpgrade, isLoading = fa
       )}
 
       {/* Header - Compact */}
-      <div className="text-center p-4 pb-2">
-        <div className={`w-12 h-12 mx-auto mb-3 rounded-xl bg-gradient-to-br ${membershipHelpers.getTierGradient(plan.tier)} flex items-center justify-center text-lg shadow-lg`}>
+      <div className="text-center p-2.5 sm:p-4 pb-2">
+        <div className={`w-9 h-9 sm:w-12 sm:h-12 mx-auto mb-1.5 sm:mb-3 rounded-xl bg-gradient-to-br ${membershipHelpers.getTierGradient(plan.tier)} flex items-center justify-center text-sm sm:text-lg shadow-lg`}>
           {membershipHelpers.getTierIcon(plan.tier)}
         </div>
-        <h3 className="text-lg font-bold text-gray-800 mb-1">
+        <h3 className="text-sm sm:text-lg font-bold text-gray-800 mb-0.5 sm:mb-1">
           {membershipHelpers.getTierName(plan.tier)}
         </h3>
-        <div className="text-xl font-bold bg-gradient-to-r from-pink-600 to-violet-600 bg-clip-text text-transparent mb-1">
+        <div className="text-sm sm:text-xl font-bold bg-gradient-to-r from-pink-600 to-violet-600 bg-clip-text text-transparent mb-0.5 sm:mb-1">
           {membershipHelpers.formatPrice(plan.price.amount, plan.price.currency)}
         </div>
-        <div className="text-xs text-gray-500 bg-gray-100 px-2 py-1 rounded-full inline-block">
+        <div className="text-xs text-gray-500 bg-gray-100 px-2 py-0.5 sm:py-1 rounded-full inline-block">
           {plan.duration.description}
         </div>
       </div>
 
       {/* Key Features - Compact */}
-      <div className="px-4 flex-1 flex flex-col">
-        <div className="space-y-1.5 flex-1">
+      <div className="px-2.5 sm:px-4 flex-1 flex flex-col">
+        <div className="space-y-0.5 sm:space-y-1.5 flex-1">
           <div className="flex items-center justify-between text-xs">
             <div className="flex items-center">
               <MessageCircle className="h-3 w-3 mr-1.5 text-pink-500" />
@@ -160,34 +160,35 @@ const MembershipCard = ({ plan, isCurrentTier = false, onUpgrade, isLoading = fa
         </div>
         
         {/* View Details Button - Compact */}
-        <div className="mt-auto pt-2">
+        <div className="mt-auto pt-1 sm:pt-2">
           <Button
             variant="ghost"
             size="sm"
             onClick={() => setShowDetailModal(true)}
-            className="w-full text-xs text-gray-500 hover:text-pink-600 hover:bg-pink-50 transition-colors py-1"
+            className="w-full text-xs text-gray-500 hover:text-pink-600 hover:bg-pink-50 transition-colors py-0 sm:py-1"
           >
             <Info className="h-3 w-3 mr-1" />
-            View All Features
+            <span className="hidden sm:inline">View All Features</span>
+            <span className="sm:hidden">Details</span>
           </Button>
         </div>
       </div>
 
       {/* Action Button - Compact */}
-      <div className="p-3 pt-2 mt-auto">
+      <div className="p-1.5 sm:p-3 pt-1 sm:pt-2 mt-auto">
         {isCurrentTier ? (
-          <Button disabled className="w-full bg-gradient-to-r from-green-500 to-emerald-500 text-white font-semibold py-2 rounded-lg shadow-lg text-sm">
-            <Check className="h-3 w-3 mr-1.5" />
+          <Button disabled className="w-full bg-gradient-to-r from-green-500 to-emerald-500 text-white font-semibold py-1 sm:py-2 rounded-lg shadow-lg text-xs sm:text-sm">
+            <Check className="h-3 w-3 mr-1 sm:mr-1.5" />
             Current Plan
           </Button>
         ) : (
           <Button
             onClick={() => onUpgrade?.(plan)}
             disabled={isLoading}
-            className={`w-full bg-gradient-to-r ${membershipHelpers.getTierGradient(plan.tier)} text-white font-semibold py-2 rounded-lg text-sm`}
+            className={`w-full bg-gradient-to-r ${membershipHelpers.getTierGradient(plan.tier)} text-white font-semibold py-1 sm:py-2 rounded-lg text-xs sm:text-sm`}
           >
             <>
-              <Zap className="h-3 w-3 mr-1.5" />
+              <Zap className="h-3 w-3 mr-1 sm:mr-1.5" />
               Upgrade Now
             </>
           </Button>

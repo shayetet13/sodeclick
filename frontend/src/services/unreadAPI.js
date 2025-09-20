@@ -11,10 +11,12 @@ export const unreadAPI = {
    */
   async getUnreadCount(userId) {
     try {
-      const response = await enhancedAPI.get(`/messages/unread-count/${userId}`);
+      console.log('🔍 Fetching unread count for user:', userId);
+      const response = await enhancedAPI.get(`/api/messages/unread-count/${userId}`);
+      console.log('✅ Unread count response:', response);
       return response;
     } catch (error) {
-      console.error('Error getting unread count:', error);
+      console.error('❌ Error getting unread count:', error);
       
       // Return fallback data แทนการ throw error
       return {
@@ -35,10 +37,12 @@ export const unreadAPI = {
    */
   async getPrivateChatUnreadCount(userId) {
     try {
-      const response = await enhancedAPI.get(`/messages/private-chats-unread/${userId}`);
+      console.log('🔍 Fetching private chat unread count for user:', userId);
+      const response = await enhancedAPI.get(`/api/messages/private-chats-unread/${userId}`);
+      console.log('✅ Private chat unread count response:', response);
       return response;
     } catch (error) {
-      console.error('Error getting private chat unread count:', error);
+      console.error('❌ Error getting private chat unread count:', error);
       
       // Return fallback data แทนการ throw error
       return {
@@ -60,7 +64,7 @@ export const unreadAPI = {
    */
   async markAsRead(chatRoomId, userId) {
     try {
-      const response = await enhancedAPI.post('/messages/mark-as-read', {
+      const response = await enhancedAPI.post('/api/messages/mark-as-read', {
         chatRoomId,
         userId
       });
@@ -84,10 +88,12 @@ export const unreadAPI = {
    */
   async getPrivateChats(userId) {
     try {
-      const response = await enhancedAPI.get(`/messages/private-chats/${userId}`);
+      console.log('🔍 Fetching private chats for user:', userId);
+      const response = await enhancedAPI.get(`/api/messages/private-chats/${userId}`);
+      console.log('✅ Private chats response:', response);
       return response;
     } catch (error) {
-      console.error('Error getting private chats:', error);
+      console.error('❌ Error getting private chats:', error);
       
       // Return fallback data แทนการ throw error
       return {

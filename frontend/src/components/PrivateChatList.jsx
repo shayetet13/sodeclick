@@ -6,8 +6,6 @@ import {
   MessageCircle, 
   Plus,
   MoreVertical,
-  Phone,
-  Video,
   Trash2
 } from 'lucide-react';
 import unreadAPI from '../services/unreadAPI';
@@ -27,6 +25,7 @@ const PrivateChatList = ({
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [chatToDelete, setChatToDelete] = useState(null);
   const [unreadCounts, setUnreadCounts] = useState({}); // เพิ่ม state สำหรับ unread counts
+  const [isFetchingUnread, setIsFetchingUnread] = useState(false);
 
   // ดึงข้อมูล unread count เมื่อ component mount (มี debounce)
   useEffect(() => {
@@ -63,23 +62,44 @@ const PrivateChatList = ({
 
   // ฟังก์ชันดึงข้อมูล unread count
   const fetchUnreadCounts = async () => {
+    if (!currentUser?._id) {
+      console.warn('⚠️ No current user ID available for fetching unread counts');
+      return;
+    }
+
+    // ป้องกันการเรียก API ซ้ำๆ
+    if (isFetchingUnread) {
+      console.log('⏳ Already fetching unread counts, skipping...');
+      return;
+    }
+
+    setIsFetchingUnread(true);
     try {
+      console.log('🔍 Fetching unread counts for user:', currentUser._id);
       const response = await unreadAPI.getPrivateChatUnreadCount(currentUser._id);
-      if (response && response.success) {
+      
+      if (response && response.success && response.data) {
         const countsMap = {};
-        if (response.data && response.data.chatUnreadCounts) {
+        if (response.data.chatUnreadCounts && Array.isArray(response.data.chatUnreadCounts)) {
           response.data.chatUnreadCounts.forEach(item => {
             countsMap[item.chatRoom] = item.unreadCount;
           });
         }
         setUnreadCounts(countsMap);
+        console.log('✅ Unread counts updated:', countsMap);
+      } else {
+        console.warn('⚠️ Unsuccessful response or no data:', response);
+        // ตั้งค่า default empty counts
+        setUnreadCounts({});
       }
     } catch (error) {
-      console.error('Error fetching unread counts:', error);
+      console.error('❌ Error fetching unread counts:', error);
       // แสดง notification ถ้ามี
       if (showWebappNotification) {
         showWebappNotification('เกิดข้อผิดพลาดในการดึงข้อมูลข้อความที่ยังไม่ได้อ่าน', 'error');
       }
+    } finally {
+      setIsFetchingUnread(false);
     }
   };
 
@@ -106,14 +126,28 @@ const PrivateChatList = ({
     onSelectChat(chat);
   };
 
+  // Debug: Log privateChats data
+  console.log('📋 PrivateChatList received privateChats:', {
+    length: privateChats.length,
+    chats: privateChats.map(chat => ({
+      id: chat.id,
+      otherUser: chat.otherUser ? {
+        _id: chat.otherUser._id,
+        displayName: chat.otherUser.displayName,
+        firstName: chat.otherUser.firstName,
+        lastName: chat.otherUser.lastName
+      } : 'no otherUser'
+    }))
+  });
+
   // Filter chats based on search and filter
   const filteredChats = privateChats.filter(chat => {
-    const matchesSearch = chat.otherUser.displayName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         chat.otherUser.firstName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         chat.otherUser.lastName?.toLowerCase().includes(searchTerm.toLowerCase());
+    const matchesSearch = chat.otherUser?.displayName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                         chat.otherUser?.firstName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                         chat.otherUser?.lastName?.toLowerCase().includes(searchTerm.toLowerCase());
     
     if (filterType === 'online') {
-      return matchesSearch && chat.otherUser.isOnline;
+      return matchesSearch && chat.otherUser?.isOnline;
     } else if (filterType === 'recent') {
       return matchesSearch && chat.lastMessage;
     }
@@ -226,6 +260,10 @@ const PrivateChatList = ({
               <div className="font-medium">ระดับ: {currentUser.membership?.tier?.toUpperCase() || 'MEMBER'}</div>
               <div className="text-sm opacity-80">
                 แชทส่วนตัว {privateChats.length} คน
+                {/* Debug info */}
+                <div className="text-xs opacity-60">
+                  Debug: {privateChats.length} chats, {filteredChats.length} filtered
+                </div>
               </div>
             </div>
           </div>
@@ -387,28 +425,6 @@ const PrivateChatList = ({
                       
                       {/* Action buttons */}
                       <div className="flex items-center space-x-1">
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-6 w-6 sm:h-8 sm:w-8 text-gray-400 hover:text-pink-500 hover:bg-pink-50"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          // Handle call action
-                        }}
-                      >
-                        <Phone className="h-3 w-3 sm:h-4 sm:w-4" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-6 w-6 sm:h-8 sm:w-8 text-gray-400 hover:text-pink-500 hover:bg-pink-50"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          // Handle video call action
-                        }}
-                      >
-                        <Video className="h-3 w-3 sm:h-4 sm:w-4" />
-                      </Button>
                       <Button
                         variant="ghost"
                         size="icon"

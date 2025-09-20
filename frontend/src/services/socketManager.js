@@ -13,12 +13,13 @@ class SocketManager {
     this.isConnected = false;
     this.rooms = new Set();
     this.listeners = new Map();
+    this.connectionTimeout = null;
   }
 
   /**
    * เชื่อมต่อ Socket.IO
    */
-  connect(baseURL) {
+  async connect(baseURL) {
     if (this.socket && this.socket.connected) {
       console.log('🔌 Socket already connected:', this.socket.id);
       return this.socket;
@@ -26,28 +27,74 @@ class SocketManager {
 
     console.log('🔌 Creating new Socket.IO connection to:', baseURL);
     
+    // ตรวจสอบ backend connection ก่อน
+    try {
+      const response = await fetch(`${baseURL}/health`, {
+        method: 'GET',
+        timeout: 5000
+      });
+      
+      if (!response.ok) {
+        console.warn('⚠️ Backend health check failed, but proceeding with socket connection');
+      } else {
+        console.log('✅ Backend health check passed');
+      }
+    } catch (error) {
+      console.warn('⚠️ Backend health check error:', error.message);
+      console.log('🔄 Proceeding with socket connection anyway...');
+    }
+    
     // ปิดการเชื่อมต่อเก่าหากมี
     if (this.socket) {
       console.log('🔌 Closing existing socket connection...');
       this.socket.disconnect();
     }
     
+    // ดึง token จาก sessionStorage
+    const token = sessionStorage.getItem('token');
+    console.log('🔑 Connecting with token:', token ? 'available' : 'not available');
+
     this.socket = io(baseURL, {
       withCredentials: true,
-      timeout: 20000,
+      timeout: 30000, // เพิ่ม timeout
       reconnection: true,
-      reconnectionAttempts: 5,
-      reconnectionDelay: 2000,
-      forceNew: true, // บังคับให้สร้าง connection ใหม่
-      transports: ['polling', 'websocket'], // เปลี่ยนลำดับให้ polling ก่อน
+      reconnectionAttempts: 3, // ลดจำนวนการลองใหม่
+      reconnectionDelay: 3000, // เพิ่ม delay ระหว่างการลองใหม่
+      reconnectionDelayMax: 10000, // เพิ่ม max delay
+      forceNew: false,
+      transports: ['websocket', 'polling'], // ใช้ websocket เป็นหลัก แล้ว fallback เป็น polling
       upgrade: true,
-      rememberUpgrade: false,
-      autoConnect: true
+      rememberUpgrade: true, // เปิดใช้งาน rememberUpgrade
+      autoConnect: true,
+      auth: {
+        token: token
+      },
+      // ปรับปรุงการตั้งค่า ping
+      pingTimeout: 30000, // ลด ping timeout
+      pingInterval: 15000, // ลด ping interval
+      allowEIO3: true,
+      // เพิ่มการตั้งค่า polling
+      polling: {
+        extraHeaders: {
+          'Access-Control-Allow-Origin': '*',
+          'Access-Control-Allow-Credentials': 'true'
+        }
+      }
     });
 
     this.socket.on('connect', () => {
       console.log('🔌 Socket connected:', this.socket.id);
       this.isConnected = true;
+      
+      // ตั้งค่า connection timeout
+      if (this.connectionTimeout) {
+        clearTimeout(this.connectionTimeout);
+      }
+      this.connectionTimeout = setTimeout(() => {
+        if (this.isConnected && this.socket?.connected) {
+          console.log('✅ Connection established successfully');
+        }
+      }, 1000);
       
       // เข้าร่วมห้องที่เคยอยู่
       this.rooms.forEach(roomId => {
@@ -55,8 +102,43 @@ class SocketManager {
       });
     });
 
-    this.socket.on('disconnect', () => {
-      console.log('🔌 Socket disconnected');
+    this.socket.on('disconnect', (reason) => {
+      console.log('🔌 Socket disconnected:', reason);
+      this.isConnected = false;
+      
+      // Clear connection timeout
+      if (this.connectionTimeout) {
+        clearTimeout(this.connectionTimeout);
+        this.connectionTimeout = null;
+      }
+      
+      // ถ้า disconnect เนื่องจาก server restart หรือ network issues ให้ลอง reconnect
+      if (reason === 'io server disconnect' || reason === 'io client disconnect') {
+        console.log('🔄 Server/client disconnect, attempting reconnection...');
+        setTimeout(() => {
+          if (this.socket && !this.socket.connected) {
+            this.socket.connect();
+          }
+        }, 2000);
+      }
+    });
+
+    // Listen for reconnect events
+    this.socket.on('reconnect', (attemptNumber) => {
+      console.log('🔄 Socket reconnected after', attemptNumber, 'attempts');
+      this.isConnected = true;
+    });
+
+    this.socket.on('reconnect_attempt', (attemptNumber) => {
+      console.log('🔄 Reconnection attempt', attemptNumber);
+    });
+
+    this.socket.on('reconnect_error', (error) => {
+      console.error('❌ Reconnection error:', error);
+    });
+
+    this.socket.on('reconnect_failed', () => {
+      console.error('❌ Reconnection failed after all attempts');
       this.isConnected = false;
     });
 
@@ -78,15 +160,28 @@ class SocketManager {
       });
       this.isConnected = false;
       
-      // ลองใช้ polling transport หาก websocket ล้มเหลว
-      if (error.type === 'TransportError' && error.description === 'websocket error') {
-        console.log('🔄 Retrying with polling transport...');
-        setTimeout(() => {
+      // Clear connection timeout
+      if (this.connectionTimeout) {
+        clearTimeout(this.connectionTimeout);
+        this.connectionTimeout = null;
+      }
+      
+      // Handle specific errors
+      if (error.message) {
+        if (error.message.includes('WebSocket is closed') || error.message.includes('transport closed')) {
+          console.log('🔄 Transport closed, will retry with fallback transport...');
+        } else if (error.message.includes('Connection refused')) {
+          console.log('🔄 Connection refused, will retry automatically...');
+        } else if (error.message.includes('400') || error.message.includes('Bad Request')) {
+          console.log('🔄 Bad Request error, switching transport...');
+          // ลองเปลี่ยน transport
           if (this.socket && !this.socket.connected) {
-            this.socket.io.opts.transports = ['polling'];
-            this.socket.connect();
+            setTimeout(() => {
+              this.socket.io.opts.transports = ['websocket'];
+              this.socket.connect();
+            }, 3000);
           }
-        }, 2000);
+        }
       }
     });
 
@@ -96,7 +191,7 @@ class SocketManager {
   /**
    * เข้าร่วมห้องแชท (ปรับปรุงเพื่อป้องกันปัญหา)
    */
-  joinRoom(roomId, userId) {
+  joinRoom(roomId, userId, token = null) {
     if (!this.socket || !this.socket.connected) {
       console.warn('⚠️ Socket not connected, cannot join room');
       return;
@@ -123,8 +218,14 @@ class SocketManager {
     this.socket.currentRoom = roomId;
     this.socket.currentUserId = userId;
 
-    console.log('🚪 Joining room:', roomId, 'with userId:', userId);
-    this.socket.emit('join-room', { roomId, userId });
+    // เพิ่ม token ในการ join room
+    const joinData = { roomId, userId };
+    if (token) {
+      joinData.token = token;
+    }
+
+    console.log('🚪 Joining room:', roomId, 'with userId:', userId, 'token:', token ? 'provided' : 'not provided');
+    this.socket.emit('join-room', joinData);
     this.rooms.add(roomId);
   }
 
@@ -211,12 +312,20 @@ class SocketManager {
    * ส่งข้อความ
    */
   emit(event, data) {
-    if (!this.socket || !this.isConnected) {
-      console.warn('⚠️ Socket not connected, cannot emit event');
-      return;
+    if (!this.socket) {
+      console.warn('⚠️ Socket instance not available');
+      return false;
     }
 
+    if (!this.socket.connected) {
+      console.warn('⚠️ Socket not connected, attempting to reconnect...');
+      this.socket.connect();
+      return false;
+    }
+
+    console.log(`📤 Emitting ${event} with data:`, data);
     this.socket.emit(event, data);
+    return true;
   }
 
   /**
@@ -237,10 +346,29 @@ class SocketManager {
    * ตรวจสอบสถานะการเชื่อมต่อ
    */
   getConnectionStatus() {
+    // ตรวจสอบสถานะการเชื่อมต่อที่แท้จริง
+    const hasSocket = !!this.socket;
+    const isSocketConnected = hasSocket && this.socket.connected;
+    const isManagerConnected = this.isConnected;
+    
+    // ถ้ามี socket และ socket.connected = true ให้เชื่อถือ socket.connected มากกว่า
+    const isActuallyConnected = hasSocket ? isSocketConnected : isManagerConnected;
+    
     return {
-      connected: this.isConnected,
-      socketId: this.socket?.id,
-      rooms: Array.from(this.rooms)
+      isConnected: isActuallyConnected,
+      connected: isActuallyConnected, // สำหรับ backward compatibility
+      socketId: this.socket?.id || null,
+      rooms: Array.from(this.rooms),
+      transport: this.socket?.io?.engine?.transport?.name || null,
+      readyState: this.socket?.io?.readyState || null,
+      debug: {
+        hasSocket,
+        isSocketConnected,
+        isManagerConnected,
+        socketExists: !!this.socket,
+        socketConnected: this.socket?.connected,
+        socketId: this.socket?.id
+      }
     };
   }
 
