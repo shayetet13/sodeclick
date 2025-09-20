@@ -19,7 +19,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { useAuth } from '../contexts/AuthContext';
 import RealTimeChat from './RealTimeChat';
 
-const ChatRoomList = ({ currentUser, onSelectRoom, onCreatePrivateRoom }) => {
+const ChatRoomList = ({ currentUser, onSelectRoom, onCreatePrivateRoom, showWebappNotification }) => {
   const { user: authUser } = useAuth();
   const [chatRooms, setChatRooms] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -301,7 +301,9 @@ const ChatRoomList = ({ currentUser, onSelectRoom, onCreatePrivateRoom }) => {
     
     // Check if user can create chat rooms
     if (!canCreateChatRoom(userTier, userRole)) {
-      alert('เฉพาะสมาชิก Platinum, Diamond หรือ Admin เท่านั้นที่สามารถสร้างห้องแชทได้');
+      if (showWebappNotification) {
+        showWebappNotification('เฉพาะสมาชิก Platinum, Diamond หรือ Admin เท่านั้นที่สามารถสร้างห้องแชทได้');
+      }
       return;
     }
     
@@ -310,13 +312,17 @@ const ChatRoomList = ({ currentUser, onSelectRoom, onCreatePrivateRoom }) => {
       onCreatePrivateRoom();
     } else {
       // Fallback: show alert if no handler provided
-      alert('ฟีเจอร์สร้างห้องแชทยังไม่พร้อมใช้งาน');
+      if (showWebappNotification) {
+        showWebappNotification('ฟีเจอร์สร้างห้องแชทยังไม่พร้อมใช้งาน');
+      }
     }
   };
 
   const handleRoomClick = async (room) => {
     if (room.type === 'private' && !canAccessPrivateChat(currentUser.membership?.tier || 'member')) {
-      alert('คุณต้องเป็นสมาชิก Gold ขึ้นไปเพื่อเข้าแชทส่วนตัว');
+      if (showWebappNotification) {
+        showWebappNotification('คุณต้องเป็นสมาชิก Gold ขึ้นไปเพื่อเข้าแชทส่วนตัว');
+      }
       return;
     }
 
@@ -375,7 +381,9 @@ const ChatRoomList = ({ currentUser, onSelectRoom, onCreatePrivateRoom }) => {
         }
       } catch (error) {
         console.error('Error joining room:', error);
-        alert('เกิดข้อผิดพลาดในการเข้าร่วมห้องแชท');
+        if (showWebappNotification) {
+          showWebappNotification('เกิดข้อผิดพลาดในการเข้าร่วมห้องแชท');
+        }
       }
     } else {
       setSelectedRoomId(room.id);
@@ -589,6 +597,8 @@ const ChatRoomList = ({ currentUser, onSelectRoom, onCreatePrivateRoom }) => {
           <RealTimeChat
             roomId={selectedRoomId}
             currentUser={currentUser}
+            onBack={() => setShowChatView(false)}
+            showWebappNotification={showWebappNotification}
           />
         </div>
       )}

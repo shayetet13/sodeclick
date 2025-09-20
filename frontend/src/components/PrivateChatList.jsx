@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import unreadAPI from '../services/unreadAPI';
 import { getProfileImageUrl } from '../utils/profileImageUtils';
+import { membershipHelpers } from '../services/membershipAPI';
 
 const PrivateChatList = ({ 
   currentUser, 
@@ -257,7 +258,7 @@ const PrivateChatList = ({
           </div>
           <div className="flex items-center space-x-2 sm:space-x-3">
             <div className="text-sm sm:text-base text-right">
-              <div className="font-medium">ระดับ: {currentUser.membership?.tier?.toUpperCase() || 'MEMBER'}</div>
+              <div className="font-medium">ระดับ: {membershipHelpers.getTierDisplayName(currentUser.membership?.tier || 'member')}</div>
               <div className="text-sm opacity-80">
                 แชทส่วนตัว {privateChats.length} คน
                 {/* Debug info */}

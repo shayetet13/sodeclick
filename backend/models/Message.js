@@ -238,7 +238,7 @@ messageSchema.statics.getMessagesInRoom = function(roomId, page = 1, limit = 50)
     chatRoom: roomId, 
     isDeleted: false 
   })
-  .populate('sender', 'username displayName membershipTier profileImages')
+  .populate('sender', 'username displayName membership membershipTier profileImages')
   .populate('replyTo', 'content sender')
   .populate('reactions.user', 'username displayName')
   .sort({ createdAt: -1 })

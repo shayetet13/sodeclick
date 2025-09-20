@@ -42,6 +42,22 @@ export const membershipHelpers = {
     };
     return names[tier] || tier;
   },
+
+  // แปลงชื่อ tier สำหรับแสดงในแชท (English format)
+  getTierDisplayName: (tier) => {
+    const names = {
+      member: 'MEMBER',
+      test: 'TEST',
+      silver: 'SILVER',
+      gold: 'GOLD',
+      vip: 'VIP',
+      vip1: 'VIP1',
+      vip2: 'VIP2',
+      diamond: 'DIAMOND',
+      platinum: 'PLATINUM'
+    };
+    return names[tier] || 'MEMBER';
+  },
   
   // ได้สีของ tier
   getTierColor: (tier) => {

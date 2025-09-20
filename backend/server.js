@@ -1301,7 +1301,7 @@ io.on('connection', (socket) => {
 
       // Populate ข้อมูล
       await message.populate([
-        { path: 'sender', select: 'username displayName membershipTier profileImages' },
+        { path: 'sender', select: 'username displayName membership membershipTier profileImages' },
         { path: 'replyTo', select: 'content sender', populate: { path: 'sender', select: 'username displayName' } }
       ]);
 

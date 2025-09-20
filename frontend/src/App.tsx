@@ -362,28 +362,31 @@ function App() {
     console.log('🔍 Original images:', userData.profileImages)
     console.log('🔍 Processed images:', processedImages)
     
-    // สร้างข้อมูลโปรไฟล์ในรูปแบบที่ modal ต้องการ
+    // สร้างข้อมูลโปรไฟล์ในรูปแบบที่ handleViewProfile ต้องการ
     const profileData = {
       id: userData._id,
       name: userData.displayName || `${userData.firstName || ''} ${userData.lastName || ''}`.trim() || 'ไม่ระบุชื่อ',
       age: userData.age || (userData.dateOfBirth ? new Date().getFullYear() - new Date(userData.dateOfBirth).getFullYear() : 'N/A'),
       location: userData.location || 'ไม่ระบุ',
+      distance: 'Popular Vote',
       bio: userData.bio || '',
+      interests: Array.isArray(userData.interests)
+        ? userData.interests.map((it: any) => it?.category || it?.name || `${it}`).filter(Boolean)
+        : [],
       images: processedImages,
-      membership: userData.membership || { tier: 'member' },
-      isVerified: userData.isVerified || false,
-      interests: userData.interests || [],
-      votePoints: userData.votePoints || 0
+      verified: userData.isVerified || false,
+      online: userData.isOnline || false,
+      lastActive: userData.lastActive,
+      membershipTier: userData.membership?.tier || userData.membershipTier || 'member',
+      membership: {
+        tier: userData.membership?.tier || userData.membershipTier || 'member'
+      }
     }
     
-    console.log('🔍 Processed profileData:', profileData)
+    console.log('🔍 Processed profileData for handleViewProfile:', profileData)
     
-    // เปิด modal เหมือนกับ Premium และ Discover
-    setSelectedProfile(profileData)
-    setShowProfileModal(true)
-    setActiveImageIndex(0)
-    
-    console.log('🔍 Modal should be opening...')
+    // ใช้ handleViewProfile ที่มีการตรวจสอบสิทธิ์แทนการเปิด modal โดยตรง
+    handleViewProfile(profileData);
   }
 
   // Function to close vote user profile
@@ -1615,8 +1618,7 @@ function App() {
     
     if (!canViewProfile(currentUserTier, targetUserTier)) {
       console.log('🚫 Cannot view profile - Role restriction:', { currentUserTier, targetUserTier });
-      setProfileAlert({ message: 'ไม่สามารถดูระดับที่สูงกว่าคุณได้', type: 'warning' });
-      setTimeout(() => setProfileAlert(null), 3000);
+      showWebappNotification('ไม่สามารถดูโปรไฟล์ที่ระดับสูงกว่าได้');
       return;
     }
     
@@ -3556,7 +3558,7 @@ function App() {
                                   size="icon" 
                                   variant="ghost" 
                                   className="rounded-full transition-all duration-300 hover:scale-110 h-8 w-8 sm:h-10 sm:w-10 text-white hover:text-purple-300 hover:bg-white/20"
-                                  onClick={async (e: any) => {
+                                  onClick={(e: any) => {
                                     e.preventDefault();
                                     e.stopPropagation();
                                     
@@ -3566,79 +3568,29 @@ function App() {
                                       return
                                     }
                                     
-                                    try {
-                                      // เรียก API เพื่อดึงข้อมูลโปรไฟล์เต็ม
-                                      const baseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000';
-                                      const response = await fetch(`${baseUrl}/api/profile/${u._id}`, {
-                                        headers: {
-                                          'Authorization': `Bearer ${token}`,
-                                          'Content-Type': 'application/json'
-                                        }
-                                      });
-                                      
-                                      if (!response.ok) {
-                                        throw new Error('ไม่สามารถโหลดข้อมูลโปรไฟล์ได้');
+                                    // สร้างข้อมูลโปรไฟล์และใช้ handleViewProfile ที่มีการตรวจสอบสิทธิ์
+                                    const modalProfile: FeaturedProfile = {
+                                      id: u._id,
+                                      name: displayName,
+                                      age: u?.age,
+                                      location: u?.location || 'Thailand',
+                                      distance: 'Premium',
+                                      bio: u?.bio || '',
+                                      interests: Array.isArray(u?.interests)
+                                        ? u.interests.map((it: any) => it?.category || it?.name || `${it}`).filter(Boolean)
+                                        : [],
+                                      images: (u?.profileImages || []).filter(img => !img.startsWith('data:image/svg+xml')),
+                                      verified: false,
+                                      online: (u as any)?.isOnline || false,
+                                      lastActive: (u as any)?.lastActive,
+                                      membershipTier: u?.membership?.tier || 'member',
+                                      membership: {
+                                        tier: u?.membership?.tier || 'member'
                                       }
-                                      
-                                      const result = await response.json();
-                                      if (!result.success) {
-                                        throw new Error(result.message || 'ไม่สามารถโหลดข้อมูลโปรไฟล์ได้');
-                                      }
-                                      
-                                      const fullProfile = result.data.profile;
-                                      
-                                      // สร้าง profile data object ที่ครบถ้วน
-                                      const profileData = {
-                                        id: fullProfile._id,
-                                        name: fullProfile.nickname || `${fullProfile.firstName || ''} ${fullProfile.lastName || ''}`.trim() || displayName,
-                                        age: fullProfile.age || null,
-                                        location: fullProfile.location || null,
-                                        bio: fullProfile.bio || null,
-                                        interests: Array.isArray(fullProfile.interests)
-                                          ? fullProfile.interests.map((it: any) => it?.category || it?.name || `${it}`).filter(Boolean)
-                                          : [],
-                                        images: (fullProfile.profileImages || []).filter(img => !img.startsWith('data:image/svg+xml')).map(img => 
-                                          getProfileImageUrl(img, fullProfile._id)
-                                        ),
-                                        verified: fullProfile.isVerified || false,
-                                        online: fullProfile.isOnline || false,
-                                        lastActive: fullProfile.lastActive,
-                                        membershipTier: fullProfile.membership?.tier || 'member',
-                                        // ข้อมูลโปรไฟล์เต็ม
-                                        username: fullProfile.username || '',
-                                        firstName: fullProfile.firstName || '',
-                                        lastName: fullProfile.lastName || '',
-                                        email: fullProfile.email || '',
-                                        phone: fullProfile.phone || '',
-                                        birthDate: fullProfile.birthDate || '',
-                                        gender: fullProfile.gender || '',
-                                        lookingFor: fullProfile.lookingFor || '',
-                                        education: fullProfile.education || '',
-                                        occupation: fullProfile.occupation || '',
-                                        height: fullProfile.height || '',
-                                        weight: fullProfile.weight || '',
-                                        relationshipStatus: fullProfile.relationshipStatus || '',
-                                        smoking: fullProfile.smoking || '',
-                                        drinking: fullProfile.drinking || '',
-                                        exercise: fullProfile.exercise || '',
-                                        languages: fullProfile.languages || [],
-                                        hobbies: fullProfile.hobbies || [],
-                                        profileVideos: fullProfile.profileVideos || [],
-                                        religion: fullProfile.religion || '',
-                                        pets: fullProfile.pets || '',
-                                        children: fullProfile.children || '',
-                                        wantChildren: fullProfile.wantChildren || ''
-                                      };
-                                      
-                                      console.log('🎯 Premium: Opening full profile modal with complete data:', profileData);
-                                      
-                                      // เปิด profile modal พร้อมข้อมูลเต็ม
-                                      openProfileModal(profileData, true);
-                                      
-                                    } catch (error) {
-                                      console.error('Error loading full profile:', error);
-                                      showWebappNotification('ไม่สามารถโหลดข้อมูลโปรไฟล์ได้');
-                                    }
+                                    };
+                                    
+                                    // ใช้ handleViewProfile ที่มีการตรวจสอบสิทธิ์
+                                    handleViewProfile(modalProfile);
                                   }}
                                 >
                                   <User className="h-4 w-4 sm:h-5 sm:w-5 md:h-6 md:w-6" />
@@ -4188,12 +4140,14 @@ function App() {
                           currentUser={user}
                           onSelectRoom={handleSelectRoom}
                           onCreatePrivateRoom={() => setShowCreateRoomModal(true)}
+                          showWebappNotification={showWebappNotification}
                         />
                       ) : (
                         <RealTimeChat
                           roomId={selectedRoomId}
                           currentUser={user}
                           onBack={handleBackToRoomList}
+                          showWebappNotification={showWebappNotification}
                         />
                       )
                     ) : (

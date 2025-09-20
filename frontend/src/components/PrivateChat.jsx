@@ -137,11 +137,15 @@ const PrivateChat = ({
       console.error('❌ Socket error:', error);
       if (error.message === 'Authentication required') {
         console.error('❌ Authentication failed - token may be invalid or expired');
-        alert('การเข้าสู่ระบบหมดอายุ กรุณาเข้าสู่ระบบใหม่');
+        if (showWebappNotification) {
+          showWebappNotification('การเข้าสู่ระบบหมดอายุ กรุณาเข้าสู่ระบบใหม่');
+        }
         // Redirect to login or refresh token
         window.location.reload();
       } else if (error.message && error.message.includes('send-message')) {
-        alert('ไม่สามารถส่งข้อความได้ กรุณาลองใหม่');
+        if (showWebappNotification) {
+          showWebappNotification('ไม่สามารถส่งข้อความได้ กรุณาลองใหม่');
+        }
       }
     };
 
@@ -419,12 +423,16 @@ const PrivateChat = ({
         }
       } else {
         console.error('❌ Failed to emit message - socket not ready');
-        alert('การเชื่อมต่อไม่พร้อม กรุณาลองใหม่');
+        if (showWebappNotification) {
+          showWebappNotification('การเชื่อมต่อไม่พร้อม กรุณาลองใหม่');
+        }
       }
       
     } catch (error) {
       console.error('❌ Error sending message:', error);
-      alert('เกิดข้อผิดพลาดในการส่งข้อความ');
+      if (showWebappNotification) {
+        showWebappNotification('เกิดข้อผิดพลาดในการส่งข้อความ');
+      }
     }
 
     setNewMessage('');

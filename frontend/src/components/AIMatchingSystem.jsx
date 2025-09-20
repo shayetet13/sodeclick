@@ -8,6 +8,7 @@ import { Label } from './ui/label';
 import { Input } from './ui/input';
 import { useToast } from './ui/toast';
 import { getProfileImageUrl } from '../utils/profileImageUtils';
+import { membershipHelpers } from '../services/membershipAPI';
 import {
   Heart, 
   MessageCircle, 
@@ -1103,14 +1104,7 @@ const AIMatchingSystem = ({ currentUser }) => {
                     'bg-gradient-to-r from-gray-300 to-gray-400'
                   } text-white shadow-lg`}
                 >
-                  {match.membershipTier === 'platinum' ? 'PLATINUM' :
-                   match.membershipTier === 'diamond' ? 'DIAMOND' :
-                   match.membershipTier === 'vip2' ? 'VIP2' :
-                   match.membershipTier === 'vip1' ? 'VIP1' :
-                   match.membershipTier === 'vip' ? 'VIP' :
-                   match.membershipTier === 'gold' ? 'GOLD' :
-                   match.membershipTier === 'silver' ? 'SILVER' :
-                   'MEMBER'}
+                  {membershipHelpers.getTierDisplayName(match.membershipTier || 'member')}
                 </Badge>
               </div>
             </div>

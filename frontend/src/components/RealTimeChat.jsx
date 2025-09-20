@@ -6,6 +6,8 @@ import { Badge } from './ui/badge';
 import MediaPreview from './MediaPreview';
 import YouTubePreview from './YouTubePreview';
 import { separateYouTubeFromText } from '../utils/linkUtils';
+import { membershipHelpers } from '../services/membershipAPI';
+import { getProfileImageUrl } from '../utils/profileImageUtils';
 
 import {
   Heart,
@@ -23,7 +25,7 @@ import {
   Smile
 } from 'lucide-react';
 
-const RealTimeChat = ({ roomId, currentUser, onBack }) => {
+const RealTimeChat = ({ roomId, currentUser, onBack, showWebappNotification }) => {
   const [socket, setSocket] = useState(null);
   const [messages, setMessages] = useState([]);
   const [newMessage, setNewMessage] = useState('');
@@ -88,11 +90,17 @@ const RealTimeChat = ({ roomId, currentUser, onBack }) => {
     newSocket.on('error', (error) => {
       console.error('Server error:', error);
       if (error.message === 'Unauthorized to join this private room') {
-        alert('คุณไม่มีสิทธิ์เข้าห้องแชทส่วนตัวนี้');
+        if (showWebappNotification) {
+          showWebappNotification('คุณไม่มีสิทธิ์เข้าห้องแชทส่วนตัวนี้');
+        }
       } else if (error.message === 'Daily chat limit reached') {
-        alert('คุณส่งข้อความครบตามจำนวนที่กำหนดแล้ว');
+        if (showWebappNotification) {
+          showWebappNotification('คุณส่งข้อความครบตามจำนวนที่กำหนดแล้ว');
+        }
       } else if (error.message === 'คุณได้กดหัวใจข้อความนี้แล้ว') {
-        alert('คุณได้กดหัวใจข้อความนี้แล้ว');
+        if (showWebappNotification) {
+          showWebappNotification('คุณได้กดหัวใจข้อความนี้แล้ว');
+        }
       }
     });
 
@@ -343,16 +351,29 @@ const RealTimeChat = ({ roomId, currentUser, onBack }) => {
   const handleSendMessage = () => {
     if (!newMessage.trim() || !socket) return;
 
+    // Debug current user membership
+    console.log('🔍 Debug - Current user membership:', currentUser.membership);
+    console.log('🔍 Debug - Current user tier:', currentUser.membership?.tier);
+
     // ตรวจสอบระดับสมาชิกก่อนส่งข้อความ
     const userLimits = getUserMembershipLimits(currentUser.membership?.tier || 'member');
+    console.log('🔍 Debug - User limits:', userLimits);
     
     if (editingMessage) {
       // แก้ไขข้อความ
       handleEditMessage(editingMessage._id, newMessage);
     } else {
       // ตรวจสอบจำนวนข้อความที่ส่งได้ตามระดับสมาชิก
-      if (!canSendMessage(currentUser.membership?.tier || 'member')) {
-        alert(`คุณส่งข้อความครบตามระดับสมาชิกแล้ว (${userLimits.dailyChats} ข้อความต่อวัน)`);
+      const canSend = canSendMessage(currentUser.membership?.tier || 'member');
+      console.log('🔍 Debug - Can send message:', canSend);
+      
+      if (!canSend) {
+        console.log('🚫 Debug - Showing notification for message limit');
+        if (showWebappNotification) {
+          showWebappNotification(`คุณส่งข้อความครบตามระดับสมาชิกแล้ว (${userLimits.dailyChats} ข้อความต่อวัน)`);
+        } else {
+          console.log('❌ Debug - showWebappNotification is not available');
+        }
         return;
       }
 
@@ -364,6 +385,26 @@ const RealTimeChat = ({ roomId, currentUser, onBack }) => {
         messageType: 'text',
         replyToId: replyTo?._id
       });
+      
+      // เพิ่มจำนวนข้อความที่ส่งไปแล้ววันนี้ (สำหรับ tier ที่มี limit)
+      const currentTier = currentUser.membership?.tier || 'member';
+      const limits = getUserMembershipLimits(currentTier);
+      if (limits.dailyChats !== -1) {
+        const now = new Date();
+        const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        const dailyUsageKey = `dailyUsage_${currentUser._id}_${today.getTime()}`;
+        const todayUsage = JSON.parse(localStorage.getItem(dailyUsageKey) || '{"chatCount": 0, "lastReset": null}');
+        
+        todayUsage.chatCount += 1;
+        todayUsage.lastReset = today.toISOString();
+        localStorage.setItem(dailyUsageKey, JSON.stringify(todayUsage));
+        
+        console.log('📊 Updated daily usage:', {
+          count: todayUsage.chatCount,
+          limit: limits.dailyChats,
+          remaining: limits.dailyChats - todayUsage.chatCount
+        });
+      }
       
       // Scroll ลงด้านล่างเมื่อผู้ใช้ส่งข้อความเอง
       setTimeout(() => {
@@ -381,13 +422,14 @@ const RealTimeChat = ({ roomId, currentUser, onBack }) => {
   };
 
   const getUserMembershipLimits = (tier) => {
+    // ใช้ limits ที่สอดคล้องกับ backend
     const limits = {
-      member: { dailyChats: 5 },
-      silver: { dailyChats: 15 },
-      gold: { dailyChats: 50 },
-      vip: { dailyChats: 100 },
-      vip1: { dailyChats: 200 },
-      vip2: { dailyChats: 500 },
+      member: { dailyChats: 10 },
+      silver: { dailyChats: 30 },
+      gold: { dailyChats: 60 },
+      vip: { dailyChats: 120 },
+      vip1: { dailyChats: 180 },
+      vip2: { dailyChats: 240 },
       diamond: { dailyChats: -1 }, // unlimited
       platinum: { dailyChats: -1 } // unlimited
     };
@@ -396,8 +438,46 @@ const RealTimeChat = ({ roomId, currentUser, onBack }) => {
 
   const canSendMessage = (tier) => {
     const limits = getUserMembershipLimits(tier);
-    // ตรวจสอบขีดจำกัดการส่งข้อความตาม tier
-    return limits.dailyChats === -1;
+    
+    console.log('🔍 canSendMessage called with tier:', tier);
+    console.log('🔍 limits for tier:', limits);
+    
+    // ถ้าเป็น unlimited จะส่งได้เสมอ
+    if (limits.dailyChats === -1) {
+      console.log('✅ Unlimited messages - can send');
+      return true;
+    }
+    
+    // ใช้ระบบ daily reset ที่ถูกต้องตามเวลาปัจจุบัน
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate()); // วันนี้ 00:00:00
+    
+    // ดึงข้อมูลการใช้งานวันนี้
+    const dailyUsageKey = `dailyUsage_${currentUser._id}_${today.getTime()}`;
+    const todayUsage = JSON.parse(localStorage.getItem(dailyUsageKey) || '{"chatCount": 0, "lastReset": null}');
+    
+    // ตรวจสอบว่าต้องรีเซ็ตหรือไม่
+    if (!todayUsage.lastReset || new Date(todayUsage.lastReset).getDate() !== today.getDate()) {
+      todayUsage.chatCount = 0;
+      todayUsage.lastReset = today.toISOString();
+      localStorage.setItem(dailyUsageKey, JSON.stringify(todayUsage));
+      console.log('🔄 Daily usage reset for new day');
+    }
+    
+    console.log('🔍 Message limit check:', {
+      tier,
+      dailyLimit: limits.dailyChats,
+      currentCount: todayUsage.chatCount,
+      canSend: todayUsage.chatCount < limits.dailyChats,
+      userId: currentUser._id,
+      today: today.toDateString(),
+      lastReset: todayUsage.lastReset
+    });
+    
+    const result = todayUsage.chatCount < limits.dailyChats;
+    console.log('🔍 Final canSend result:', result);
+    
+    return result;
   };
 
   const handleReactToMessage = (messageId, reactionType = 'heart') => {
@@ -758,6 +838,73 @@ const RealTimeChat = ({ roomId, currentUser, onBack }) => {
             </div>
             <div className="flex items-center space-x-2">
               <span className="text-xs sm:text-sm">{onlineCount} ใช้งาน</span>
+              {/* Debug buttons for testing message limits */}
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  const now = new Date();
+                  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+                  const dailyUsageKey = `dailyUsage_${currentUser._id}_${today.getTime()}`;
+                  const todayUsage = JSON.parse(localStorage.getItem(dailyUsageKey) || '{"chatCount": 0, "lastReset": null}');
+                  const limits = getUserMembershipLimits(currentUser.membership?.tier || 'member');
+                  
+                  console.log('🔍 Test notification button clicked');
+                  console.log('🔍 showWebappNotification available:', !!showWebappNotification);
+                  if (showWebappNotification) {
+                    showWebappNotification(`ข้อความวันนี้: ${todayUsage.chatCount}/${limits.dailyChats === -1 ? '∞' : limits.dailyChats}`, 'success');
+                  } else {
+                    console.log('❌ showWebappNotification not available');
+                    alert('Test: showWebappNotification not available');
+                  }
+                }}
+                className="text-white hover:bg-white/20 text-xs px-2 py-1"
+              >
+                Count
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  const now = new Date();
+                  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+                  const dailyUsageKey = `dailyUsage_${currentUser._id}_${today.getTime()}`;
+                  localStorage.setItem(dailyUsageKey, JSON.stringify({chatCount: 0, lastReset: today.toISOString()}));
+                  if (showWebappNotification) {
+                    showWebappNotification('รีเซ็ตจำนวนข้อความวันนี้แล้ว!', 'success');
+                  }
+                }}
+                className="text-white hover:bg-white/20 text-xs px-2 py-1"
+              >
+                Reset
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  const limits = getUserMembershipLimits(currentUser.membership?.tier || 'member');
+                  if (limits.dailyChats !== -1) {
+                    // ตั้งให้เกินขีดจำกัด
+                    const now = new Date();
+                    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+                    const dailyUsageKey = `dailyUsage_${currentUser._id}_${today.getTime()}`;
+                    localStorage.setItem(dailyUsageKey, JSON.stringify({
+                      chatCount: limits.dailyChats,
+                      lastReset: today.toISOString()
+                    }));
+                    if (showWebappNotification) {
+                      showWebappNotification(`ตั้งให้ถึงขีดจำกัดแล้ว! (${limits.dailyChats}/${limits.dailyChats})`, 'warning');
+                    }
+                  } else {
+                    if (showWebappNotification) {
+                      showWebappNotification(`Tier นี้ไม่มีขีดจำกัด (unlimited)`, 'success');
+                    }
+                  }
+                }}
+                className="text-white hover:bg-white/20 text-xs px-2 py-1"
+              >
+                Max Out
+              </Button>
             </div>
           </div>
         </div>
@@ -777,7 +924,7 @@ const RealTimeChat = ({ roomId, currentUser, onBack }) => {
                 {message.sender ? (
                   <>
                     <AvatarImage 
-                      src={message.sender.profileImages?.[0]} 
+                      src={getProfileImageUrl(message.sender.profileImages?.[0], message.sender._id)} 
                       alt={message.sender.displayName || message.sender.username} 
                     />
                     <AvatarFallback className="bg-gradient-to-r from-pink-400 to-violet-400 text-white text-xs">
@@ -801,7 +948,7 @@ const RealTimeChat = ({ roomId, currentUser, onBack }) => {
                         {message.sender.displayName || message.sender.username}
                       </span>
                       <Badge className={`text-xs ${getMembershipBadgeColor(message.sender.membershipTier)}`}>
-                        {message.sender.membershipTier?.toUpperCase() || 'MEMBER'}
+                        {membershipHelpers.getTierDisplayName(message.sender.membershipTier || 'member')}
                       </Badge>
                     </>
                   ) : (
@@ -810,7 +957,7 @@ const RealTimeChat = ({ roomId, currentUser, onBack }) => {
                         Unknown User
                       </span>
                       <Badge className="text-xs bg-gray-100 text-gray-800">
-                        MEMBER
+                        {membershipHelpers.getTierDisplayName('member')}
                       </Badge>
                     </>
                   )}

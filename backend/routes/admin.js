@@ -889,7 +889,7 @@ router.get('/messages', requireAdmin, async (req, res) => {
     const skip = (page - 1) * limit;
     
     const messages = await Message.find(query)
-      .populate('sender', 'username displayName membershipTier')
+      .populate('sender', 'username displayName membership membershipTier')
       .populate('chatRoom', 'name type')
       .sort(sort)
       .skip(skip)

@@ -53,7 +53,7 @@ router.get('/:roomId', async (req, res) => {
       console.log('🔒 Fetching messages for private chat:', roomId);
       // ดึงข้อความล่าสุด (ใหม่ -> เก่า)
       const messages = await Message.find({ chatRoom: roomId })
-        .populate('sender', 'username displayName membershipTier profileImages')
+        .populate('sender', 'username displayName membership membershipTier profileImages')
         .populate('replyTo', 'content sender')
         .sort({ createdAt: -1 }) // ใหม่ -> เก่า
         .limit(parseInt(limit));
@@ -229,7 +229,7 @@ router.post('/', upload.array('attachments', 5), async (req, res) => {
 
     // Populate ข้อมูลก่อนส่งกลับ
     await message.populate([
-      { path: 'sender', select: 'username displayName membershipTier profileImages' },
+      { path: 'sender', select: 'username displayName membership membershipTier profileImages' },
       { path: 'replyTo', select: 'content sender', populate: { path: 'sender', select: 'username displayName' } }
     ]);
 
@@ -516,7 +516,7 @@ router.get('/private-chats/:userId', async (req, res) => {
         { chatRoom: { $regex: new RegExp(`private_${userId}_.*_.*`) } } // private chat ที่เริ่มต้นด้วย userId
       ]
     })
-    .populate('sender', 'username displayName firstName lastName membershipTier profileImages isOnline')
+    .populate('sender', 'username displayName firstName lastName membership membershipTier profileImages isOnline')
     .sort({ createdAt: -1 })
     .lean();
 
@@ -611,7 +611,7 @@ router.get('/private-chats/:userId', async (req, res) => {
           chatRoom: chatId,
           isDeleted: false
         })
-        .populate('sender', 'username displayName firstName lastName membershipTier profileImages isOnline')
+        .populate('sender', 'username displayName firstName lastName membership membershipTier profileImages isOnline')
         .sort({ createdAt: -1 })
         .lean();
 
