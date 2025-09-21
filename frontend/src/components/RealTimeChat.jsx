@@ -47,6 +47,9 @@ const RealTimeChat = ({ roomId, currentUser, onBack, showWebappNotification }) =
   const messageInputRef = useRef(null);
   const typingTimeoutRef = useRef(null);
   const imageInputRef = useRef(null);
+  const messagesContainerRef = useRef(null);
+  const hasScrolledToBottomRef = useRef(false);
+  const isInitialLoadRef = useRef(true);
 
   // เชื่อมต่อ Socket.IO
   useEffect(() => {
@@ -236,8 +239,20 @@ const RealTimeChat = ({ roomId, currentUser, onBack, showWebappNotification }) =
         const data = await response.json();
         
         if (data.success) {
+          console.log('🔍 Messages loaded:', data.data.messages.length);
+          console.log('🔍 isInitialLoadRef.current:', isInitialLoadRef.current);
           setMessages(data.data.messages);
-          // ไม่ต้อง scroll เมื่อโหลดข้อความเก่า เพื่อไม่ให้รบกวนผู้ใช้
+          
+          // Scroll ไปยังข้อความล่าสุดเมื่อเข้าห้องแชทครั้งแรก
+          if (isInitialLoadRef.current) {
+            console.log('🔍 Initial load detected, scheduling scroll');
+            setTimeout(() => {
+              console.log('🔍 Executing initial scroll');
+              scrollToBottom();
+              isInitialLoadRef.current = false;
+              hasScrolledToBottomRef.current = true;
+            }, 1000); // เพิ่มเวลารอให้ DOM render เสร็จ
+          }
         }
       } catch (error) {
         console.error('Error fetching messages:', error);
@@ -246,6 +261,79 @@ const RealTimeChat = ({ roomId, currentUser, onBack, showWebappNotification }) =
 
     fetchMessages();
   }, [roomId, currentUser._id]);
+
+  // รีเซ็ตสถานะการ scroll เมื่อเปลี่ยนห้องแชท
+  useEffect(() => {
+    console.log('🔍 Room changed, resetting scroll state');
+    isInitialLoadRef.current = true;
+    hasScrolledToBottomRef.current = false;
+  }, [roomId]);
+
+  // ติดตามการเปลี่ยน activeTab และ scroll เมื่อกลับมาหน้าแชท
+  useEffect(() => {
+    const handleTabChange = () => {
+      // ตรวจสอบว่ากำลังอยู่ในหน้าแชทหรือไม่
+      const messagesTab = document.querySelector('[data-value="messages"]');
+      const isMessagesTabActive = messagesTab && messagesTab.getAttribute('data-state') === 'active';
+      
+      if (isMessagesTabActive && hasScrolledToBottomRef.current === false) {
+        // Scroll ไปยังข้อความล่าสุดเมื่อกลับมาหน้าแชท
+        console.log('🔍 Tab change detected, scheduling scroll');
+        setTimeout(() => {
+          console.log('🔍 Executing scroll on tab change');
+          scrollToBottom();
+          hasScrolledToBottomRef.current = true;
+        }, 500);
+      }
+    };
+
+    // ฟัง event เมื่อมีการเปลี่ยน tab
+    const tabTriggers = document.querySelectorAll('[data-value="messages"]');
+    tabTriggers.forEach(trigger => {
+      trigger.addEventListener('click', handleTabChange);
+    });
+
+    // ตรวจสอบทันทีเมื่อ component mount
+    handleTabChange();
+
+    return () => {
+      tabTriggers.forEach(trigger => {
+        trigger.removeEventListener('click', handleTabChange);
+      });
+    };
+  }, []);
+
+  // Scroll เมื่อ messages เปลี่ยนแปลง (สำหรับการโหลดข้อความใหม่)
+  useEffect(() => {
+    console.log('🔍 Messages useEffect triggered:', {
+      messagesLength: messages.length,
+      isInitialLoad: isInitialLoadRef.current,
+      hasScrolled: hasScrolledToBottomRef.current
+    });
+    
+    if (messages.length > 0 && isInitialLoadRef.current) {
+      console.log('🔍 Messages changed, scheduling scroll');
+      setTimeout(() => {
+        console.log('🔍 Executing scroll on messages change');
+        scrollToBottom();
+        isInitialLoadRef.current = false;
+        hasScrolledToBottomRef.current = true;
+      }, 300);
+    }
+  }, [messages.length]);
+
+  // Scroll เมื่อ component mount และมี messages
+  useEffect(() => {
+    if (messages.length > 0 && messagesContainerRef.current && isInitialLoadRef.current) {
+      console.log('🔍 Component mounted with messages, scheduling scroll');
+      setTimeout(() => {
+        console.log('🔍 Executing scroll on mount');
+        scrollToBottom();
+        isInitialLoadRef.current = false;
+        hasScrolledToBottomRef.current = true;
+      }, 500);
+    }
+  }, [messagesContainerRef.current, messages.length]);
 
   // โหลดข้อมูลห้องแชท
   useEffect(() => {
@@ -320,32 +408,46 @@ const RealTimeChat = ({ roomId, currentUser, onBack, showWebappNotification }) =
 
 
 
-  const scrollToBottom = () => {
-    const messagesContainer = document.querySelector('.messages-container');
-    if (messagesContainer) {
-      messagesContainer.scrollTop = messagesContainer.scrollHeight;
-    }
-  };
-
   // ฟังก์ชันใหม่สำหรับ scroll เฉพาะเมื่อมีข้อความใหม่
   const scrollToBottomOnNewMessage = () => {
     // ใช้ setTimeout เพื่อให้ DOM อัปเดตก่อน
     setTimeout(() => {
-      const messagesContainer = document.querySelector('.messages-container');
-      if (messagesContainer) {
-        const scrollTop = messagesContainer.scrollTop;
-        const scrollHeight = messagesContainer.scrollHeight;
-        const clientHeight = messagesContainer.clientHeight;
+      if (messagesContainerRef.current) {
+        const scrollTop = messagesContainerRef.current.scrollTop;
+        const scrollHeight = messagesContainerRef.current.scrollHeight;
+        const clientHeight = messagesContainerRef.current.clientHeight;
         
         // ตรวจสอบว่าผู้ใช้อยู่ที่ด้านล่างหรือใกล้ด้านล่าง (ภายใน 200px)
         const isAtBottom = scrollTop + clientHeight >= scrollHeight - 200;
         
         // ถ้าผู้ใช้อยู่ที่ด้านล่างหรือใกล้ด้านล่าง ให้ scroll ลง
         if (isAtBottom) {
-          messagesContainer.scrollTop = messagesContainer.scrollHeight;
+          messagesContainerRef.current.scrollTop = messagesContainerRef.current.scrollHeight;
         }
       }
     }, 50);
+  };
+
+  // ฟังก์ชันสำหรับ scroll ไปยังข้อความล่าสุด (ใช้เมื่อเข้าห้องแชทหรือกลับมาหน้าแชท)
+  const scrollToBottom = () => {
+    console.log('🔍 scrollToBottom called, messagesContainerRef:', messagesContainerRef.current);
+    if (messagesContainerRef.current) {
+      console.log('🔍 Scroll values before:', {
+        scrollTop: messagesContainerRef.current.scrollTop,
+        scrollHeight: messagesContainerRef.current.scrollHeight,
+        clientHeight: messagesContainerRef.current.clientHeight
+      });
+      
+      // Scroll ไปยังด้านล่างสุด
+      messagesContainerRef.current.scrollTop = messagesContainerRef.current.scrollHeight;
+      
+      console.log('🔍 Scroll values after:', {
+        scrollTop: messagesContainerRef.current.scrollTop,
+        scrollHeight: messagesContainerRef.current.scrollHeight
+      });
+    } else {
+      console.log('❌ messagesContainerRef not available');
+    }
   };
 
   const handleSendMessage = () => {
@@ -408,9 +510,8 @@ const RealTimeChat = ({ roomId, currentUser, onBack, showWebappNotification }) =
       
       // Scroll ลงด้านล่างเมื่อผู้ใช้ส่งข้อความเอง
       setTimeout(() => {
-        const messagesContainer = document.querySelector('.messages-container');
-        if (messagesContainer) {
-          messagesContainer.scrollTop = messagesContainer.scrollHeight;
+        if (messagesContainerRef.current) {
+          messagesContainerRef.current.scrollTop = messagesContainerRef.current.scrollHeight;
         }
       }, 100);
     }
@@ -601,9 +702,8 @@ const RealTimeChat = ({ roomId, currentUser, onBack, showWebappNotification }) =
         
         // Scroll ลงด้านล่างเมื่อผู้ใช้ส่งรูปภาพ
         setTimeout(() => {
-          const messagesContainer = document.querySelector('.messages-container');
-          if (messagesContainer) {
-            messagesContainer.scrollTop = messagesContainer.scrollHeight;
+          if (messagesContainerRef.current) {
+            messagesContainerRef.current.scrollTop = messagesContainerRef.current.scrollHeight;
           }
         }, 100);
         
@@ -910,7 +1010,7 @@ const RealTimeChat = ({ roomId, currentUser, onBack, showWebappNotification }) =
         </div>
 
         {/* Messages Area - Scrollable */}
-        <div className="flex-1 overflow-y-auto p-2 sm:p-4 space-y-2 sm:space-y-4 bg-gray-50">
+        <div ref={messagesContainerRef} className="messages-container flex-1 overflow-y-auto p-2 sm:p-4 space-y-2 sm:space-y-4 bg-gray-50">
          {messages.map((message, index) => (
                      <div
             key={message._id}

@@ -39,6 +39,8 @@ const PrivateChat = ({
   const messagesContainerRef = useRef(null);
   const fileInputRef = useRef(null);
   const messageRefs = useRef({});
+  const hasScrolledToBottomRef = useRef(false);
+  const isInitialLoadRef = useRef(true);
 
   // เชื่อมต่อ Socket.IO สำหรับ private chat (optimized)
   useEffect(() => {
@@ -221,12 +223,111 @@ const PrivateChat = ({
     };
   }, []); // รันแค่ครั้งเดียวเมื่อ mount/unmount
 
+  // ฟังก์ชันสำหรับ scroll ไปยังข้อความล่าสุด (ใช้เมื่อเข้าห้องแชทหรือกลับมาหน้าแชท)
+  const scrollToBottom = () => {
+    console.log('🔍 PrivateChat: scrollToBottom called, messagesContainerRef:', messagesContainerRef.current);
+    if (messagesContainerRef.current) {
+      console.log('🔍 PrivateChat: Scroll values before:', {
+        scrollTop: messagesContainerRef.current.scrollTop,
+        scrollHeight: messagesContainerRef.current.scrollHeight,
+        clientHeight: messagesContainerRef.current.clientHeight
+      });
+      
+      // Scroll ไปยังด้านล่างสุด
+      messagesContainerRef.current.scrollTop = messagesContainerRef.current.scrollHeight;
+      
+      console.log('🔍 PrivateChat: Scroll values after:', {
+        scrollTop: messagesContainerRef.current.scrollTop,
+        scrollHeight: messagesContainerRef.current.scrollHeight
+      });
+    } else {
+      console.log('❌ PrivateChat: messagesContainerRef not available');
+    }
+  };
+
+  // ฟังก์ชันสำหรับ scroll เฉพาะเมื่อมีข้อความใหม่
+  const scrollToBottomOnNewMessage = () => {
+    // ใช้ setTimeout เพื่อให้ DOM อัปเดตก่อน
+    setTimeout(() => {
+      if (messagesContainerRef.current) {
+        const scrollTop = messagesContainerRef.current.scrollTop;
+        const scrollHeight = messagesContainerRef.current.scrollHeight;
+        const clientHeight = messagesContainerRef.current.clientHeight;
+        
+        // ตรวจสอบว่าผู้ใช้อยู่ที่ด้านล่างหรือใกล้ด้านล่าง (ภายใน 200px)
+        const isAtBottom = scrollTop + clientHeight >= scrollHeight - 200;
+        
+        // ถ้าผู้ใช้อยู่ที่ด้านล่างหรือใกล้ด้านล่าง ให้ scroll ลง
+        if (isAtBottom) {
+          messagesContainerRef.current.scrollTop = messagesContainerRef.current.scrollHeight;
+        }
+      }
+    }, 50);
+  };
+
+  // รีเซ็ตสถานะการ scroll เมื่อเปลี่ยนห้องแชท
+  useEffect(() => {
+    console.log('🔍 PrivateChat: Chat room changed, resetting scroll state');
+    isInitialLoadRef.current = true;
+    hasScrolledToBottomRef.current = false;
+  }, [chatRoomId]);
+
+  // ติดตามการเปลี่ยน activeTab และ scroll เมื่อกลับมาหน้าแชท
+  useEffect(() => {
+    const handleTabChange = () => {
+      // ตรวจสอบว่ากำลังอยู่ในหน้าแชทหรือไม่
+      const messagesTab = document.querySelector('[data-value="messages"]');
+      const isMessagesTabActive = messagesTab && messagesTab.getAttribute('data-state') === 'active';
+      
+      if (isMessagesTabActive && hasScrolledToBottomRef.current === false) {
+        // Scroll ไปยังข้อความล่าสุดเมื่อกลับมาหน้าแชท
+        console.log('🔍 PrivateChat: Tab change detected, scheduling scroll');
+        setTimeout(() => {
+          console.log('🔍 PrivateChat: Executing scroll on tab change');
+          scrollToBottom();
+          hasScrolledToBottomRef.current = true;
+        }, 500);
+      }
+    };
+
+    // ฟัง event เมื่อมีการเปลี่ยน tab
+    const tabTriggers = document.querySelectorAll('[data-value="messages"]');
+    tabTriggers.forEach(trigger => {
+      trigger.addEventListener('click', handleTabChange);
+    });
+
+    // ตรวจสอบทันทีเมื่อ component mount
+    handleTabChange();
+
+    return () => {
+      tabTriggers.forEach(trigger => {
+        trigger.removeEventListener('click', handleTabChange);
+      });
+    };
+  }, []);
+
   // Auto scroll to bottom when new messages arrive
   useEffect(() => {
-    if (messagesEndRef.current) {
-      messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
+    console.log('🔍 PrivateChat: Messages changed, scheduling scroll');
+    console.log('🔍 PrivateChat: Messages count:', messages.length);
+    console.log('🔍 PrivateChat: isInitialLoad:', isInitialLoadRef.current);
+    
+    if (messages.length > 0) {
+      if (isInitialLoadRef.current) {
+        // Scroll ไปยังข้อความล่าสุดเมื่อเข้าห้องแชทครั้งแรก
+        console.log('🔍 PrivateChat: Initial load detected, scheduling scroll');
+        setTimeout(() => {
+          console.log('🔍 PrivateChat: Executing initial scroll');
+          scrollToBottom();
+          isInitialLoadRef.current = false;
+          hasScrolledToBottomRef.current = true;
+        }, 500);
+      } else {
+        // Scroll เฉพาะเมื่อมีข้อความใหม่และผู้ใช้อยู่ใกล้ด้านล่าง
+        scrollToBottomOnNewMessage();
+      }
     }
-  }, [messages]);
+  }, [messages.length]);
 
   // ตรวจจับการมองเห็นข้อความเพื่อทำเครื่องหมายว่าอ่านแล้ว (Throttled)
   useEffect(() => {
@@ -436,6 +537,13 @@ const PrivateChat = ({
     }
 
     setNewMessage('');
+    
+    // Scroll ลงด้านล่างเมื่อผู้ใช้ส่งข้อความเอง
+    setTimeout(() => {
+      if (messagesContainerRef.current) {
+        messagesContainerRef.current.scrollTop = messagesContainerRef.current.scrollHeight;
+      }
+    }, 100);
   };
 
   // Handle file upload
@@ -570,7 +678,7 @@ const PrivateChat = ({
       {/* Messages - Scrollable area with proper spacing */}
       <div 
         ref={messagesContainerRef}
-        className="flex-1 overflow-y-auto p-4 space-y-4"
+        className="messages-container flex-1 overflow-y-auto p-4 space-y-4"
         style={{ 
           paddingTop: '0.5rem', 
           paddingBottom: '0.5rem',
