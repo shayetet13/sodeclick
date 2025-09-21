@@ -42,9 +42,17 @@ const TopVotedCarousel = () => {
   const fetchTopVotedUsers = async () => {
     try {
       console.log('🔍 Fetching top voted users...');
-      const response = await fetch('/api/vote/ranking?voteType=popularity_combined&limit=3');
-      const data = await response.json();
+      const apiUrl = '/api/vote/ranking?voteType=popularity_combined&limit=3';
+      console.log('🌐 API URL:', apiUrl);
       
+      const response = await fetch(apiUrl);
+      console.log('📡 Response status:', response.status, response.statusText);
+      
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      
+      const data = await response.json();
       console.log('📊 API Response:', data);
       
       if (data.success && data.data.ranking) {
@@ -52,73 +60,13 @@ const TopVotedCarousel = () => {
         setTopVotedUsers(data.data.ranking);
       } else {
         console.warn('⚠️ No ranking data found:', data);
+        console.log('🔄 API failed, but not using mock data - showing empty state');
+        setTopVotedUsers([]);
       }
     } catch (error) {
       console.error('❌ Error fetching top voted users:', error);
-      console.log('🔄 Using mock data for testing...');
-      
-      // Mock data for testing when API is not available
-      const mockData = [
-        {
-          rank: 1,
-          user: {
-            _id: '689e0b8d92e674571e4c1dcf',
-            id: '689e0b8d92e674571e4c1dcf',
-            username: 'tanachok',
-            displayName: 'Tanachok',
-            gender: 'male',
-            profileImages: [
-              'profiles/profile-689e0b8d92e674571e4c1dcf-1755189312345-14434830.jpg'
-            ],
-            mainProfileImageIndex: 0
-          },
-          stats: {
-            totalVotes: 6,
-            voteCount: 6,
-            uniqueVoters: 5
-          }
-        },
-        {
-          rank: 2,
-          user: {
-            _id: '689ec2fc551e95c88e6f73de',
-            id: '689ec2fc551e95c88e6f73de',
-            username: 'testuser',
-            displayName: 'Test User',
-            gender: 'female',
-            profileImages: [
-              'profiles/profile-689ec2fc551e95c88e6f73de-1755341712549-307261286.png'
-            ],
-            mainProfileImageIndex: 0
-          },
-          stats: {
-            totalVotes: 4,
-            voteCount: 4,
-            uniqueVoters: 3
-          }
-        },
-        {
-          rank: 3,
-          user: {
-            _id: '68c41f8d66b47eeaf22da734',
-            id: '68c41f8d66b47eeaf22da734',
-            username: 'minmi',
-            displayName: 'Min Mi',
-            gender: 'female',
-            profileImages: [
-              'profiles/profile-68c41f8d66b47eeaf22da734-1757683612407-893211923.jpg'
-            ],
-            mainProfileImageIndex: 0
-          },
-          stats: {
-            totalVotes: 2,
-            voteCount: 2,
-            uniqueVoters: 2
-          }
-        }
-      ];
-      
-      setTopVotedUsers(mockData);
+      console.log('🔄 API error - showing empty state instead of mock data');
+      setTopVotedUsers([]);
     } finally {
       setLoading(false);
     }
@@ -185,8 +133,12 @@ const TopVotedCarousel = () => {
 
   if (topVotedUsers.length === 0) {
     return (
-      <div className="relative w-full max-w-xs mx-auto h-[500px] bg-gradient-to-br from-pink-100 to-purple-100 rounded-3xl flex items-center justify-center">
-        <p className="text-gray-600 font-medium">ไม่มีข้อมูลผู้ใช้</p>
+      <div className="relative w-full max-w-xs mx-auto h-[500px] bg-gradient-to-br from-pink-100 to-purple-100 rounded-3xl flex flex-col items-center justify-center p-6">
+        <div className="text-center">
+          <div className="text-4xl mb-4">🏆</div>
+          <p className="text-gray-600 font-medium mb-2">ยังไม่มีข้อมูลการโหวต</p>
+          <p className="text-gray-500 text-sm">เริ่มต้นโหวตเพื่อดูอันดับความนิยม</p>
+        </div>
       </div>
     );
   }
