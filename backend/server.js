@@ -98,6 +98,18 @@ app.use('/public', express.static(path.join(__dirname, 'public'), {
   lastModified: true
 }));
 
+// Serve frontend static files (production build)
+const frontendDistPath = path.join(__dirname, '../frontend/dist');
+app.use('/assets', express.static(path.join(frontendDistPath, 'assets'), {
+  maxAge: '1y', // Cache assets for 1 year
+  etag: true,
+  lastModified: true
+}));
+
+// Serve other frontend static files (favicon, etc.)
+app.use('/vite.svg', express.static(path.join(frontendDistPath, 'vite.svg')));
+app.use('/favicon.ico', express.static(path.join(frontendDistPath, 'vite.svg')));
+
 // Admin privileges middleware
 const { bypassMembershipRestrictions } = require('./middleware/adminPrivileges');
 app.use(bypassMembershipRestrictions);
@@ -153,8 +165,37 @@ const usersRoutes = require('./routes/users');
 // Preflight OPTIONS handling
 app.options('*', cors(corsOptions));
 
-// Basic Routes
-app.get('/', (req, res) => {
+// Serve frontend index.html for all non-API routes (SPA routing)
+app.get('*', (req, res, next) => {
+  // Skip API routes, health checks, and static files
+  if (req.path.startsWith('/api') || 
+      req.path.startsWith('/health') || 
+      req.path.startsWith('/uploads') ||
+      req.path.startsWith('/public') ||
+      req.path.startsWith('/assets') ||
+      req.path.startsWith('/vite.svg') ||
+      req.path.startsWith('/favicon.ico') ||
+      req.path === '/create-qr' ||
+      req.path === '/webhook-endpoint' ||
+      req.path === '/api/info') {
+    return next();
+  }
+  
+  // Serve frontend index.html for all other routes
+  const indexPath = path.join(__dirname, '../frontend/dist/index.html');
+  res.sendFile(indexPath, (err) => {
+    if (err) {
+      console.error('Error serving frontend index.html:', err);
+      res.status(500).json({
+        message: 'Frontend not available',
+        error: NODE_ENV === 'development' ? err.message : 'Frontend build not found'
+      });
+    }
+  });
+});
+
+// Basic API Routes
+app.get('/api', (req, res) => {
   res.json({
     message: 'Welcome to Love Project Backend! ❤️',
     status: 'success',
@@ -773,28 +814,28 @@ app.use((err, req, res, next) => {
 });
 
 
-// 404 handler
-app.use('*', (req, res) => {
+// 404 handler for API routes only
+app.use('/api/*', (req, res) => {
   res.status(404).json({
-    message: 'Route not found',
+    message: 'API route not found',
     path: req.originalUrl,
     method: req.method,
     timestamp: new Date().toISOString(),
-          available_endpoints: {
-        root: '/',
-        health: '/health',
-        database_health: '/health/database',
-        rabbit_health: '/health/rabbit',
-        socketio_health: '/health/socketio',
-        api_info: '/api/info',
-        membership: '/api/membership',
-        blur: '/api/blur',
-        chatroom: '/api/chatroom',
-        gift: '/api/gift',
-        vote: '/api/vote',
-        shop: '/api/shop',
-        payment: '/api/payment'
-      }
+    available_endpoints: {
+      root: '/api',
+      health: '/health',
+      database_health: '/health/database',
+      rabbit_health: '/health/rabbit',
+      socketio_health: '/health/socketio',
+      api_info: '/api/info',
+      membership: '/api/membership',
+      blur: '/api/blur',
+      chatroom: '/api/chatroom',
+      gift: '/api/gift',
+      vote: '/api/vote',
+      shop: '/api/shop',
+      payment: '/api/payment'
+    }
   });
 });
 

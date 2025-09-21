@@ -23,6 +23,8 @@
     "start:backend": "cd backend && npm start",
     "install-all": "npm install && cd frontend && npm install && cd ../backend && npm install",
     "build": "cd frontend && npm run build",
+    "build:production": "cd frontend && npm run build && echo 'Frontend build completed'",
+    "start:production": "npm run build:production && cd backend && npm start",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [
