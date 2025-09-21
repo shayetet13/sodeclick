@@ -434,10 +434,26 @@ router.get('/ranking', async (req, res) => {
           totalVotes: { $sum: '$votePoints' },
           voteCount: { $sum: 1 },
           uniqueVoters: { $addToSet: '$voter' },
-          lastVoted: { $max: '$votedAt' }
+          lastVoted: { $max: '$votedAt' },
+          // เพิ่มการนับ heart votes (popularity_male + popularity_female) เป็น tie-breaker
+          heartVotes: {
+            $sum: {
+              $cond: [
+                { $in: ['$voteType', ['popularity_male', 'popularity_female']] },
+                1,
+                0
+              ]
+            }
+          }
         }
       },
-      { $sort: { totalVotes: -1 } },
+      { 
+        $sort: { 
+          totalVotes: -1,    // เรียงตาม total votes ก่อน
+          heartVotes: -1,    // ถ้า total votes เท่ากัน ให้เรียงตาม heart votes
+          lastVoted: -1      // ถ้าทั้งคู่เท่ากัน ให้เรียงตามเวลาล่าสุด
+        } 
+      },
       { $limit: limitNum },
       {
         $lookup: {
@@ -524,7 +540,8 @@ router.get('/ranking', async (req, res) => {
               totalVotes: item.totalVotes,
               voteCount: item.voteCount,
               uniqueVoters: item.uniqueVoters.length,
-              lastVoted: item.lastVoted
+              lastVoted: item.lastVoted,
+              heartVotes: item.heartVotes || 0  // เพิ่ม heart votes ใน stats
             },
             reward
           };
