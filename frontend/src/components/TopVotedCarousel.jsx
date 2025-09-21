@@ -2,6 +2,8 @@ import React, { useState, useEffect, useRef } from 'react';
 import { ChevronLeft, ChevronRight, Heart } from 'lucide-react';
 import { Button } from './ui/button';
 import { getMainProfileImage } from '../utils/profileImageUtils';
+import voteAPI from '../services/voteAPI';
+import socketManager from '../services/socketManager';
 
 // Get profile image URL
 const getImageUrl = (userData) => {
@@ -38,131 +40,40 @@ const TopVotedCarousel = () => {
   const [loading, setLoading] = useState(true);
   const autoScrollRef = useRef(null);
 
-  // Fetch top voted users
+  // Fetch top voted users using the same API as Popular Vote
   const fetchTopVotedUsers = async () => {
     try {
-      console.log('🔍 Fetching top voted users...');
-      const apiUrl = '/api/vote/ranking?voteType=popularity_combined&limit=3';
-      console.log('🌐 API URL:', apiUrl);
+      console.log('🔍 TopVotedCarousel - Fetching top voted users...');
+      setLoading(true);
       
-      const response = await fetch(apiUrl);
-      console.log('📡 Response status:', response.status, response.statusText);
+      // ใช้ voteAPI service เดียวกับ VoteRanking component
+      const response = await voteAPI.getRanking('popularity_combined', 'all', 3);
       
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
+      console.log('📊 TopVotedCarousel - API Response:', response);
       
-      const data = await response.json();
-      console.log('📊 API Response:', data);
-      
-      if (data.success && data.data && data.data.ranking) {
-        console.log('✅ Top voted users:', data.data.ranking);
-        console.log('📊 Ranking count:', data.data.ranking.length);
-        setTopVotedUsers(data.data.ranking);
-      } else {
-        console.warn('⚠️ No ranking data found:', data);
-        console.log('🔄 API response structure:', JSON.stringify(data, null, 2));
+      if (response.success && response.data && response.data.ranking) {
+        const rankingData = response.data.ranking;
+        console.log('✅ TopVotedCarousel - Top voted users:', rankingData);
+        console.log('📊 TopVotedCarousel - Ranking count:', rankingData.length);
         
-        // Try to use mock data as fallback if API structure is different
-        console.log('🔄 Using fallback mock data...');
-        const fallbackData = [
-          {
-            rank: 1,
-            user: {
-              _id: '689e0b8d92e674571e4c1dcf',
-              id: '689e0b8d92e674571e4c1dcf',
-              username: 'tanachok',
-              displayName: 'Tanachok',
-              gender: 'male',
-              profileImages: ['profiles/profile-689e0b8d92e674571e4c1dcf-1755189312345-14434830.jpg'],
-              mainProfileImageIndex: 0
-            },
-            stats: { totalVotes: 6, voteCount: 6, uniqueVoters: 5 }
-          },
-          {
-            rank: 2,
-            user: {
-              _id: '689ec2fc551e95c88e6f73de',
-              id: '689ec2fc551e95c88e6f73de',
-              username: 'testuser',
-              displayName: 'Test User',
-              gender: 'female',
-              profileImages: ['profiles/profile-689ec2fc551e95c88e6f73de-1755341712549-307261286.png'],
-              mainProfileImageIndex: 0
-            },
-            stats: { totalVotes: 4, voteCount: 4, uniqueVoters: 3 }
-          },
-          {
-            rank: 3,
-            user: {
-              _id: '68c41f8d66b47eeaf22da734',
-              id: '68c41f8d66b47eeaf22da734',
-              username: 'minmi',
-              displayName: 'Min Mi',
-              gender: 'female',
-              profileImages: [
-                'profiles/profile-68c41f8d66b47eeaf22da734-1757683612407-893211923.jpg',
-                'profiles/profile-68c41f8d66b47eeaf22da734-1757687470227-623928227.jpg',
-                'profiles/profile-68c41f8d66b47eeaf22da734-1757688170600-765901965.jpg'
-              ],
-              mainProfileImageIndex: 0
-            },
-            stats: { totalVotes: 2, voteCount: 2, uniqueVoters: 2 }
-          }
-        ];
-        setTopVotedUsers(fallbackData);
+        // ตรวจสอบข้อมูลผู้ใช้แต่ละคน
+        rankingData.forEach((item, index) => {
+          console.log(`🔍 TopVotedCarousel User ${index + 1}:`, {
+            user: item.user,
+            profileImages: item.user?.profileImages,
+            mainProfileImageIndex: item.user?.mainProfileImageIndex,
+            userId: item.user?._id
+          });
+        });
+        
+        setTopVotedUsers(rankingData);
+      } else {
+        console.warn('⚠️ TopVotedCarousel - No ranking data found:', response);
+        setTopVotedUsers([]);
       }
     } catch (error) {
-      console.error('❌ Error fetching top voted users:', error);
-      console.log('🔄 API error - using fallback data');
-      
-      // Use fallback data when API fails
-      const fallbackData = [
-        {
-          rank: 1,
-          user: {
-            _id: '689e0b8d92e674571e4c1dcf',
-            id: '689e0b8d92e674571e4c1dcf',
-            username: 'tanachok',
-            displayName: 'Tanachok',
-            gender: 'male',
-            profileImages: ['profiles/profile-689e0b8d92e674571e4c1dcf-1755189312345-14434830.jpg'],
-            mainProfileImageIndex: 0
-          },
-          stats: { totalVotes: 6, voteCount: 6, uniqueVoters: 5 }
-        },
-        {
-          rank: 2,
-          user: {
-            _id: '689ec2fc551e95c88e6f73de',
-            id: '689ec2fc551e95c88e6f73de',
-            username: 'testuser',
-            displayName: 'Test User',
-            gender: 'female',
-            profileImages: ['profiles/profile-689ec2fc551e95c88e6f73de-1755341712549-307261286.png'],
-            mainProfileImageIndex: 0
-          },
-          stats: { totalVotes: 4, voteCount: 4, uniqueVoters: 3 }
-        },
-        {
-          rank: 3,
-          user: {
-            _id: '68c41f8d66b47eeaf22da734',
-            id: '68c41f8d66b47eeaf22da734',
-            username: 'minmi',
-            displayName: 'Min Mi',
-            gender: 'female',
-            profileImages: [
-              'profiles/profile-68c41f8d66b47eeaf22da734-1757683612407-893211923.jpg',
-              'profiles/profile-68c41f8d66b47eeaf22da734-1757687470227-623928227.jpg',
-              'profiles/profile-68c41f8d66b47eeaf22da734-1757688170600-765901965.jpg'
-            ],
-            mainProfileImageIndex: 0
-          },
-          stats: { totalVotes: 2, voteCount: 2, uniqueVoters: 2 }
-        }
-      ];
-      setTopVotedUsers(fallbackData);
+      console.error('❌ TopVotedCarousel - Error fetching top voted users:', error);
+      setTopVotedUsers([]);
     } finally {
       setLoading(false);
     }
@@ -217,6 +128,31 @@ const TopVotedCarousel = () => {
     
     return () => stopAutoScroll();
   }, [topVotedUsers]);
+
+  // Real-time vote updates (same as VoteRanking component)
+  useEffect(() => {
+    const handleVoteUpdate = (data) => {
+      console.log('🔄 TopVotedCarousel - Vote update received:', data);
+      
+      // ตรวจสอบว่าเป็นประเภทการโหวตที่เรากำลังแสดงหรือไม่
+      if (data.voteType === 'popularity_combined' || 
+          data.voteType === 'popularity_male' || 
+          data.voteType === 'popularity_female') {
+        console.log('🔄 TopVotedCarousel - Refreshing ranking due to vote update');
+        // รีเฟรชข้อมูลอันดับ
+        fetchTopVotedUsers();
+      }
+    };
+
+    // เชื่อมต่อ socket และเพิ่ม listener
+    const socket = socketManager.connect(import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000');
+    socketManager.on('vote-updated', handleVoteUpdate);
+
+    // Cleanup
+    return () => {
+      socketManager.off('vote-updated', handleVoteUpdate);
+    };
+  }, []);
 
 
   if (loading) {
