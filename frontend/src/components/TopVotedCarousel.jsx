@@ -1,7 +1,36 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { ChevronLeft, ChevronRight, Heart } from 'lucide-react';
 import { Button } from './ui/button';
-import { getProfileImageUrl, getMainProfileImage } from '../utils/profileImageUtils';
+import { getMainProfileImage } from '../utils/profileImageUtils';
+
+// Get profile image URL
+const getImageUrl = (userData) => {
+  console.log('🖼️ Getting image for user data:', userData);
+  
+  // userData is from ranking API, structure: { user: {...}, stats: {...}, rank: ... }
+  const user = userData?.user;
+  if (!user) {
+    console.log('❌ No user object found');
+    return null;
+  }
+  
+  console.log('👤 User object:', user);
+  console.log('📸 Profile images:', user.profileImages);
+  console.log('🔢 Main image index:', user.mainProfileImageIndex);
+  
+  if (user.profileImages && user.profileImages.length > 0) {
+    const imageUrl = getMainProfileImage(
+      user.profileImages, 
+      user.mainProfileImageIndex, 
+      user._id || user.id
+    );
+    console.log('🔗 Generated image URL:', imageUrl);
+    return imageUrl;
+  }
+  
+  console.log('❌ No images found for user');
+  return null;
+};
 
 const TopVotedCarousel = () => {
   const [topVotedUsers, setTopVotedUsers] = useState([]);
@@ -145,34 +174,6 @@ const TopVotedCarousel = () => {
     return () => stopAutoScroll();
   }, [topVotedUsers]);
 
-  // Get profile image URL
-  const getImageUrl = (userData) => {
-    console.log('🖼️ Getting image for user data:', userData);
-    
-    // userData is from ranking API, structure: { user: {...}, stats: {...}, rank: ... }
-    const user = userData?.user;
-    if (!user) {
-      console.log('❌ No user object found');
-      return null;
-    }
-    
-    console.log('👤 User object:', user);
-    console.log('📸 Profile images:', user.profileImages);
-    console.log('🔢 Main image index:', user.mainProfileImageIndex);
-    
-    if (user.profileImages && user.profileImages.length > 0) {
-      const imageUrl = getMainProfileImage(
-        user.profileImages, 
-        user.mainProfileImageIndex, 
-        user._id || user.id
-      );
-      console.log('🔗 Generated image URL:', imageUrl);
-      return imageUrl;
-    }
-    
-    console.log('❌ No images found for user');
-    return null;
-  };
 
   if (loading) {
     return (
