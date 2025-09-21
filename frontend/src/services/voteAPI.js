@@ -102,10 +102,10 @@ class VoteAPI {
     }
   }
 
-  // ดูอันดับการโหวต
+  // ดูอันดับการโหวต (Public API - ไม่ต้อง authentication)
   async getRanking(voteType = 'popularity_male', period = 'all', limit = 50) {
     try {
-      console.log('🏆 Getting vote ranking:', { voteType, period, limit });
+      console.log('🏆 Getting vote ranking (public):', { voteType, period, limit });
       
       const params = new URLSearchParams({
         voteType,
@@ -113,13 +113,16 @@ class VoteAPI {
         limit: limit.toString()
       });
 
+      // ใช้ headers เฉพาะ Content-Type (ไม่ต้อง Authorization)
       const response = await fetch(`${this.baseURL}/ranking?${params.toString()}`, {
         method: 'GET',
-        headers: this.getAuthHeaders()
+        headers: {
+          'Content-Type': 'application/json'
+        }
       });
 
       const result = await response.json();
-      console.log('🏆 Vote ranking response:', result);
+      console.log('🏆 Vote ranking response (public):', result);
 
       if (!response.ok) {
         throw new Error(result.message || `HTTP error! status: ${response.status}`);

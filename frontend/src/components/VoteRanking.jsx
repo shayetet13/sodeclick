@@ -3,7 +3,7 @@ import { Trophy, Medal, Award, Heart, Users, Crown, Filter } from 'lucide-react'
 import voteAPI, { voteHelpers } from '../services/voteAPI';
 import { useToast } from './ui/toast';
 import socketManager from '../services/socketManager';
-import { getMainProfileImage } from '../utils/profileImageUtils';
+import { getMainProfileImage, getMainProfileImageGuest } from '../utils/profileImageUtils';
 
 const VoteRanking = ({ 
   voteType = 'popularity_combined',
@@ -195,8 +195,8 @@ const VoteRanking = ({
                 <div className="flex-shrink-0">
                   <div className="w-[75px] h-[75px] sm:w-20 sm:h-20 rounded-full overflow-hidden border-3 border-white shadow-xl bg-gray-100">
                     {(() => {
-                      // ใช้ getMainProfileImage เพื่อดึงรูปแรก
-                      const mainImage = getMainProfileImage(user?.profileImages || [], user?.mainProfileImageIndex, user?._id);
+                      // ใช้ getMainProfileImageGuest เพื่อรองรับ guest mode
+                      const mainImage = getMainProfileImageGuest(user?.profileImages || [], user?.mainProfileImageIndex, user?._id, user?.gender);
                       
                       if (mainImage && mainImage.trim() !== '') {
                         return (

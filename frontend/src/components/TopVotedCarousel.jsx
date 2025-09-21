@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { ChevronLeft, ChevronRight, Heart } from 'lucide-react';
 import { Button } from './ui/button';
-import { getMainProfileImage } from '../utils/profileImageUtils';
+import { getMainProfileImage, getMainProfileImageGuest, getDefaultAvatarUrl } from '../utils/profileImageUtils';
 import voteAPI from '../services/voteAPI';
 import socketManager from '../services/socketManager';
 
@@ -21,17 +21,20 @@ const getImageUrl = (userData) => {
   console.log('🔢 Main image index:', user.mainProfileImageIndex);
   
   if (user.profileImages && user.profileImages.length > 0) {
-    const imageUrl = getMainProfileImage(
+    // ใช้ guest mode function ที่รองรับ fallback
+    const imageUrl = getMainProfileImageGuest(
       user.profileImages, 
       user.mainProfileImageIndex, 
-      user._id || user.id
+      user._id || user.id,
+      user.gender
     );
-    console.log('🔗 Generated image URL:', imageUrl);
+    console.log('🔗 Generated image URL (guest mode):', imageUrl);
     return imageUrl;
   }
   
-  console.log('❌ No images found for user');
-  return null;
+  console.log('❌ No images found for user, using default avatar');
+  // ใช้ default avatar เมื่อไม่มีรูป
+  return getDefaultAvatarUrl(user.gender);
 };
 
 const TopVotedCarousel = () => {

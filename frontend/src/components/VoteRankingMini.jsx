@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Trophy, Heart, Users, Crown } from 'lucide-react';
 import voteAPI, { voteHelpers } from '../services/voteAPI';
 import socketManager from '../services/socketManager';
-import { getMainProfileImage } from '../utils/profileImageUtils';
+import { getMainProfileImage, getMainProfileImageGuest } from '../utils/profileImageUtils';
 import { useToast } from './ui/toast';
 
 const VoteRankingMini = ({ 
@@ -178,8 +178,8 @@ const VoteRankingMini = ({
                     const profileImages = userProfile?.profileImages || [];
                     const mainProfileImageIndex = userProfile?.mainProfileImageIndex || 0;
                     
-                    // ใช้ getMainProfileImage เพื่อดึงรูปจริง
-                    const mainImage = getMainProfileImage(profileImages, mainProfileImageIndex, user?._id);
+                    // ใช้ getMainProfileImageGuest เพื่อรองรับ guest mode
+                    const mainImage = getMainProfileImageGuest(profileImages, mainProfileImageIndex, user?._id, user?.gender);
                     
                     
                     if (mainImage && mainImage.trim() !== '' && !mainImage.startsWith('data:image/svg+xml')) {
