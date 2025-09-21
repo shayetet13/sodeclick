@@ -4381,8 +4381,10 @@ function App() {
               
             {/* Fixed Profile Info Overlay - ล็อคที่ขอบล่างของ Modal Container (ไม่ใช่ภาพ) */}
             <div className="absolute bottom-0 left-0 right-0 h-48 sm:h-52 z-20 pointer-events-none">
-                {/* Background overlay for better text visibility */}
-                <div className="absolute inset-0 bg-gradient-to-t from-black/95 via-black/70 to-transparent"></div>
+                {/* Background overlay for better text visibility - ซ่อนเมื่อแสดงรายละเอียดโปรไฟล์ */}
+                {!showProfileDetails && (
+                  <div className="absolute inset-0 bg-gradient-to-t from-black/95 via-black/70 to-transparent"></div>
+                )}
                 
                 {/* Content positioned at very bottom - ล็อคตำแหน่งไม่ให้เลื่อนตามความสูงของภาพ */}
                 <div className="absolute bottom-4 left-4 right-4 text-white pointer-events-auto">
