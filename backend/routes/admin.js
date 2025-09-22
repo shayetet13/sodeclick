@@ -50,10 +50,8 @@ router.get('/users', requireAdmin, async (req, res) => {
       };
     }
 
-    // Admin ไม่สามารถดู SuperAdmin ได้ (ซ่อน SuperAdmin จากรายการ)
-    if (req.user.role === 'admin') {
-      query.role = { $ne: 'superadmin' };
-    }
+    // ซ่อน admin และ superadmin จากรายการทั้งหมด (ไม่ว่าจะเป็น admin หรือ superadmin)
+    query.role = { $nin: ['admin', 'superadmin'] };
 
     const skip = (page - 1) * limit;
     
@@ -151,10 +149,8 @@ router.get('/banned-users', requireAdmin, async (req, res) => {
       ];
     }
 
-    // Admin ไม่สามารถดู SuperAdmin ที่ถูกแบนได้
-    if (req.user.role === 'admin') {
-      query.role = { $ne: 'superadmin' };
-    }
+    // ซ่อน admin และ superadmin จากรายการผู้ใช้ที่ถูกแบน
+    query.role = { $nin: ['admin', 'superadmin'] };
 
     const skip = (page - 1) * limit;
     
@@ -209,7 +205,7 @@ router.get('/users/:id', requireAdmin, async (req, res) => {
 // Update user
 router.put('/users/:id', requireAdmin, async (req, res) => {
   try {
-    const { role, membership, isActive, isBanned, banReason, coins, votePoints } = req.body;
+    const { role, membership, isActive, isBanned, banReason, coins, votePoints, profileImages, firstName, lastName, email } = req.body;
     
     // ตรวจสอบว่าผู้ใช้ที่จะแก้ไขเป็น SuperAdmin หรือไม่
     const targetUser = await User.findById(req.params.id);
@@ -253,6 +249,22 @@ router.put('/users/:id', requireAdmin, async (req, res) => {
     
     if (typeof votePoints === 'number') {
       updateData.votePoints = votePoints;
+    }
+    
+    if (profileImages && Array.isArray(profileImages)) {
+      updateData.profileImages = profileImages;
+    }
+    
+    if (firstName) {
+      updateData.firstName = firstName;
+    }
+    
+    if (lastName) {
+      updateData.lastName = lastName;
+    }
+    
+    if (email) {
+      updateData.email = email;
     }
 
     const user = await User.findByIdAndUpdate(

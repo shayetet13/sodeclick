@@ -352,17 +352,17 @@ router.get('/discover', async (req, res) => {
       }
     }
 
-    // สร้าง match query - รองรับ user ที่ไม่มี membership tier
+    // สร้าง match query - รองรับ user ที่ไม่มี membership tier (ยกเว้น admin และ superadmin)
     const matchQuery = {
       isActive: true,
       isBanned: false,
+      role: { $nin: ['admin', 'superadmin'] },
       $or: [
         { 'membership.tier': { $in: tiers } },
         { 'membership.tier': { $exists: false } },
         { 'membership.tier': null },
         { 'membership': { $exists: false } }
-      ],
-      role: { $nin: ['admin', 'superadmin'] } // ไม่แสดง admin และ superadmin
+      ]
     };
     
     // ถ้ามี currentUserId ให้ไม่รวมตัวเอง
@@ -466,11 +466,12 @@ router.get('/members', async (req, res) => {
       }
     }
 
-    // สร้าง match query - เฉพาะ membership tier member เท่านั้น
+    // สร้าง match query - เฉพาะ membership tier member เท่านั้น (ยกเว้น admin และ superadmin)
     const matchQuery = {
       isActive: true,
       isBanned: false,
-      'membership.tier': 'member'
+      'membership.tier': 'member',
+      role: { $nin: ['admin', 'superadmin'] }
     };
     
     // ถ้ามี currentUserId ให้ไม่รวมตัวเอง
@@ -560,11 +561,12 @@ router.get('/members-with-likes', async (req, res) => {
       }
     }
 
-    // สร้าง match query - เฉพาะ membership tier member เท่านั้น
+    // สร้าง match query - เฉพาะ membership tier member เท่านั้น (ยกเว้น admin และ superadmin)
     const matchQuery = {
       isActive: true,
       isBanned: false,
-      'membership.tier': 'member'
+      'membership.tier': 'member',
+      role: { $nin: ['admin', 'superadmin'] }
     };
     
     // ถ้ามี currentUserId ให้ไม่รวมตัวเอง
@@ -671,11 +673,12 @@ router.get('/all', async (req, res) => {
       }
     }
 
-    // สร้าง match query - เฉพาะ membership tier member เท่านั้น
+    // สร้าง match query - เฉพาะ membership tier member เท่านั้น (ยกเว้น admin และ superadmin)
     const matchQuery = {
       isActive: true,
       isBanned: false,
-      'membership.tier': 'member'
+      'membership.tier': 'member',
+      role: { $nin: ['admin', 'superadmin'] }
     };
     
     // ถ้ามี currentUserId ให้ไม่รวมตัวเอง

@@ -8,6 +8,7 @@ import HealthCheck from './HealthCheck';
 import SystemMonitor from './SystemMonitor';
 import AdminChatManagement from './AdminChatManagement';
 import AdminCreateChatRoom from './AdminCreateChatRoom';
+import SuperAdminPanel from './SuperAdminPanel';
 import { 
   Users, 
   MessageCircle, 
@@ -282,6 +283,8 @@ const AdminDashboard = () => {
         return <AdminCreateChatRoom />;
       case 'analytics':
         return <Analytics />;
+      case 'superadmin':
+        return <SuperAdminPanel />;
       default:
         return renderDashboard();
     }
@@ -306,6 +309,8 @@ const AdminDashboard = () => {
         return 'สร้างห้องแชทใหม่';
       case 'analytics':
         return 'สถิติการใช้งาน';
+      case 'superadmin':
+        return 'SuperAdmin Panel';
       default:
         return 'Admin Dashboard';
     }
@@ -697,6 +702,16 @@ const AdminDashboard = () => {
                <Shield size={16} className="mr-2" />
                ผู้ใช้ที่ถูกแบน
              </Button>
+             {user?.role === 'superadmin' && (
+               <Button 
+                 variant="outline" 
+                 className="w-full justify-start border-slate-200 hover:bg-slate-50 bg-yellow-50 border-yellow-200 hover:bg-yellow-100"
+                 onClick={() => setCurrentView('superadmin')}
+               >
+                 <Crown size={16} className="mr-2 text-yellow-600" />
+                 SuperAdmin Panel
+               </Button>
+             )}
            </CardContent>
          </Card>
 

@@ -52,8 +52,12 @@ const UserManagement = () => {
     lastName: '',
     email: '',
     role: 'user',
-    membership: { tier: 'member' }
+    membership: { tier: 'member' },
+    profileImages: []
   });
+
+  const [imageUrl, setImageUrl] = useState('');
+  const [imagePreview, setImagePreview] = useState('');
 
   const [resetPasswordForm, setResetPasswordForm] = useState({
     newPassword: '',
@@ -152,12 +156,60 @@ const UserManagement = () => {
       if (res.ok) {
         await fetchUsers();
         setShowEditModal(false);
+        setImageUrl('');
+        setImagePreview('');
         success('✅ แก้ไขผู้ใช้สำเร็จ', 3000);
       }
          } catch (error) {
        console.error('Error editing user:', error);
                error('เกิดข้อผิดพลาดในการแก้ไขผู้ใช้', 5000);
      }
+  };
+
+  const handleAddImageUrl = () => {
+    if (!imageUrl.trim()) {
+      error('กรุณาใส่ URL ของรูปภาพ', 3000);
+      return;
+    }
+
+    // ตรวจสอบว่า URL เป็นรูปภาพหรือไม่ - รองรับเฉพาะนามสกุลที่กำหนด
+    const imageExtensions = [
+      '.jpg', '.jpeg', '.png', '.bmp', '.webp', '.avif'
+    ];
+    
+    const isImageUrl = imageExtensions.some(ext => 
+      imageUrl.toLowerCase().includes(ext.toLowerCase())
+    ) || 
+    // รองรับ data URLs เฉพาะนามสกุลที่กำหนด
+    (imageUrl.includes('data:image/jpeg') || 
+     imageUrl.includes('data:image/jpg') || 
+     imageUrl.includes('data:image/png') || 
+     imageUrl.includes('data:image/bmp') || 
+     imageUrl.includes('data:image/webp') || 
+     imageUrl.includes('data:image/avif'));
+
+    if (!isImageUrl) {
+      error('กรุณาใส่ URL ของรูปภาพที่มีนามสกุล: JPG, JPEG, PNG, BMP, WebP, หรือ AVIF เท่านั้น', 3000);
+      return;
+    }
+
+    setImagePreview(imageUrl);
+  };
+
+  const handleConfirmAddImage = () => {
+    if (imagePreview) {
+      const newImages = [...editForm.profileImages, imagePreview];
+      setEditForm({...editForm, profileImages: newImages});
+      setImageUrl('');
+      setImagePreview('');
+      success('✅ เพิ่มรูปภาพสำเร็จ', 2000);
+    }
+  };
+
+  const handleRemoveImage = (index) => {
+    const newImages = editForm.profileImages.filter((_, i) => i !== index);
+    setEditForm({...editForm, profileImages: newImages});
+    success('✅ ลบรูปภาพสำเร็จ', 2000);
   };
 
   const handleCreateUser = async () => {
@@ -610,8 +662,11 @@ const UserManagement = () => {
                                     lastName: user.lastName,
                                     email: user.email,
                                     role: user.role,
-                                    membership: user.membership
+                                    membership: user.membership,
+                                    profileImages: user.profileImages || []
                                   });
+                                  setImageUrl('');
+                                  setImagePreview('');
                                   setShowEditModal(true);
                                 }}
                               >
@@ -843,6 +898,119 @@ const UserManagement = () => {
                 <option value="diamond">Diamond</option>
                 <option value="platinum">Platinum</option>
               </select>
+            </div>
+
+            {/* รูปภาพโปรไฟล์ */}
+            <div>
+              <Label>รูปภาพโปรไฟล์</Label>
+              <div className="space-y-3">
+                {/* รูปภาพปัจจุบัน */}
+                {editForm.profileImages && editForm.profileImages.length > 0 && (
+                  <div>
+                    <Label className="text-sm text-slate-600">รูปภาพปัจจุบัน:</Label>
+                    <div className="grid grid-cols-2 gap-2 mt-2">
+                      {editForm.profileImages.map((image, index) => (
+                        <div key={index} className="relative group">
+                          <div className="w-full h-20 bg-slate-50 rounded-md border border-slate-200 flex items-center justify-center overflow-hidden">
+                            <img
+                              src={image}
+                              alt={`Profile ${index + 1}`}
+                              className="max-w-full max-h-full object-contain"
+                              style={{ aspectRatio: 'auto' }}
+                              onError={(e) => {
+                                e.target.src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjAwIiBoZWlnaHQ9IjIwMCIgdmlld0JveD0iMCAwIDIwMCAyMDAiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+CiAgPGRlZnM+CiAgICA8bGluZWFyR3JhZGllbnQgaWQ9ImJnR3JhZGllbnQiIHgxPSIwJSIgeTE9IjAlIiB4Mj0iMTAwJSIgeTI9IjEwMCUiPgogICAgICA8c3RvcCBvZmZzZXQ9IjAlIiBzdHlsZT0ic3RvcC1jb2xvcjojNjY3ZWVhO3N0b3Atb3BhY2l0eToxIiAvPgogICAgICA8c3RvcCBvZmZzZXQ9IjEwMCUiIHN0eWxlPSJzdG9wLWNvbG9yOiM3NjRiYTI7c3RvcC1vcGFjaXR5OjEiIC8+CiAgICA8L2xpbmVhckdyYWRpZW50PgogIDwvZGVmcz4KICA8Y2lyY2xlIGN4PSIxMDAiIGN5PSIxMDAiIHI9IjEwMCIgZmlsbD0idXJsKCNiZ0dyYWRpZW50KSIvPgo8L3N2Zz4K';
+                                console.warn('Failed to load profile image:', image);
+                              }}
+                              onLoad={() => {
+                                console.log('Profile image loaded successfully:', image);
+                              }}
+                            />
+                          </div>
+                          <Button
+                            size="sm"
+                            variant="destructive"
+                            className="absolute top-1 right-1 opacity-0 group-hover:opacity-100 transition-opacity"
+                            onClick={() => handleRemoveImage(index)}
+                          >
+                            <Trash2 size={12} />
+                          </Button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* เพิ่มรูปภาพใหม่ */}
+                <div>
+                  <Label className="text-sm text-slate-600">เพิ่มรูปภาพใหม่:</Label>
+                  <p className="text-xs text-slate-500 mt-1">
+                    รองรับเฉพาะ: JPG, JPEG, PNG, BMP, WebP, AVIF
+                  </p>
+                  <div className="flex gap-2 mt-2">
+                    <Input
+                      placeholder="ใส่ URL ของรูปภาพ (รองรับเฉพาะ: JPG, JPEG, PNG, BMP, WebP, AVIF)"
+                      value={imageUrl}
+                      onChange={(e) => setImageUrl(e.target.value)}
+                      className="flex-1"
+                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={handleAddImageUrl}
+                      disabled={!imageUrl.trim()}
+                    >
+                      พรีวิว
+                    </Button>
+                  </div>
+                </div>
+
+                {/* พรีวิวรูปภาพ */}
+                {imagePreview && (
+                  <div>
+                    <Label className="text-sm text-slate-600">พรีวิว:</Label>
+                    <div className="mt-2 space-y-2">
+                      <div className="w-full max-h-64 bg-slate-50 rounded-md border border-slate-200 flex items-center justify-center overflow-hidden">
+                        <img
+                          src={imagePreview}
+                          alt="Preview"
+                          className="max-w-full max-h-full object-contain"
+                          style={{ aspectRatio: 'auto' }}
+                          onError={(e) => {
+                            e.target.src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjAwIiBoZWlnaHQ9IjIwMCIgdmlld0JveD0iMCAwIDIwMCAyMDAiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+CiAgPGRlZnM+CiAgICA8bGluZWFyR3JhZGllbnQgaWQ9ImJnR3JhZGllbnQiIHgxPSIwJSIgeTE9IjAlIiB4Mj0iMTAwJSIgeTI9IjEwMCUiPgogICAgICA8c3RvcCBvZmZzZXQ9IjAlIiBzdHlsZT0ic3RvcC1jb2xvcjojNjY3ZWVhO3N0b3Atb3BhY2l0eToxIiAvPgogICAgICA8c3RvcCBvZmZzZXQ9IjEwMCUiIHN0eWxlPSJzdG9wLWNvbG9yOiM3NjRiYTI7c3RvcC1vcGFjaXR5OjEiIC8+CiAgICA8L2xpbmVhckdyYWRpZW50PgogIDwvZGVmcz4KICA8Y2lyY2xlIGN4PSIxMDAiIGN5PSIxMDAiIHI9IjEwMCIgZmlsbD0idXJsKCNiZ0dyYWRpZW50KSIvPgo8L3N2Zz4K';
+                            error('ไม่สามารถโหลดรูปภาพได้ กรุณาตรวจสอบ URL', 3000);
+                          }}
+                          onLoad={() => {
+                            // รูปภาพโหลดสำเร็จ
+                            console.log('Image loaded successfully:', imagePreview);
+                          }}
+                        />
+                      </div>
+                      <div className="flex gap-2">
+                        <Button
+                          type="button"
+                          size="sm"
+                          onClick={handleConfirmAddImage}
+                          className="flex-1"
+                        >
+                          เพิ่มรูปภาพ
+                        </Button>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          onClick={() => {
+                            setImagePreview('');
+                            setImageUrl('');
+                          }}
+                          className="flex-1"
+                        >
+                          ยกเลิก
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
             <div className="flex gap-3">
               <Button

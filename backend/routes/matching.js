@@ -193,9 +193,12 @@ router.get('/ai-matches', auth, async (req, res) => {
       return shuffled;
     };
 
-    // ดึงข้อมูลผู้ใช้ทั้งหมดในระบบ (ยกเว้นตัวเอง)
-    const allUsers = await User.find({ _id: { $ne: userId } })
-      .select('_id firstName lastName displayName dateOfBirth profileImages gpsLocation interests lifestyle membership bio lastActive isActive lastLogin')
+    // ดึงข้อมูลผู้ใช้ทั้งหมดในระบบ (ยกเว้นตัวเอง, admin และ superadmin)
+    const allUsers = await User.find({ 
+      _id: { $ne: userId },
+      role: { $nin: ['admin', 'superadmin'] }
+    })
+      .select('_id firstName lastName displayName dateOfBirth profileImages gpsLocation interests lifestyle membership bio lastActive isActive lastLogin role')
       .lean(); // ใช้ lean() เพื่อเพิ่มประสิทธิภาพ
     
     console.log('Found users:', allUsers.length);
@@ -705,11 +708,12 @@ router.get('/mutual-likes', auth, async (req, res) => {
 
     const skip = (parseInt(page) - 1) * parseInt(limit);
 
-    // ดึงผู้ใช้ที่ mutual like
+    // ดึงผู้ใช้ที่ mutual like (ยกเว้น admin และ superadmin)
     const mutualLikes = await User.aggregate([
       {
         $match: {
           _id: { $ne: userId },
+          role: { $nin: ['admin', 'superadmin'] },
           likes: userId
         }
       },
@@ -751,11 +755,12 @@ router.get('/mutual-likes', auth, async (req, res) => {
       }
     ]);
 
-    // นับจำนวนทั้งหมด
+    // นับจำนวนทั้งหมด (ยกเว้น admin และ superadmin)
     const totalCount = await User.aggregate([
       {
         $match: {
           _id: { $ne: userId },
+          role: { $nin: ['admin', 'superadmin'] },
           likes: userId
         }
       },

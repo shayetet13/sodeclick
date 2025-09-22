@@ -34,8 +34,9 @@ const corsOptions = {
       'https://sodeclick.com',
       'https://www.sodeclick.com',
       'https://sodeclick-frontend-production.up.railway.app',
-      'https://sodeclick-frontend-production-8907.up.railway.app'
-    ];
+      'https://sodeclick-frontend-production-8907.up.railway.app',
+      'https://sodeclick-backend-production.up.railway.app/api/auth/google/callback'
+
     
     console.log('🌐 CORS check - Origin:', origin);
     console.log('🌐 CORS check - Allowed origins:', allowedOrigins);
@@ -57,6 +58,23 @@ const corsOptions = {
 app.use(compression()); // เพิ่มการบีบอัด response
 app.use(cors(corsOptions));
 
+// Request timeout middleware
+app.use((req, res, next) => {
+  req.setTimeout(30000, () => {
+    console.error('❌ Request timeout:', req.originalUrl);
+    res.status(408).json({
+      message: 'Request timeout',
+      error: 'Request took too long to process',
+      timestamp: new Date().toISOString()
+    });
+  });
+  next();
+});
+
+// Request size limit
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ limit: '10mb', extended: true }));
+
 // Error handling for CORS
 app.use((err, req, res, next) => {
   if (err.message === 'Not allowed by CORS') {
@@ -72,8 +90,7 @@ app.use((err, req, res, next) => {
   next(err);
 });
 
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+// Removed duplicate middleware - already configured above
 
 
 // Static file serving for uploads with cache headers and CORS
@@ -114,6 +131,19 @@ app.use('/favicon.ico', express.static(path.join(frontendDistPath, 'vite.svg')))
 const { bypassMembershipRestrictions } = require('./middleware/adminPrivileges');
 app.use(bypassMembershipRestrictions);
 
+// MongoDB connection check middleware
+app.use((req, res, next) => {
+  if (mongoose.connection.readyState !== 1) {
+    console.warn('⚠️  MongoDB not connected, request queued:', req.path);
+    return res.status(503).json({
+      message: 'Database temporarily unavailable',
+      error: 'Please try again in a moment',
+      timestamp: new Date().toISOString()
+    });
+  }
+  next();
+});
+
 // Request logging middleware (เฉพาะ development)
 if (NODE_ENV === 'development') {
   app.use((req, res, next) => {
@@ -122,15 +152,43 @@ if (NODE_ENV === 'development') {
   });
 }
 
-// MongoDB Connection
-mongoose.connect(MONGODB_URI)
+// Configure mongoose to buffer commands until connection is ready
+mongoose.set('bufferCommands', true);
+
+// MongoDB Connection with better error handling
+mongoose.connect(MONGODB_URI, {
+  serverSelectionTimeoutMS: 30000, // 30 seconds
+  socketTimeoutMS: 45000, // 45 seconds
+  maxPoolSize: 10,
+  minPoolSize: 5,
+  maxIdleTimeMS: 30000,
+  retryWrites: true,
+  w: 'majority'
+})
   .then(async () => {
     console.log('✅ Connected to MongoDB Atlas - Database: sodeclick');
     console.log(`🗄️  Environment: ${NODE_ENV}`);
   })
   .catch((error) => {
     console.error('❌ MongoDB connection error:', error);
-    process.exit(1);
+    console.error('❌ Connection string:', MONGODB_URI.replace(/\/\/.*@/, '//***:***@'));
+    
+    // Don't exit immediately, try to reconnect
+    setTimeout(() => {
+      console.log('🔄 Attempting to reconnect to MongoDB...');
+      mongoose.connect(MONGODB_URI, {
+        serverSelectionTimeoutMS: 30000,
+        socketTimeoutMS: 45000,
+        maxPoolSize: 10,
+        minPoolSize: 5,
+        maxIdleTimeMS: 30000,
+        retryWrites: true,
+        w: 'majority'
+      }).catch(err => {
+        console.error('❌ Reconnection failed:', err);
+        process.exit(1);
+      });
+    }, 5000);
   });
 
 // MongoDB connection events
@@ -140,6 +198,33 @@ mongoose.connection.on('disconnected', () => {
 
 mongoose.connection.on('reconnected', () => {
   console.log('🔄 MongoDB reconnected');
+});
+
+mongoose.connection.on('connected', () => {
+  console.log('✅ MongoDB connection established');
+});
+
+mongoose.connection.on('error', (error) => {
+  console.error('❌ MongoDB connection error:', error);
+});
+
+mongoose.connection.on('close', () => {
+  console.log('🔒 MongoDB connection closed');
+});
+
+// Handle uncaught exceptions
+process.on('uncaughtException', (error) => {
+  console.error('❌ Uncaught Exception:', error);
+  console.error('❌ Stack:', error.stack);
+  
+  // Don't exit immediately, log the error and continue
+  console.log('🔄 Server continuing despite uncaught exception...');
+});
+
+// Handle unhandled promise rejections
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('❌ Unhandled Rejection at:', promise, 'reason:', reason);
+  console.log('🔄 Server continuing despite unhandled rejection...');
 });
 
 // Import routes
@@ -783,6 +868,7 @@ app.use('/api/gift', giftRoutes);
 app.use('/api/vote', voteRoutes);
 app.use('/api/shop', shopRoutes);
 app.use('/api/admin', adminRoutes);
+app.use('/api/superadmin', require('./routes/superadmin'));
 app.use('/api/payment', paymentRoutes);
 app.use('/api/matching', matchingRoutes);
 app.use('/api/notifications', notificationsRoutes);
@@ -796,6 +882,9 @@ app.use('/api/users', usersRoutes);
 // Error handling middleware
 app.use((err, req, res, next) => {
   console.error('❌ Error:', err.stack);
+  console.error('❌ Request URL:', req.originalUrl);
+  console.error('❌ Request Method:', req.method);
+  console.error('❌ Request Headers:', req.headers);
   
   // CORS error
   if (err.message === 'Not allowed by CORS') {
@@ -806,10 +895,40 @@ app.use((err, req, res, next) => {
     });
   }
   
+  // MongoDB connection error
+  if (err.name === 'MongoNetworkError' || err.name === 'MongoTimeoutError') {
+    console.error('❌ MongoDB connection issue detected');
+    return res.status(503).json({
+      message: 'Database temporarily unavailable',
+      error: 'Please try again later',
+      timestamp: new Date().toISOString()
+    });
+  }
+  
+  // JWT error
+  if (err.name === 'JsonWebTokenError' || err.name === 'TokenExpiredError') {
+    return res.status(401).json({
+      message: 'Authentication failed',
+      error: 'Invalid or expired token',
+      timestamp: new Date().toISOString()
+    });
+  }
+  
+  // Validation error
+  if (err.name === 'ValidationError') {
+    return res.status(400).json({
+      message: 'Validation failed',
+      error: err.message,
+      timestamp: new Date().toISOString()
+    });
+  }
+  
+  // Default error response
   res.status(500).json({
     message: 'Something went wrong!',
     error: NODE_ENV === 'development' ? err.message : 'Internal server error',
-    timestamp: new Date().toISOString()
+    timestamp: new Date().toISOString(),
+    requestId: req.headers['x-request-id'] || 'unknown'
   });
 });
 
@@ -839,19 +958,87 @@ app.use('/api/*', (req, res) => {
   });
 });
 
+// Process monitoring
+let restartCount = 0;
+const maxRestarts = 5;
+const restartWindow = 60000; // 1 minute
+let lastRestart = 0;
+
 // Graceful shutdown
 process.on('SIGINT', async () => {
   console.log('🛑 Shutting down gracefully...');
   
   try {
+    // Close Socket.IO connections
+    if (io) {
+      io.close();
+      console.log('✅ Socket.IO connections closed');
+    }
+    
+    // Close MongoDB connection
     await mongoose.connection.close();
     console.log('✅ MongoDB connection closed');
-    process.exit(0);
+    
+    // Close HTTP server
+    server.close(() => {
+      console.log('✅ HTTP server closed');
+      process.exit(0);
+    });
+    
+    // Force exit after 10 seconds
+    setTimeout(() => {
+      console.log('⚠️  Force exit after timeout');
+      process.exit(1);
+    }, 10000);
+    
   } catch (error) {
     console.error('❌ Error during shutdown:', error);
     process.exit(1);
   }
 });
+
+// Handle SIGTERM (for production deployments)
+process.on('SIGTERM', async () => {
+  console.log('🛑 Received SIGTERM, shutting down gracefully...');
+  
+  try {
+    if (io) {
+      io.close();
+    }
+    await mongoose.connection.close();
+    server.close(() => {
+      process.exit(0);
+    });
+    
+    setTimeout(() => {
+      process.exit(1);
+    }, 10000);
+  } catch (error) {
+    console.error('❌ Error during SIGTERM shutdown:', error);
+    process.exit(1);
+  }
+});
+
+// Memory monitoring
+setInterval(() => {
+  const memUsage = process.memoryUsage();
+  const memUsageMB = {
+    rss: Math.round(memUsage.rss / 1024 / 1024),
+    heapTotal: Math.round(memUsage.heapTotal / 1024 / 1024),
+    heapUsed: Math.round(memUsage.heapUsed / 1024 / 1024),
+    external: Math.round(memUsage.external / 1024 / 1024)
+  };
+  
+  // Log memory usage every 5 minutes
+  if (process.uptime() % 300 < 1) {
+    console.log('📊 Memory Usage:', memUsageMB);
+  }
+  
+  // Warning if memory usage is high
+  if (memUsageMB.heapUsed > 500) { // 500MB
+    console.warn('⚠️  High memory usage detected:', memUsageMB);
+  }
+}, 30000); // Check every 30 seconds
 
 // Socket.IO Configuration
 const io = socketIo(server, {
@@ -870,7 +1057,20 @@ const io = socketIo(server, {
     ],
     methods: ["GET", "POST"],
     credentials: true
-  }
+  },
+  pingTimeout: 60000,
+  pingInterval: 25000,
+  maxHttpBufferSize: 1e6, // 1MB
+  allowEIO3: true
+});
+
+// Socket.IO error handling
+io.on('connection_error', (error) => {
+  console.error('❌ Socket.IO connection error:', error);
+});
+
+io.engine.on('connection_error', (error) => {
+  console.error('❌ Socket.IO engine error:', error);
 });
 
 // Make io available to routes
@@ -1664,17 +1864,33 @@ io.on('connection', (socket) => {
   });
 });
 
-// Start Server
-server.listen(PORT, () => {
-  console.log('🚀 ============================================');
-  console.log(`🚀 Server is running on port ${PORT}`);
-  console.log(`🌍 Environment: ${NODE_ENV}`);
-  console.log(`📱 Frontend URLs: ${FRONTEND_URL}`);
-  console.log(`🔧 Backend API: http://localhost:${PORT}`);
-  console.log(`💬 Socket.IO: Real-time chat enabled`);
-  console.log(`🗄️  Database: sodeclick`);
-  console.log('🚀 ============================================');
+// Start Server only after MongoDB connection is ready
+const startServer = () => {
+  server.listen(PORT, () => {
+    console.log('🚀 ============================================');
+    console.log(`🚀 Server is running on port ${PORT}`);
+    console.log(`🌍 Environment: ${NODE_ENV}`);
+    console.log(`📱 Frontend URLs: ${FRONTEND_URL}`);
+    console.log(`🔧 Backend API: http://localhost:${PORT}`);
+    console.log(`💬 Socket.IO: Real-time chat enabled`);
+    console.log(`🗄️  Database: sodeclick`);
+    console.log('🚀 ============================================');
+  });
+};
+
+// Wait for MongoDB connection before starting server
+mongoose.connection.once('connected', () => {
+  console.log('✅ MongoDB connected, starting server...');
+  startServer();
 });
+
+// Fallback: start server after 10 seconds even if MongoDB is not connected
+setTimeout(() => {
+  if (mongoose.connection.readyState !== 1) {
+    console.warn('⚠️  Starting server without MongoDB connection...');
+    startServer();
+  }
+}, 10000);
 
 // Export function to get Socket.IO instance
 function getSocketInstance() {

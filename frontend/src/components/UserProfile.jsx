@@ -57,6 +57,7 @@ import {
   Info
 } from 'lucide-react';
 import HeartVote from './HeartVote';
+import ImageCropModal from './ImageCropModal';
 
 const UserProfile = ({ userId, isOwnProfile = false }) => {
   const [editMode, setEditMode] = useState(false);
@@ -65,6 +66,8 @@ const UserProfile = ({ userId, isOwnProfile = false }) => {
   const [uploadingImage, setUploadingImage] = useState(false);
   const [petsInput, setPetsInput] = useState('');
   const [previewImages, setPreviewImages] = useState([]); // สำหรับแสดง preview รูปที่กำลังอัพโหลด
+  const [cropModalOpen, setCropModalOpen] = useState(false);
+  const [imageToCrop, setImageToCrop] = useState(null);
   const { success, error: showError } = useToast();
   const retryCountRef = useRef(0); // เพิ่ม ref สำหรับนับ retry
 
@@ -281,8 +284,8 @@ const UserProfile = ({ userId, isOwnProfile = false }) => {
     setPetsInput(formatPetsForInput(profileData?.pets));
   };
 
-  // อัปโหลดรูปภาพ
-  const handleImageUpload = async (event) => {
+  // เลือกรูปภาพและเปิด crop modal
+  const handleImageUpload = (event) => {
     const file = event.target.files[0];
     if (!file) return;
 
@@ -297,6 +300,16 @@ const UserProfile = ({ userId, isOwnProfile = false }) => {
       }
     }
 
+    // เปิด crop modal
+    setImageToCrop(file);
+    setCropModalOpen(true);
+    
+    // Reset file input
+    event.target.value = '';
+  };
+
+  // อัปโหลดรูปภาพหลังจาก crop
+  const handleCropComplete = async (croppedFile) => {
     try {
       setUploadingImage(true);
       
@@ -318,9 +331,9 @@ const UserProfile = ({ userId, isOwnProfile = false }) => {
           updateProfile({ data: { profile: tempProfileData } });
         }
       };
-      reader.readAsDataURL(file);
+      reader.readAsDataURL(croppedFile);
       
-      const response = await profileAPI.uploadProfileImage(userId, file);
+      const response = await profileAPI.uploadProfileImage(userId, croppedFile);
       console.log('📤 Upload response:', response);
       
       // อัพเดต UI ด้วยข้อมูลจริงจาก response และลบ preview
@@ -1612,6 +1625,19 @@ const UserProfile = ({ userId, isOwnProfile = false }) => {
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* Image Crop Modal */}
+      <ImageCropModal
+        isOpen={cropModalOpen}
+        onClose={() => {
+          setCropModalOpen(false);
+          setImageToCrop(null);
+        }}
+        imageFile={imageToCrop}
+        onCropComplete={handleCropComplete}
+        aspectRatio={1} // Square crop
+        minCropSize={100}
+      />
 
     </div>
   );
