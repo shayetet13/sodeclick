@@ -35,7 +35,7 @@ const corsOptions = {
       'https://www.sodeclick.com',
       'https://sodeclick-frontend-production.up.railway.app',
       'https://sodeclick-frontend-production-8907.up.railway.app',
-      'https://sodeclick-backend-production.up.railway.app/api/auth/google/callback'
+     
 
     
     console.log('🌐 CORS check - Origin:', origin);
