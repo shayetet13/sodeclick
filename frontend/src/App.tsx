@@ -30,6 +30,7 @@ const CreatePrivateRoomModal = lazy(() => import('./components/CreatePrivateRoom
 const AIMatchingSystem = lazy(() => import('./components/AIMatchingSystem.jsx')) as any
 const PrivateChatList = lazy(() => import('./components/PrivateChatList.jsx')) as any
 const PrivateChat = lazy(() => import('./components/PrivateChat.jsx')) as any
+const PrivateChatSocket = lazy(() => import('./components/PrivateChatSocket.jsx')) as any
 const NewPrivateChatModal = lazy(() => import('./components/NewPrivateChatModal.jsx')) as any
 const HeartVote = lazy(() => import('./components/HeartVote.jsx')) as any
 const VoteRankingMini = lazy(() => import('./components/VoteRankingMini.jsx')) as any
@@ -2045,7 +2046,7 @@ function App() {
       const updatedChats = prev.map(chat => {
         if (chat.id === selectedPrivateChat.id) {
           return { 
-            ...chat, 
+              ...chat,
             messages: [...(chat.messages || []), tempMessage], 
             lastMessage: tempMessage 
           };
@@ -2151,7 +2152,7 @@ function App() {
         return updatedChats;
       });
     }
-
+    
     // ถ้าเป็นข้อความของตัวเองจาก Socket.IO ให้แทนที่ข้อความชั่วคราว
     if (messageData.socketMessage && messageData.messageType === 'own-message') {
       console.log('📨 Received own message from Socket.IO:', messageData.socketMessage);
@@ -4304,16 +4305,35 @@ function App() {
                           showWebappNotification={showWebappNotification}
                         />
                       ) : (
-                        <PrivateChat
+                        <PrivateChatSocket
+                          chatId={selectedPrivateChat?.id}
                           currentUser={user}
-                          selectedChat={selectedPrivateChat}
-                          onSendMessage={handleSendPrivateMessage}
-                          onClose={handleBackToPrivateChatList}
-                          messages={selectedPrivateChat?.messages || []}
-                          isLoading={false}
-                          isTyping={false}
-                          onTyping={() => {}}
-                          onStopTyping={() => {}}
+                          otherUser={selectedPrivateChat?.otherUser || selectedPrivateChat?.participants?.find(p => p._id !== user._id)}
+                          onBack={handleBackToPrivateChatList}
+                          showWebappNotification={showWebappNotification}
+                          onMessageReceived={(message) => {
+                            // อัปเดต selectedPrivateChat ด้วยข้อความใหม่
+                            setSelectedPrivateChat((prev: any) => ({
+                              ...prev,
+                              messages: [...(prev.messages || []), message],
+                              lastMessage: message
+                            }));
+                            
+                            // อัปเดตรายการแชท
+                            setPrivateChats(prev => {
+                              const updatedChats = prev.map(chat => 
+                                chat.id === selectedPrivateChat?.id 
+                                  ? { ...chat, messages: [...(chat.messages || []), message], lastMessage: message }
+                                  : chat
+                              );
+                              saveChatsToStorage(updatedChats);
+                              return updatedChats;
+                            });
+                          }}
+                          onTypingUpdate={(isTyping, userId) => {
+                            // จัดการ typing indicator
+                            console.log('Typing update:', { isTyping, userId });
+                          }}
                         />
                       )
                     )}

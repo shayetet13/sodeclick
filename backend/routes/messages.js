@@ -813,6 +813,65 @@ router.post('/create-private-chat', async (req, res) => {
   }
 });
 
+// GET /api/messages/private-chat/:chatId - ดึงข้อความในแชทส่วนตัว
+router.get('/private-chat/:chatId', async (req, res) => {
+  try {
+    const { chatId } = req.params;
+    const { page = 1, limit = 50 } = req.query;
+    
+    if (!chatId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Chat ID is required'
+      });
+    }
+
+    // ตรวจสอบว่า chatId เป็น private chat format
+    if (!chatId.startsWith('private_')) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid private chat ID format'
+      });
+    }
+
+    // ดึงข้อความในแชทส่วนตัว
+    const messages = await Message.find({
+      chatRoom: chatId
+    })
+    .populate('sender', 'username displayName firstName lastName membershipTier profileImages isOnline')
+    .populate('replyTo', 'content sender')
+    .populate('replyTo.sender', 'username displayName')
+    .sort({ createdAt: -1 })
+    .limit(parseInt(limit))
+    .skip((parseInt(page) - 1) * parseInt(limit))
+    .lean();
+
+    // นับจำนวนข้อความทั้งหมด
+    const totalMessages = await Message.countDocuments({
+      chatRoom: chatId
+    });
+
+    res.status(200).json({
+      success: true,
+      data: messages.reverse(), // เรียงลำดับใหม่จากเก่าไปใหม่
+      pagination: {
+        currentPage: parseInt(page),
+        totalPages: Math.ceil(totalMessages / parseInt(limit)),
+        totalMessages,
+        hasMore: (parseInt(page) * parseInt(limit)) < totalMessages
+      }
+    });
+
+  } catch (error) {
+    console.error('Error fetching private chat messages:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error',
+      error: error.message
+    });
+  }
+});
+
 // POST /api/messages/update-recipient-chat-list - อัปเดตรายการแชทฝั่งผู้รับ
 router.post('/update-recipient-chat-list', async (req, res) => {
   try {

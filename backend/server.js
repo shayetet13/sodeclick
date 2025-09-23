@@ -1364,6 +1364,51 @@ io.on('connection', (socket) => {
     }
   });
 
+  // เข้าร่วมแชทส่วนตัว
+  socket.on('join-private-chat', async (data) => {
+    try {
+      const { chatId, userId, otherUserId, token } = data;
+      
+      console.log('🔒 Join private chat request:', { chatId, userId, otherUserId });
+      
+      // ตรวจสอบสิทธิ์
+      const authenticatedUser = await authenticateSocketUser(token);
+      if (!authenticatedUser) {
+        socket.emit('error', { message: 'Unauthorized to join this private chat' });
+        return;
+      }
+      
+      // ตรวจสอบว่า chatId ถูกต้อง (ต้องมี userId ของผู้ใช้ปัจจุบัน)
+      if (!chatId.includes(userId)) {
+        socket.emit('error', { message: 'Unauthorized to join this private chat' });
+        return;
+      }
+      
+      // เข้าร่วมห้องแชทส่วนตัว
+      socket.join(chatId);
+      socket.join(`user_${userId}`); // Join user room for notifications
+      socket.userId = userId;
+      socket.currentPrivateChat = chatId;
+      
+      console.log(`🔗 Socket ${socket.id} joined private chat ${chatId} for user ${userId}`);
+      
+      // อัปเดตสถานะออนไลน์
+      onlineUsers.set(userId, {
+        socketId: socket.id,
+        privateChatId: chatId,
+        lastActive: new Date(),
+        username: authenticatedUser.displayName || authenticatedUser.username
+      });
+      
+      // ส่งการยืนยันการเข้าร่วม
+      socket.emit('private-chat-joined', { chatId, userId });
+      
+    } catch (error) {
+      console.error('❌ Error joining private chat:', error);
+      socket.emit('error', { message: 'Failed to join private chat' });
+    }
+  });
+
   // ส่งข้อความ
   socket.on('send-message', async (data) => {
     try {
@@ -1708,6 +1753,223 @@ io.on('connection', (socket) => {
       
     } catch (error) {
       console.error('Error reacting to message:', error);
+      socket.emit('error', { message: 'Failed to react to message' });
+    }
+  });
+
+  // ส่งข้อความแชทส่วนตัว
+  socket.on('send-private-message', async (data) => {
+    try {
+      // Rate limiting สำหรับการส่งข้อความ (2 วินาทีต่อครั้ง)
+      if (!checkSocketRateLimit(socket.id, 'send-private-message', 2000)) {
+        socket.emit('error', { message: 'Rate limit: Please wait before sending another message' });
+        return;
+      }
+
+      console.log('📤 Received send-private-message event:', data);
+      const { content, senderId, chatId, messageType = 'text', replyToId, imageData, otherUserId } = data;
+      
+      // ตรวจสอบสิทธิ์
+      const sender = await User.findById(senderId);
+      if (!sender) {
+        console.log('❌ Sender not found:', senderId);
+        socket.emit('error', { message: 'Sender not found' });
+        return;
+      }
+      
+      console.log('✅ Sender found:', sender.displayName || sender.username);
+
+      // สร้างข้อความสำหรับ private chat
+      const messageData = {
+        content: messageType === 'image' ? '' : content,
+        sender: senderId,
+        chatRoom: chatId,
+        messageType,
+        replyTo: replyToId || null
+      };
+
+      // จัดการรูปภาพ
+      if (messageType === 'image' && imageData) {
+        // สร้าง unique filename
+        const timestamp = Date.now();
+        const filename = `private-chat-${timestamp}-${Math.random().toString(36).substr(2, 9)}.jpg`;
+        const filePath = path.join(__dirname, 'uploads', 'chat-files', filename);
+        
+        // แปลง base64 เป็นไฟล์
+        const base64Data = imageData.replace(/^data:image\/[a-z]+;base64,/, '');
+        const buffer = Buffer.from(base64Data, 'base64');
+        
+        // บันทึกไฟล์
+        fs.writeFileSync(filePath, buffer);
+        
+        // ตั้งค่า URL
+        messageData.fileUrl = `/uploads/chat-files/${filename}`;
+        messageData.fileName = filename;
+        messageData.fileSize = buffer.length;
+        messageData.fileType = 'image/jpeg';
+      }
+
+      const message = new Message(messageData);
+      await message.save();
+      console.log('💾 Private message saved to database:', message._id);
+
+      // Populate ข้อมูล
+      await message.populate([
+        { path: 'sender', select: 'username displayName membershipTier profileImages' },
+        { path: 'replyTo', select: 'content sender', populate: { path: 'sender', select: 'username displayName' } }
+      ]);
+
+      // ส่งข้อความไปยังทุกคนที่อยู่ใน private chat room
+      io.to(chatId).emit('new-private-message', message);
+      console.log('✅ Private message broadcasted successfully to', io.sockets.adapter.rooms.get(chatId)?.size || 0, 'clients');
+      
+      // ส่ง notification ไปยังผู้รับข้อความ
+      if (otherUserId) {
+        io.to(`user_${otherUserId}`).emit('newNotification', {
+          type: 'private_message',
+          message: `ข้อความใหม่จาก ${sender.displayName || sender.username}`,
+          recipientId: otherUserId,
+          senderId: senderId,
+          chatId: chatId,
+          messageId: message._id
+        });
+      }
+      
+    } catch (error) {
+      console.error('❌ Error sending private message:', error);
+      socket.emit('error', { message: 'Failed to send private message' });
+    }
+  });
+
+  // Typing indicators สำหรับแชทส่วนตัว
+  socket.on('typing-private', (data) => {
+    const { chatId, userId, otherUserId } = data;
+    console.log('⌨️ User typing in private chat:', { chatId, userId });
+    
+    // ส่งให้ผู้ใช้คนอื่นในแชท
+    socket.to(chatId).emit('user-typing-private', {
+      userId,
+      chatId
+    });
+  });
+
+  socket.on('stop-typing-private', (data) => {
+    const { chatId, userId, otherUserId } = data;
+    console.log('⌨️ User stopped typing in private chat:', { chatId, userId });
+    
+    // ส่งให้ผู้ใช้คนอื่นในแชท
+    socket.to(chatId).emit('user-stop-typing-private', {
+      userId,
+      chatId
+    });
+  });
+
+  // แก้ไขข้อความแชทส่วนตัว
+  socket.on('edit-private-message', async (data) => {
+    try {
+      const { messageId, newContent, chatId, userId } = data;
+      
+      // ตรวจสอบสิทธิ์
+      const message = await Message.findById(messageId);
+      if (!message || message.sender.toString() !== userId) {
+        socket.emit('error', { message: 'Unauthorized to edit this message' });
+        return;
+      }
+      
+      // อัปเดตข้อความ
+      message.content = newContent;
+      message.editedAt = new Date();
+      await message.save();
+      
+      // ส่งการอัปเดตไปยังทุกคนในแชท
+      io.to(chatId).emit('private-message-edited', {
+        messageId,
+        newContent,
+        editedAt: message.editedAt
+      });
+      
+    } catch (error) {
+      console.error('❌ Error editing private message:', error);
+      socket.emit('error', { message: 'Failed to edit message' });
+    }
+  });
+
+  // ลบข้อความแชทส่วนตัว
+  socket.on('delete-private-message', async (data) => {
+    try {
+      const { messageId, chatId, userId } = data;
+      
+      // ตรวจสอบสิทธิ์
+      const message = await Message.findById(messageId);
+      if (!message || message.sender.toString() !== userId) {
+        socket.emit('error', { message: 'Unauthorized to delete this message' });
+        return;
+      }
+      
+      // ลบข้อความ
+      await Message.findByIdAndDelete(messageId);
+      
+      // ส่งการอัปเดตไปยังทุกคนในแชท
+      io.to(chatId).emit('private-message-deleted', {
+        messageId,
+        chatId
+      });
+      
+    } catch (error) {
+      console.error('❌ Error deleting private message:', error);
+      socket.emit('error', { message: 'Failed to delete message' });
+    }
+  });
+
+  // Reaction สำหรับข้อความแชทส่วนตัว
+  socket.on('react-to-private-message', async (data) => {
+    try {
+      const { messageId, reactionType, chatId, userId } = data;
+      
+      // ตรวจสอบสิทธิ์
+      const message = await Message.findById(messageId);
+      if (!message) {
+        socket.emit('error', { message: 'Message not found' });
+        return;
+      }
+      
+      // ตรวจสอบว่าผู้ใช้เคย react แล้วหรือไม่
+      const existingReaction = message.reactions.find(
+        reaction => reaction.user.toString() === userId.toString() && reaction.type === reactionType
+      );
+      
+      let finalAction;
+      
+      if (existingReaction) {
+        // ถ้าเคย react แล้ว ไม่ให้ทำอะไร (กดได้แค่ 1 ครั้ง)
+        socket.emit('error', { message: 'คุณได้กดหัวใจข้อความนี้แล้ว' });
+        return;
+      } else {
+        // เพิ่ม reaction ใหม่
+        message.reactions.push({
+          user: userId,
+          type: reactionType,
+          createdAt: new Date()
+        });
+        finalAction = 'added';
+      }
+      
+      // อัปเดตสถิติ
+      message.updateReactionStats();
+      await message.save();
+
+      // ส่งการอัปเดต reaction ไปยังทุกคนในแชท
+      io.to(chatId).emit('private-message-reaction-updated', {
+        messageId: message._id,
+        userId,
+        reactionType: reactionType,
+        hasReaction: finalAction === 'added',
+        stats: message.stats,
+        action: finalAction
+      });
+      
+    } catch (error) {
+      console.error('❌ Error reacting to private message:', error);
       socket.emit('error', { message: 'Failed to react to message' });
     }
   });
