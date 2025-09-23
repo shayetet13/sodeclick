@@ -6,15 +6,15 @@
   "private": true,
   "type": "commonjs",
   "scripts": {
-    "start": "node server.js",
-    "dev": "node -e \"require('fs').copyFileSync('env.development', '.env')\" && nodemon server.js",
-    "start:dev": "shx cp env.development .env && node server.js",
-    "seed": "shx cp env.development .env && node scripts/seedData.js",
-    "create-admin": "shx cp env.development .env && node scripts/createAdmin.js",
-    "create-chat-rooms": "shx cp env.development .env && node scripts/createDefaultChatRooms.js",
+    "start": "shx cp env.production .env && node server.js",
+    "dev": "shx cp env.development .env && (shx cp env.local .env.local 2>nul || echo.) && nodemon server.js",
+    "start:dev": "shx cp env.development .env && (shx cp env.local .env.local 2>nul || echo.) && node server.js",
+    "seed": "shx cp env.development .env && (shx cp env.local .env.local 2>nul || echo.) && node scripts/seedData.js",
+    "create-admin": "shx cp env.development .env && (shx cp env.local .env.local 2>nul || echo.) && node scripts/createAdmin.js",
+    "create-chat-rooms": "shx cp env.development .env && (shx cp env.local .env.local 2>nul || echo.) && node scripts/createDefaultChatRooms.js",
     "assign:memberships": "node ./scripts/assignRandomMemberships.js",
     "test": "echo \"Error: no test specified\" && exit 1",
-    "dev:windows": "node -e \"require('fs').copyFileSync('env.development', '.env')\" && nodemon server.js"
+    "dev:windows": "shx cp env.development .env && (shx cp env.local .env.local 2>nul || echo.) && nodemon server.js"
   },
   "keywords": [
     "express",
@@ -34,9 +34,6 @@
     "jsonwebtoken": "^9.0.2",
     "mongoose": "^8.17.0",
     "multer": "^2.0.2",
-    "passport": "^0.7.0",
-    "passport-google-oauth20": "^2.0.0",
-    "passport-local": "^1.0.0",
     "qrcode": "^1.5.4",
     "socket.io": "^4.8.1"
   },

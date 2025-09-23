@@ -9,9 +9,24 @@ const axios = require('axios');
 const QRCode = require('qrcode');
 // Load environment variables
 const NODE_ENV = process.env.NODE_ENV || 'development';
-require('dotenv').config({
-  path: path.join(__dirname, `env.${NODE_ENV}`)
-});
+
+// Try to load .env first, then fallback to env.{NODE_ENV}
+const dotenv = require('dotenv');
+const fs = require('fs');
+
+// Check if .env file exists
+const envPath = path.join(__dirname, '.env');
+const envSpecificPath = path.join(__dirname, `env.${NODE_ENV}`);
+
+if (fs.existsSync(envPath)) {
+  console.log('📁 Loading environment from .env file');
+  dotenv.config({ path: envPath });
+} else if (fs.existsSync(envSpecificPath)) {
+  console.log(`📁 Loading environment from env.${NODE_ENV} file`);
+  dotenv.config({ path: envSpecificPath });
+} else {
+  console.log('⚠️  No environment file found, using system environment variables');
+}
 
 const app = express();
 const server = http.createServer(app);
@@ -34,8 +49,7 @@ const corsOptions = {
       'https://sodeclick.com',
       'https://www.sodeclick.com',
       'https://sodeclick-frontend-production.up.railway.app',
-      'https://sodeclick-frontend-production-8907.up.railway.app',
-      'https://sodeclick-backend-production.up.railway.app/api/auth/google/callback'
+      'https://sodeclick-frontend-production-8907.up.railway.app'
     ];
     
     console.log('🌐 CORS check - Origin:', origin);
@@ -243,7 +257,7 @@ const paymentRoutes = require('./routes/payment');
 const matchingRoutes = require('./routes/matching');
 const notificationsRoutes = require('./routes/notifications');
 const maintenanceRoutes = require('./routes/maintenance');
-const oauthConfigRoutes = require('./routes/oauth-config');
+// const oauthConfigRoutes = require('./routes/oauth-config'); // File not exists
 const usersRoutes = require('./routes/users');
 // const privateMessagesRoutes = require('./routes/privateMessages'); // File not exists
 
@@ -850,11 +864,6 @@ app.post("/webhook-endpoint", (req, res) => {
 });
 
 
-// Import passport configuration (after environment variables are loaded)
-const passport = require('./config/passport');
-
-// Initialize Passport
-app.use(passport.initialize());
 
 // Use all routes
 app.use('/api/auth', authRoutes);
@@ -873,7 +882,7 @@ app.use('/api/payment', paymentRoutes);
 app.use('/api/matching', matchingRoutes);
 app.use('/api/notifications', notificationsRoutes);
 app.use('/api/maintenance', maintenanceRoutes);
-app.use('/api/oauth-config', oauthConfigRoutes);
+// app.use('/api/oauth-config', oauthConfigRoutes); // File not exists
 app.use('/api/users', usersRoutes);
 // app.use('/api/private-messages', privateMessagesRoutes); // File not exists
 
@@ -1428,6 +1437,15 @@ io.on('connection', (socket) => {
         io.to(chatRoomId).emit('new-message', message);
         console.log('✅ Message broadcasted successfully to', io.sockets.adapter.rooms.get(chatRoomId)?.size || 0, 'clients');
         
+        // ตรวจสอบว่ามีข้อความใน private chat นี้อยู่แล้วหรือไม่
+        const existingMessages = await Message.find({
+          chatRoom: chatRoomId,
+          _id: { $ne: message._id }
+        }).limit(1);
+        
+        const isNewChat = existingMessages.length === 0;
+        console.log('🆕 Is new private chat?', isNewChat);
+        
         // ส่งข้อมูล unread count ให้ผู้ใช้ที่เกี่ยวข้อง
         const userParts = chatRoomId.split('_');
         if (userParts.length >= 3) {
@@ -1463,7 +1481,7 @@ io.on('connection', (socket) => {
 
           // ส่งการแจ้งเตือนข้อความใหม่ให้ผู้ใช้ที่ไม่ได้ส่งข้อความ
           const receiverId = senderId === userId1 ? userId2 : userId1;
-          const sender = await User.findById(senderId).select('username displayName firstName lastName profileImages mainProfileImageIndex');
+          const sender = await User.findById(senderId).select('username displayName firstName lastName profileImages mainProfileImageIndex membershipTier');
           
           if (sender) {
             // ส่งแจ้งเตือนไปยัง receiver
@@ -1488,6 +1506,37 @@ io.on('connection', (socket) => {
             });
             
             console.log('📨 Sent notification to user_' + receiverId + ' for new private message');
+            
+            // ถ้าเป็นแชทส่วนตัวใหม่ ให้ส่งการแจ้งเตือนพิเศษ
+            if (isNewChat) {
+              console.log('🆕 Sending new private chat notification to user_' + receiverId);
+              console.log('🆕 Sender details:', {
+                _id: sender._id,
+                username: sender.username,
+                displayName: sender.displayName || sender.firstName || sender.username
+              });
+              
+              // ตรวจสอบว่า receiver มี socket ที่เชื่อมต่ออยู่หรือไม่
+              const receiverSockets = io.sockets.adapter.rooms.get(`user_${receiverId}`);
+              console.log('🆕 Receiver sockets in user_' + receiverId + ':', receiverSockets?.size || 0);
+              
+              // ส่งการแจ้งเตือนแชทส่วนตัวใหม่
+              io.to(`user_${receiverId}`).emit('new-private-chat', {
+                chatRoomId,
+                sender: {
+                  _id: sender._id,
+                  username: sender.username,
+                  displayName: sender.displayName || sender.firstName || sender.username,
+                  membershipTier: sender.membershipTier,
+                  profileImages: sender.profileImages,
+                  mainProfileImageIndex: sender.mainProfileImageIndex
+                },
+                message: message,
+                isNew: true
+              });
+              
+              console.log('✅ New private chat notification sent to user_' + receiverId);
+            }
           }
         }
         

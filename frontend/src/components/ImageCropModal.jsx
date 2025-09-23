@@ -392,32 +392,41 @@ const ImageCropModal = ({
     const canvas = document.createElement('canvas');
     const ctx = canvas.getContext('2d');
     
-    // Set canvas size to crop area
-    canvas.width = cropArea.width;
-    canvas.height = cropArea.height;
+    // ตั้งค่า image smoothing เพื่อคุณภาพที่ดีขึ้น
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
     
-    // Calculate source coordinates
+    // คำนวณขนาด canvas ที่เหมาะสมกับรูปภาพต้นฉบับ
     const img = imageRef.current;
     const sourceX = (cropArea.x - position.x) / scale;
     const sourceY = (cropArea.y - position.y) / scale;
     const sourceWidth = cropArea.width / scale;
     const sourceHeight = cropArea.height / scale;
     
-    // Draw cropped image
+    // ใช้ขนาดจริงของพื้นที่ที่ต้องการครอป (ไม่ใช่ขนาดที่แสดงบนหน้าจอ)
+    canvas.width = sourceWidth;
+    canvas.height = sourceHeight;
+    
+    // วาดรูปภาพที่ครอปแล้วด้วยขนาดจริง
     ctx.drawImage(
       img,
       sourceX, sourceY, sourceWidth, sourceHeight,
-      0, 0, cropArea.width, cropArea.height
+      0, 0, sourceWidth, sourceHeight
     );
     
-    // Convert to blob
+    // กำหนด format และ quality ตามไฟล์ต้นฉบับ
+    const originalType = imageFile.type || 'image/png';
+    const outputType = originalType.includes('png') ? 'image/png' : 'image/jpeg';
+    const quality = outputType === 'image/jpeg' ? 1.0 : undefined; // PNG ไม่มี quality parameter
+    
+    // Convert to blob ด้วยคุณภาพสูงสุด
     canvas.toBlob((blob) => {
       if (blob) {
-        const file = new File([blob], imageFile.name, { type: 'image/jpeg' });
+        const file = new File([blob], imageFile.name, { type: outputType });
         onCropComplete(file);
         onClose();
       }
-    }, 'image/jpeg', 0.9);
+    }, outputType, quality);
   };
 
   if (!isOpen || !imageFile) return null;

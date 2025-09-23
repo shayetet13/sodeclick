@@ -15,6 +15,7 @@ import LoginModal from './components/LoginModal'
 import { DataCacheProvider } from './hooks/useGlobalCache'
 import { useRealTimeUpdate, useNotificationUpdates } from './hooks/useRealTimeUpdates'
 import { getProfileImageUrl, getMainProfileImage } from './utils/profileImageUtils'
+import socketManager from './services/socketManager'
 
 // Lazy load heavy components with type assertions
 const MembershipDashboard = lazy(() => import('./components/MembershipDashboard.jsx')) as any
@@ -2391,13 +2392,105 @@ function App() {
       }
     };
 
+    const handleNewPrivateChat = (data: any) => {
+      console.log('🆕 New private chat received:', data);
+      console.log('🆕 Current user:', user);
+      console.log('🆕 Current privateChats:', privateChats.length);
+      const { chatRoomId, sender, message } = data;
+      
+      // สร้าง chat object ใหม่
+      const newChat = {
+        id: chatRoomId,
+        otherUser: {
+          _id: sender._id,
+          username: sender.username,
+          displayName: sender.displayName,
+          membershipTier: sender.membershipTier,
+          profileImages: sender.profileImages,
+          mainProfileImageIndex: sender.mainProfileImageIndex
+        },
+        lastMessage: message,
+        unreadCount: 1,
+        isNew: true
+      };
+      
+      // เพิ่มแชทใหม่เข้าไปในรายการ (ใส่ไว้ด้านบนสุด)
+      setPrivateChats(prev => {
+        // ตรวจสอบว่าแชทนี้มีอยู่แล้วหรือไม่
+        const existingChat = prev.find(chat => chat.id === chatRoomId);
+        if (existingChat) {
+          console.log('📨 Chat already exists, updating instead');
+          return prev.map(chat => 
+            chat.id === chatRoomId 
+              ? { ...chat, lastMessage: message, unreadCount: (chat.unreadCount || 0) + 1 }
+              : chat
+          );
+        }
+        
+        console.log('🆕 Adding new chat to list');
+        return [newChat, ...prev];
+      });
+      
+      // แสดงการแจ้งเตือน
+      if (showWebappNotification) {
+        showWebappNotification(`${sender.displayName} ส่งข้อความมา`, 'info');
+      }
+      
+      // รีเฟรชรายการแชทส่วนตัวเพื่อให้แน่ใจว่ามีแชทใหม่
+      setTimeout(() => {
+        console.log('🔄 Refreshing private chats list after new chat');
+        fetchPrivateChats();
+      }, 1000);
+    };
+
     // ฟัง custom event จาก PrivateChat component
     window.addEventListener('private-chat-message', handlePrivateChatMessage as EventListener);
     
+    // ฟัง custom event สำหรับแชทส่วนตัวใหม่จาก PrivateChat component
+    const handleNewPrivateChatFromComponent = (event: any) => {
+      console.log('🆕 Received new-private-chat from PrivateChat component:', event.detail);
+      handleNewPrivateChat(event.detail);
+    };
+    window.addEventListener('new-private-chat-received', handleNewPrivateChatFromComponent as EventListener);
+    
+    // ฟัง socket event สำหรับแชทส่วนตัวใหม่
+    const setupSocketListener = () => {
+      const socket = socketManager.getSocket();
+      if (socket) {
+        console.log('🔌 Setting up new-private-chat listener on socket:', socket.id);
+        socket.on('new-private-chat', handleNewPrivateChat);
+        return socket;
+      }
+      return null;
+    };
+
+    // ลองตั้งค่า socket listener ทันที
+    let socket = setupSocketListener();
+    
+    // ถ้า socket ยังไม่มี ให้รอและลองใหม่
+    if (!socket) {
+      const retryTimeout = setTimeout(() => {
+        socket = setupSocketListener();
+      }, 1000);
+      
+      return () => {
+        clearTimeout(retryTimeout);
+        window.removeEventListener('private-chat-message', handlePrivateChatMessage as EventListener);
+        window.removeEventListener('new-private-chat-received', handleNewPrivateChatFromComponent as EventListener);
+        if (socket) {
+          socket.off('new-private-chat', handleNewPrivateChat);
+        }
+      };
+    }
+    
     return () => {
       window.removeEventListener('private-chat-message', handlePrivateChatMessage as EventListener);
+      window.removeEventListener('new-private-chat-received', handleNewPrivateChatFromComponent as EventListener);
+      if (socket) {
+        socket.off('new-private-chat', handleNewPrivateChat);
+      }
     };
-  }, [selectedPrivateChat]);
+  }, [selectedPrivateChat, showWebappNotification]);
 
   // ฟัง event เมื่อมีการตั้งรูปโปรไฟล์ใหม่ เพื่อรีโหลด avatar ใน header
   useEffect(() => {
@@ -2848,65 +2941,66 @@ function App() {
           </div>
         </div>
       </header>
-      {/* Mobile-First Hero Section */}
-      <section className="py-8 sm:py-12 md:py-16 lg:py-24">
-        <div className="px-3 sm:px-4 lg:px-8">
-          <div className="grid lg:grid-cols-2 gap-8 sm:gap-12 items-center">
-            <div className="space-y-6 sm:space-y-8">
-              <div className="inline-flex items-center px-4 py-2 sm:px-6 sm:py-3 rounded-full glass-effect border border-white/30 text-pink-600 text-xs sm:text-sm font-semibold shadow-lg">
-                <Sparkles className="h-3 w-3 sm:h-4 sm:w-4 mr-1 sm:mr-2" />
-                <span>Thailand's #1 Dating Platform 🇹🇭</span>
-              </div>
-              <div>
-                <h1 className="text-3xl sm:text-4xl md:text-5xl lg:text-6xl xl:text-7xl font-bold leading-tight mb-4 sm:mb-6 md:mb-8 gradient-text">
-                  Find Your<br />
-                  Perfect Match ✨
-                </h1>
-                <p className="text-base sm:text-lg md:text-xl text-gray-600 mb-6 sm:mb-8 md:mb-10 leading-relaxed max-w-lg">
-                  Join thousands of verified singles creating meaningful connections. Your love story starts here.
-                </p>
-              </div>
-              <div className="flex flex-col sm:flex-row gap-4 sm:gap-6">
-                <Button 
-                  size="lg" 
-                  onClick={() => handleTabChange('matches')}
-                  className="modern-button text-sm sm:text-base md:text-lg px-6 py-4 sm:px-8 sm:py-5 md:px-10 md:py-6 rounded-xl sm:rounded-2xl font-bold shadow-2xl hover:shadow-pink-300/50 hover:scale-105 transform transition-all duration-300"
-                >
-                  <Heart className="h-4 w-4 sm:h-5 sm:w-5 md:h-6 md:w-6 mr-2 sm:mr-3" fill="white" />
-                  Start Dating Now
-                </Button>
-                <Button 
-                  variant="outline" 
-                  size="lg"
-                  onClick={handleLearnMoreClick}
-                  className="border-2 border-pink-300/50 text-pink-600 hover:bg-pink-50/80 px-6 py-4 sm:px-8 sm:py-5 md:px-10 md:py-6 rounded-xl sm:rounded-2xl font-semibold text-sm sm:text-base md:text-lg transition-all duration-300 hover:scale-105 glass-effect"
-                >
-                  <MessageCircle className="h-4 w-4 sm:h-5 sm:w-5 md:h-6 md:w-6 mr-2 sm:mr-3" />
-                  Learn More
-                </Button>
-              </div>
-            </div>
-            {/* Top Voted Users Carousel */}
-            <div className="relative flex justify-center lg:justify-end items-center">
-              <div className="w-full max-w-xs">
-                <Suspense fallback={
-                  <div className="w-full max-w-xs mx-auto h-[500px] bg-gradient-to-br from-pink-100 to-purple-100 rounded-3xl flex items-center justify-center">
-                    <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-pink-500"></div>
-                  </div>
-                }>
-                  <TopVotedCarousel />
-                </Suspense>
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
       {/* Mobile-First App Interface */}
       <section className="px-1 sm:px-4 lg:px-8 py-1 sm:py-16 md:py-20 relative z-10 pb-10 sm:pb-24">
         <div className="modern-card rounded-xl sm:rounded-3xl shadow-2xl overflow-hidden">
           <Tabs defaultValue="discover" value={activeTab} onValueChange={handleTabChange}>
             {/* Discover Tab - Mobile First */}
             <TabsContent value="discover" className="p-1 sm:p-6 lg:p-8">
+              {/* Mobile-First Hero Section - Only for Discover Tab */}
+              <section className="py-8 sm:py-12 md:py-16 lg:py-24">
+                <div className="px-3 sm:px-4 lg:px-8">
+                  <div className="grid lg:grid-cols-2 gap-8 sm:gap-12 items-center">
+                    <div className="space-y-6 sm:space-y-8">
+                      <div className="inline-flex items-center px-4 py-2 sm:px-6 sm:py-3 rounded-full glass-effect border border-white/30 text-pink-600 text-xs sm:text-sm font-semibold shadow-lg">
+                        <Sparkles className="h-3 w-3 sm:h-4 sm:w-4 mr-1 sm:mr-2" />
+                        <span>Thailand's #1 Dating Platform 🇹🇭</span>
+                      </div>
+                      <div>
+                        <h1 className="text-3xl sm:text-4xl md:text-5xl lg:text-6xl xl:text-7xl font-bold leading-tight mb-4 sm:mb-6 md:mb-8 gradient-text">
+                          Find Your<br />
+                          Perfect Match ✨
+                        </h1>
+                        <p className="text-base sm:text-lg md:text-xl text-gray-600 mb-6 sm:mb-8 md:mb-10 leading-relaxed max-w-lg">
+                          Join thousands of verified singles creating meaningful connections. Your love story starts here.
+                        </p>
+                      </div>
+                      <div className="flex flex-col sm:flex-row gap-4 sm:gap-6">
+                        <Button 
+                          size="lg" 
+                          onClick={() => handleTabChange('discover')}
+                          className="modern-button text-sm sm:text-base md:text-lg px-6 py-4 sm:px-8 sm:py-5 md:px-10 md:py-6 rounded-xl sm:rounded-2xl font-bold shadow-2xl hover:shadow-pink-300/50 hover:scale-105 transform transition-all duration-300"
+                        >
+                          <Heart className="h-4 w-4 sm:h-5 sm:w-5 md:h-6 md:w-6 mr-2 sm:mr-3" fill="white" />
+                          Start Dating Now
+                        </Button>
+                        <Button 
+                          variant="outline" 
+                          size="lg"
+                          onClick={handleLearnMoreClick}
+                          className="border-2 border-pink-300/50 text-pink-600 hover:bg-pink-50/80 px-6 py-4 sm:px-8 sm:py-5 md:px-10 md:py-6 rounded-xl sm:rounded-2xl font-semibold text-sm sm:text-base md:text-lg transition-all duration-300 hover:scale-105 glass-effect"
+                        >
+                          <MessageCircle className="h-4 w-4 sm:h-5 sm:w-5 md:h-6 md:w-6 mr-2 sm:mr-3" />
+                          Learn More
+                        </Button>
+                      </div>
+                    </div>
+                    {/* Top Voted Users Carousel */}
+                    <div className="relative flex justify-center lg:justify-end items-center">
+                      <div className="w-full max-w-xs">
+                        <Suspense fallback={
+                          <div className="w-full max-w-xs mx-auto h-[500px] bg-gradient-to-br from-pink-100 to-purple-100 rounded-3xl flex items-center justify-center">
+                            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-pink-500"></div>
+                          </div>
+                        }>
+                          <TopVotedCarousel />
+                        </Suspense>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </section>
+              
               {/* Mobile-First Advanced Filters Section */}
               <div className="mb-3 sm:mb-8 modern-card rounded-xl sm:rounded-3xl shadow-2xl border border-white/30 overflow-hidden backdrop-blur-lg">
                 {/* Mobile-First Filter Header */}

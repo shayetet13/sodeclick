@@ -9,7 +9,7 @@ import {
   Trash2
 } from 'lucide-react';
 import unreadAPI from '../services/unreadAPI';
-import { getProfileImageUrl } from '../utils/profileImageUtils';
+import { getProfileImageUrl, getMainProfileImage } from '../utils/profileImageUtils';
 import { membershipHelpers } from '../services/membershipAPI';
 
 const PrivateChatList = ({ 
@@ -261,10 +261,6 @@ const PrivateChatList = ({
               <div className="font-medium">ระดับ: {membershipHelpers.getTierDisplayName(currentUser.membership?.tier || 'member')}</div>
               <div className="text-sm opacity-80">
                 แชทส่วนตัว {privateChats.length} คน
-                {/* Debug info */}
-                <div className="text-xs opacity-60">
-                  Debug: {privateChats.length} chats, {filteredChats.length} filtered
-                </div>
               </div>
             </div>
           </div>
@@ -278,7 +274,7 @@ const PrivateChatList = ({
             placeholder="ค้นหาผู้ใช้..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full pl-8 sm:pl-10 pr-3 sm:pr-4 py-2 sm:py-2 bg-white/20 border border-white/30 rounded-lg text-white placeholder-white/70 focus:outline-none focus:ring-2 focus:ring-white/50 text-xs sm:text-sm"
+            className="w-full pl-8 sm:pl-10 pr-3 sm:pr-4 py-2 sm:py-2 bg-white/20 border border-white/30 rounded-lg text-white placeholder-white/70 focus:outline-none focus:ring-2 focus:ring-white/50 text-base sm:text-sm"
           />
         </div>
 
@@ -342,21 +338,15 @@ const PrivateChatList = ({
                     <div className="relative">
                       <div className="w-10 h-10 sm:w-12 sm:h-12 bg-gradient-to-br from-pink-400 to-violet-500 rounded-full flex items-center justify-center overflow-hidden">
                         {(() => {
-                          // ใช้ profileImages array แทน profileImageUrl
+                          // ใช้ profileImages array และ getMainProfileImage function
                           const profileImages = chat.otherUser.profileImages || [];
                           const mainImageIndex = chat.otherUser.mainProfileImageIndex || 0;
                           const userId = chat.otherUser._id || chat.otherUser.id;
                           
-                          // ดึงรูปโปรไฟล์หลัก
-                          let mainImageUrl = null;
-                          if (profileImages.length > 0) {
-                            const mainImage = profileImages[mainImageIndex] || profileImages[0];
-                            if (mainImage && !mainImage.startsWith('data:image/svg+xml')) {
-                              mainImageUrl = getProfileImageUrl(mainImage, userId);
-                            }
-                          }
+                          // ดึงรูปโปรไฟล์หลักด้วย getMainProfileImage
+                          let mainImageUrl = getMainProfileImage(profileImages, mainImageIndex, userId);
                           
-                          // ถ้าไม่มีรูป ใช้ fallback เป็น profileImageUrl (backward compatibility)
+                          // ถ้าไม่มีรูปจาก profileImages ใช้ fallback เป็น profileImageUrl (backward compatibility)
                           if (!mainImageUrl && chat.otherUser.profileImageUrl) {
                             mainImageUrl = chat.otherUser.profileImageUrl.startsWith('http') 
                               ? chat.otherUser.profileImageUrl 

@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { getMainProfileImage } from '../utils/profileImageUtils';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from './ui/dialog';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
@@ -201,21 +202,39 @@ const NewPrivateChatModal = ({
                     <div className="flex items-center space-x-3">
                       {/* Avatar */}
                       <div className="relative">
-                        <div className="w-12 h-12 bg-gradient-to-br from-pink-400 to-violet-500 rounded-full flex items-center justify-center">
-                          {user.profileImages?.[0] ? (
-                            <img
-                              src={user.profileImages[0]}
-                              alt={user.displayName || user.firstName}
-                              className="w-12 h-12 rounded-full object-cover"
-                              onError={(e) => {
-                                e.target.style.display = 'none';
-                              }}
-                            />
-                          ) : (
-                            <span className="text-lg font-semibold text-white">
-                              {user.firstName?.[0] || user.displayName?.[0] || '👤'}
-                            </span>
-                          )}
+                        <div className="w-12 h-12 bg-gradient-to-br from-pink-400 to-violet-500 rounded-full flex items-center justify-center overflow-hidden">
+                          {(() => {
+                            const profileImages = user.profileImages || [];
+                            const mainImageIndex = user.mainProfileImageIndex || 0;
+                            const userId = user._id || user.id;
+                            
+                            // ดึงรูปโปรไฟล์หลักด้วย getMainProfileImage
+                            const mainImageUrl = getMainProfileImage(profileImages, mainImageIndex, userId);
+                            
+                            return mainImageUrl ? (
+                              <img
+                                src={mainImageUrl}
+                                alt={user.displayName || user.firstName}
+                                className="w-full h-full rounded-full object-cover object-center"
+                                style={{ objectFit: 'cover', width: '100%', height: '100%' }}
+                                onError={(e) => {
+                                  // ซ่อนรูปที่โหลดไม่ได้และแสดง avatar แทน
+                                  e.target.style.display = 'none';
+                                  const parentDiv = e.target.parentElement;
+                                  if (parentDiv && !parentDiv.querySelector('.fallback-avatar')) {
+                                    const fallbackDiv = document.createElement('span');
+                                    fallbackDiv.className = 'fallback-avatar text-lg font-semibold text-white';
+                                    fallbackDiv.textContent = user.firstName?.[0] || user.displayName?.[0] || '👤';
+                                    parentDiv.appendChild(fallbackDiv);
+                                  }
+                                }}
+                              />
+                            ) : (
+                              <span className="text-lg font-semibold text-white">
+                                {user.firstName?.[0] || user.displayName?.[0] || '👤'}
+                              </span>
+                            );
+                          })()}
                         </div>
                         
                         {/* Online indicator */}

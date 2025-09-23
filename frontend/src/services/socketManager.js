@@ -373,6 +373,13 @@ class SocketManager {
   }
 
   /**
+   * ดึง socket instance
+   */
+  getSocket() {
+    return this.socket;
+  }
+
+  /**
    * ดึง User ID ปัจจุบัน (ต้อง implement ตามระบบ auth)
    */
   getCurrentUserId() {

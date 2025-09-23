@@ -1,7 +1,6 @@
 const express = require('express');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
-const passport = require('passport');
 const User = require('../models/User');
 const { DEFAULT_AVATAR_BASE64 } = require('../config/defaultAvatar');
 const router = express.Router();
@@ -416,43 +415,6 @@ router.post('/login', async (req, res) => {
   }
 });
 
-// Google OAuth routes
-router.get('/google', passport.authenticate('google', {
-  scope: ['profile', 'email']
-}));
-
-router.get('/google/callback', 
-  passport.authenticate('google', { session: false }),
-  async (req, res) => {
-    try {
-      const user = req.user;
-      
-      // Generate token
-      const token = generateToken(user);
-
-      // Update login history
-      if (!user.loginHistory) {
-      user.loginHistory = [];
-    }
-    user.loginHistory.push({
-        timestamp: new Date(),
-        method: 'google',
-        ip: req.ip,
-        userAgent: req.get('User-Agent')
-      });
-      user.lastLogin = new Date();
-      user.lastActive = new Date(); // อัปเดต lastActive เมื่อเข้าสู่ระบบ
-      user.isOnline = true; // ตั้งค่าสถานะออนไลน์
-      await user.save();
-
-      // Redirect to frontend with token
-      res.redirect(`${process.env.FRONTEND_URL}/auth/callback?token=${token}&success=true`);
-    } catch (error) {
-      console.error('Google OAuth callback error:', error);
-      res.redirect(`${process.env.FRONTEND_URL}/auth/callback?success=false&error=oauth_error`);
-    }
-  }
-);
 
 // Phone verification - Send OTP
 router.post('/phone/send-otp', async (req, res) => {
@@ -609,7 +571,15 @@ router.get('/me', async (req, res) => {
     }
 
     const decoded = jwt.verify(token, JWT_SECRET);
+    console.log('🔍 JWT decoded:', { id: decoded.id, email: decoded.email, username: decoded.username });
+    
     const user = await User.findById(decoded.id);
+    console.log('🔍 User found:', { 
+      _id: user?._id, 
+      email: user?.email, 
+      username: user?.username,
+      displayName: user?.displayName,
+    });
 
     if (!user) {
       return res.status(404).json({
@@ -625,10 +595,20 @@ router.get('/me', async (req, res) => {
       });
     }
 
+    const userProfile = user.getPublicProfile();
+    console.log('👤 User profile data being sent:', {
+      _id: userProfile._id,
+      id: userProfile.id,
+      email: userProfile.email,
+      username: userProfile.username,
+      displayName: userProfile.displayName,
+      allKeys: Object.keys(userProfile)
+    });
+
     res.json({
       success: true,
       data: {
-        user: user.getPublicProfile()
+        user: userProfile
       }
     });
 

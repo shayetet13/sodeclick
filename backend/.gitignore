@@ -5,6 +5,12 @@
 .env.test.local
 .env.production.local
 
+# Development environment files with sensitive data
+env.development
+
+# Keep production env file for Railway deployment
+!env.production
+
 # Logs
 logs
 *.log

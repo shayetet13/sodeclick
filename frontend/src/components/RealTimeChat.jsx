@@ -36,6 +36,8 @@ const RealTimeChat = ({ roomId, currentUser, onBack, showWebappNotification }) =
   const [roomInfo, setRoomInfo] = useState(null);
   const [onlineUsers, setOnlineUsers] = useState([]);
   const [onlineCount, setOnlineCount] = useState(0);
+  const [activeChatters, setActiveChatters] = useState(new Set());
+  const [activeChattersCount, setActiveChattersCount] = useState(0);
   const [selectedImage, setSelectedImage] = useState(null);
   const [imagePreview, setImagePreview] = useState(null);
   const [uploadingImage, setUploadingImage] = useState(false);
@@ -46,6 +48,24 @@ const RealTimeChat = ({ roomId, currentUser, onBack, showWebappNotification }) =
   const messagesEndRef = useRef(null);
   const messageInputRef = useRef(null);
   const typingTimeoutRef = useRef(null);
+
+  // อัปเดตจำนวน active chatters เมื่อ activeChatters เปลี่ยน
+  useEffect(() => {
+    setActiveChattersCount(activeChatters.size);
+  }, [activeChatters]);
+
+  // อัปเดต active chatters จากข้อความที่มีอยู่
+  useEffect(() => {
+    if (messages.length > 0) {
+      const chatters = new Set();
+      messages.forEach(message => {
+        if (message.sender && message.sender._id) {
+          chatters.add(message.sender._id);
+        }
+      });
+      setActiveChatters(chatters);
+    }
+  }, [messages]);
   const imageInputRef = useRef(null);
   const messagesContainerRef = useRef(null);
   const hasScrolledToBottomRef = useRef(false);
@@ -114,6 +134,17 @@ const RealTimeChat = ({ roomId, currentUser, onBack, showWebappNotification }) =
 
     // รับข้อความใหม่
     newSocket.on('new-message', (message) => {
+      console.log('📨 New message received:', message);
+      
+      // เพิ่มผู้ส่งข้อความลงในรายการ active chatters
+      if (message.sender && message.sender._id) {
+        setActiveChatters(prev => {
+          const newSet = new Set(prev);
+          newSet.add(message.sender._id);
+          return newSet;
+        });
+      }
+      
       setMessages(prev => [...prev, message]);
       scrollToBottomOnNewMessage();
     });
@@ -927,84 +958,15 @@ const RealTimeChat = ({ roomId, currentUser, onBack, showWebappNotification }) =
               <div>
                 <h3 className="font-semibold text-sm sm:text-lg">{roomInfo.name}</h3>
                 <div className="flex items-center space-x-1 sm:space-x-2 text-xs sm:text-sm text-white/90">
-                  <span>{roomInfo.memberCount} สมาชิก</span>
-                  <span>•</span>
-                  <span className={`flex items-center ${isConnected ? 'text-green-200' : 'text-red-200'}`}>
-                    <div className={`w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full mr-1 ${isConnected ? 'bg-green-200' : 'bg-red-200'}`}></div>
-                    {isConnected ? 'เชื่อมต่อแล้ว' : 'ไม่ได้เชื่อมต่อ'}
-                  </span>
+                  <span>{activeChattersCount} ใช้งานแล้ว</span>
                 </div>
               </div>
             </div>
-            <div className="flex items-center space-x-2">
-              <span className="text-xs sm:text-sm">{onlineCount} ใช้งาน</span>
-              {/* Debug buttons for testing message limits */}
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => {
-                  const now = new Date();
-                  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-                  const dailyUsageKey = `dailyUsage_${currentUser._id}_${today.getTime()}`;
-                  const todayUsage = JSON.parse(localStorage.getItem(dailyUsageKey) || '{"chatCount": 0, "lastReset": null}');
-                  const limits = getUserMembershipLimits(currentUser.membership?.tier || 'member');
-                  
-                  console.log('🔍 Test notification button clicked');
-                  console.log('🔍 showWebappNotification available:', !!showWebappNotification);
-                  if (showWebappNotification) {
-                    showWebappNotification(`ข้อความวันนี้: ${todayUsage.chatCount}/${limits.dailyChats === -1 ? '∞' : limits.dailyChats}`, 'success');
-                  } else {
-                    console.log('❌ showWebappNotification not available');
-                    alert('Test: showWebappNotification not available');
-                  }
-                }}
-                className="text-white hover:bg-white/20 text-xs px-2 py-1"
-              >
-                Count
-              </Button>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => {
-                  const now = new Date();
-                  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-                  const dailyUsageKey = `dailyUsage_${currentUser._id}_${today.getTime()}`;
-                  localStorage.setItem(dailyUsageKey, JSON.stringify({chatCount: 0, lastReset: today.toISOString()}));
-                  if (showWebappNotification) {
-                    showWebappNotification('รีเซ็ตจำนวนข้อความวันนี้แล้ว!', 'success');
-                  }
-                }}
-                className="text-white hover:bg-white/20 text-xs px-2 py-1"
-              >
-                Reset
-              </Button>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => {
-                  const limits = getUserMembershipLimits(currentUser.membership?.tier || 'member');
-                  if (limits.dailyChats !== -1) {
-                    // ตั้งให้เกินขีดจำกัด
-                    const now = new Date();
-                    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-                    const dailyUsageKey = `dailyUsage_${currentUser._id}_${today.getTime()}`;
-                    localStorage.setItem(dailyUsageKey, JSON.stringify({
-                      chatCount: limits.dailyChats,
-                      lastReset: today.toISOString()
-                    }));
-                    if (showWebappNotification) {
-                      showWebappNotification(`ตั้งให้ถึงขีดจำกัดแล้ว! (${limits.dailyChats}/${limits.dailyChats})`, 'warning');
-                    }
-                  } else {
-                    if (showWebappNotification) {
-                      showWebappNotification(`Tier นี้ไม่มีขีดจำกัด (unlimited)`, 'success');
-                    }
-                  }
-                }}
-                className="text-white hover:bg-white/20 text-xs px-2 py-1"
-              >
-                Max Out
-              </Button>
+            <div className="flex items-center">
+              <span className="font-semibold text-sm sm:text-lg flex items-center">
+                <div className={`w-2 h-2 sm:w-2.5 sm:h-2.5 rounded-full mr-2 ${isConnected ? 'bg-green-400' : 'bg-red-400'}`}></div>
+                กำลังใช้งาน {onlineCount}
+              </span>
             </div>
           </div>
         </div>
@@ -1314,7 +1276,7 @@ const RealTimeChat = ({ roomId, currentUser, onBack, showWebappNotification }) =
                   }
                 }}
                 placeholder={editingMessage ? 'แก้ไขข้อความ...' : 'พิมพ์ข้อความ...'}
-                className="w-full px-3 sm:px-4 py-2 border border-gray-300 rounded-full focus:outline-none focus:ring-2 focus:ring-pink-500 focus:border-transparent text-sm sm:text-base"
+                className="w-full px-3 sm:px-4 py-2 border border-gray-300 rounded-full focus:outline-none focus:ring-2 focus:ring-pink-500 focus:border-transparent text-base sm:text-base"
                 disabled={!isConnected}
               />
 
@@ -1337,13 +1299,52 @@ const RealTimeChat = ({ roomId, currentUser, onBack, showWebappNotification }) =
               )}
             </div>
 
-            <Button
-              onClick={handleSendMessage}
-              disabled={(!newMessage.trim() && !selectedImage) || !isConnected}
-              className="bg-gradient-to-r from-pink-500 to-violet-500 hover:from-pink-600 hover:to-violet-600 text-white rounded-full p-1.5 sm:p-2 disabled:opacity-50 disabled:cursor-not-allowed"
+            <button
+              onClick={() => {
+                console.log('Send button clicked!', { 
+                  newMessage: newMessage.trim(), 
+                  isConnected,
+                  messageLength: newMessage.length 
+                });
+                if (newMessage.trim()) {
+                  handleSendMessage();
+                }
+              }}
+              disabled={!newMessage.trim()}
+              style={{
+                minWidth: '40px',
+                minHeight: '40px',
+                borderRadius: '50%',
+                border: 'none',
+                outline: 'none',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                fontSize: '14px',
+                fontWeight: '500',
+                transition: 'all 0.2s ease',
+                cursor: newMessage.trim() ? 'pointer' : 'not-allowed',
+                backgroundColor: newMessage.trim() ? '#ec4899' : '#9ca3af',
+                color: 'white',
+                opacity: newMessage.trim() ? '1' : '0.6',
+                boxShadow: newMessage.trim() ? '0 4px 6px -1px rgba(0, 0, 0, 0.1)' : 'none'
+              }}
+              onMouseEnter={(e) => {
+                if (newMessage.trim()) {
+                  e.target.style.backgroundColor = '#be185d';
+                  e.target.style.transform = 'scale(1.05)';
+                }
+              }}
+              onMouseLeave={(e) => {
+                if (newMessage.trim()) {
+                  e.target.style.backgroundColor = '#ec4899';
+                  e.target.style.transform = 'scale(1)';
+                }
+              }}
+              title={!newMessage.trim() ? 'กรุณาพิมพ์ข้อความ' : 'ส่งข้อความ'}
             >
               <Send className="h-4 w-4 sm:h-5 sm:w-5" />
-            </Button>
+            </button>
           </div>
         </div>
       </div>

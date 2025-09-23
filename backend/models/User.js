@@ -26,28 +26,10 @@ const userSchema = new mongoose.Schema({
   },
   password: { 
     type: String, 
-    required: function() { return !this.googleId && !this.phone; }, // Required only if not social login
+    required: function() { return !this.phone; }, // Required only if not phone login
     minlength: 6
   },
   
-  // Social Login
-  googleId: {
-    type: String,
-    unique: true,
-    sparse: true
-  },
-  googleEmail: {
-    type: String,
-    sparse: true
-  },
-  googleName: {
-    type: String,
-    sparse: true
-  },
-  googlePicture: {
-    type: String,
-    sparse: true
-  },
   
   // Phone Verification
   phoneVerified: {
@@ -317,7 +299,7 @@ const userSchema = new mongoose.Schema({
   },
   loginHistory: [{
     timestamp: { type: Date, default: Date.now },
-    method: { type: String, enum: ['email', 'google', 'phone'] },
+    method: { type: String, enum: ['email', 'phone'] },
     ip: String,
     userAgent: String
   }],
@@ -425,7 +407,6 @@ userSchema.methods.updateLastActive = function() {
 userSchema.methods.getPublicProfile = function() {
   const userObject = this.toObject();
   delete userObject.password;
-  delete userObject.googleId;
   delete userObject.phoneVerificationCode;
   delete userObject.phoneVerificationExpires;
   delete userObject.loginHistory;

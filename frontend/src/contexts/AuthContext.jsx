@@ -51,9 +51,14 @@ export const AuthProvider = ({ children }) => {
   }, []);
 
   const login = (userData) => {
-    setUser(userData.user || userData);
+    console.log('🔍 AuthContext login called with:', userData);
+    const userToSet = userData.user || userData;
+    console.log('🔍 User to set:', userToSet);
+    console.log('🔍 User ID in userToSet:', userToSet._id || userToSet.id || userToSet.userId);
+    
+    setUser(userToSet);
     sessionStorage.setItem('token', userData.token || userData.data?.token);
-    sessionStorage.setItem('user', JSON.stringify(userData.user || userData));
+    sessionStorage.setItem('user', JSON.stringify(userToSet));
     
     // Trigger GPS location update when user logs in (one-time only)
     if (navigator.geolocation) {

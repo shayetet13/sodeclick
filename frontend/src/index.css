@@ -81,6 +81,37 @@
   }
 }
 
+/* Prevent zoom on input focus - Mobile Safari */
+@supports (-webkit-touch-callout: none) {
+  input[type="text"],
+  input[type="email"],
+  input[type="password"],
+  input[type="search"],
+  input[type="tel"],
+  input[type="url"],
+  input[type="number"],
+  textarea,
+  select {
+    font-size: 16px !important;
+    transform: translateZ(0);
+  }
+}
+
+/* Prevent zoom on input focus - General mobile browsers */
+@media screen and (max-width: 768px) {
+  input[type="text"],
+  input[type="email"],
+  input[type="password"],
+  input[type="search"],
+  input[type="tel"],
+  input[type="url"],
+  input[type="number"],
+  textarea,
+  select {
+    font-size: 16px !important;
+  }
+}
+
 :root {
   /* Modern Dating Theme Colors */
   --primary-pink: #ff6b9d;

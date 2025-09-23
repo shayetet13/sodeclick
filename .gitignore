@@ -9,6 +9,13 @@ node_modules/
 .env.test.local
 .env.production.local
 
+# Development environment files with sensitive data
+backend/env.development
+backend/env.production
+
+# Keep production env file for Railway deployment
+!backend/env.production
+
 # Logs
 logs
 *.log
