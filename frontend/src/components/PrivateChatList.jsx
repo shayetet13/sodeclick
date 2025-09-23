@@ -17,6 +17,7 @@ const PrivateChatList = ({
   onSelectChat, 
   onCreateNewChat,
   onDeleteChat,
+  onRefresh,
   privateChats = [],
   isLoading = false,
   showWebappNotification = null // เพิ่ม prop สำหรับ webapp notification
@@ -39,7 +40,7 @@ const PrivateChatList = ({
     }
   }, [currentUser?._id]);
 
-  // จัดการ real-time updates สำหรับ unread count
+  // จัดการ real-time updates สำหรับ unread count และ chat list refresh
   useEffect(() => {
     if (!currentUser?._id) return;
 
@@ -52,14 +53,27 @@ const PrivateChatList = ({
       }));
     };
 
-    // เพิ่ม event listener
+    // สร้าง event listener สำหรับ chat list refresh
+    const handleChatListRefresh = (event) => {
+      const { recipientId } = event.detail;
+      if (recipientId === currentUser._id) {
+        console.log('🔄 Refreshing private chat list due to new message');
+        if (onRefresh) {
+          onRefresh(); // เรียกฟังก์ชัน refresh ที่ส่งมาจาก parent component
+        }
+      }
+    };
+
+    // เพิ่ม event listeners
     window.addEventListener('unread-count-update', handleUnreadCountUpdate);
+    window.addEventListener('refresh-private-chat-list', handleChatListRefresh);
 
     // Cleanup
     return () => {
       window.removeEventListener('unread-count-update', handleUnreadCountUpdate);
+      window.removeEventListener('refresh-private-chat-list', handleChatListRefresh);
     };
-  }, [currentUser?._id]);
+  }, [currentUser?._id, onRefresh]);
 
   // ฟังก์ชันดึงข้อมูล unread count
   const fetchUnreadCounts = async () => {

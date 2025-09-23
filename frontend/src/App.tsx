@@ -905,6 +905,24 @@ function App() {
     }
   };
 
+  // ฟังก์ชันอัปเดตรายการแชทฝั่งผู้รับเมื่อมีข้อความใหม่
+  const updateRecipientChatList = async (chatId, message, senderId) => {
+    try {
+      console.log('🔄 Updating recipient chat list for chat:', chatId);
+      
+      // ส่ง notification ไปยังผู้รับข้อความ
+      if (window.socketManager && window.socketManager.socket) {
+        window.socketManager.socket.emit('update-recipient-chat-list', {
+          chatId,
+          message,
+          senderId
+        });
+      }
+    } catch (error) {
+      console.error('❌ Error updating recipient chat list:', error);
+    }
+  };
+
   // ฟังก์ชันสร้างแชทส่วนตัวใหม่ผ่าน API
   const createPrivateChat = async (otherUser: any) => {
     if (!user) return null;
@@ -2038,70 +2056,156 @@ function App() {
 
 
 
-  const handleSendPrivateMessage = async (content: string, file?: File, socketMessage?: any, messageType?: string) => {
+  const handleSendPrivateMessage = async (messageData: any) => {
     if (!selectedPrivateChat || !user) return;
     
     console.log('📤 handleSendPrivateMessage called:', {
-      content,
-      hasFile: !!file,
-      hasSocketMessage: !!socketMessage,
-      messageType,
+      messageData,
       selectedPrivateChat: selectedPrivateChat,
       chatId: selectedPrivateChat.id
     });
     
-    // ถ้าเป็นข้อความชั่วคราว (temp-message) ให้แสดงใน UI ทันที
-    if (messageType === 'temp-message' && socketMessage) {
-      console.log('📨 Received temporary message:', socketMessage);
-      
-      // อัปเดตแชทที่เลือกด้วยข้อความชั่วคราว
-      setSelectedPrivateChat((prev: any) => {
-        const existingMessages = prev.messages || [];
-        // ตรวจสอบว่ามีข้อความนี้อยู่แล้วหรือไม่
-        const isDuplicate = existingMessages.some((msg: any) => 
-          msg._id === socketMessage._id || 
-          (msg.content === socketMessage.content && msg.senderId === socketMessage.senderId && msg.isTemporary)
-        );
-        
-        if (isDuplicate) {
-          console.log('📨 Duplicate temp message detected, skipping');
-          return prev;
+    // สร้างข้อความชั่วคราวเพื่อแสดงใน UI ทันที
+    const tempMessage = {
+      _id: `temp-${Date.now()}-${Math.random()}`,
+      content: messageData.content,
+      senderId: user._id || user.id,
+      sender: {
+        _id: user._id || user.id,
+        username: user.username,
+        displayName: user.displayName || user.firstName,
+        profileImages: user.profileImages || []
+      },
+      chatRoomId: selectedPrivateChat.id,
+      createdAt: new Date().toISOString(),
+      isTemporary: true,
+      isDelivered: false,
+      replyTo: messageData.replyTo,
+      image: messageData.image
+    };
+
+    // แสดงข้อความชั่วคราวใน UI ทันที
+    setSelectedPrivateChat((prev: any) => ({
+      ...prev,
+      messages: [...(prev.messages || []), tempMessage],
+      lastMessage: tempMessage
+    }));
+
+    // อัปเดตรายการแชทด้วยข้อความชั่วคราว
+    setPrivateChats(prev => {
+      const updatedChats = prev.map(chat => {
+        if (chat.id === selectedPrivateChat.id) {
+          return { 
+            ...chat, 
+            messages: [...(chat.messages || []), tempMessage], 
+            lastMessage: tempMessage 
+          };
         }
-        
-        return {
-          ...prev,
-          messages: [...existingMessages, socketMessage],
-          lastMessage: socketMessage
-        };
+        return chat;
       });
+      saveChatsToStorage(updatedChats);
+      return updatedChats;
+    });
+    
+    // ส่งข้อความไปยัง backend
+    try {
+      const response = await fetch(`${import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000'}/api/messages`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${sessionStorage.getItem('token')}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          content: messageData.content,
+          senderId: user._id || user.id,
+          chatRoomId: selectedPrivateChat.id,
+          messageType: 'text',
+          replyToId: messageData.replyTo || null
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const result = await response.json();
+      console.log('✅ Message sent to backend successfully:', result);
       
-      // อัปเดตรายการแชทด้วยข้อความชั่วคราว
+      // อัปเดตข้อความด้วย ID จาก backend และข้อมูล sender ที่ถูกต้อง
+      if (result.success && result.data) {
+        const updatedMessage = {
+          ...tempMessage,
+          _id: result.data._id,
+          isDelivered: true,
+          isTemporary: false,
+          senderId: user._id || user.id,
+          sender: result.data.sender || {
+            _id: user._id || user.id,
+            username: user.username,
+            displayName: user.displayName || user.firstName,
+            profileImages: user.profileImages || []
+          }
+        };
+
+        // แทนที่ข้อความชั่วคราวด้วยข้อความจริง
+        setSelectedPrivateChat((prev: any) => ({
+          ...prev,
+          messages: prev.messages.map((msg: any) => 
+            msg._id === tempMessage._id ? updatedMessage : msg
+          ),
+          lastMessage: updatedMessage
+        }));
+
+        // อัปเดตรายการแชทด้วยข้อความจริง
+        setPrivateChats(prev => {
+          const updatedChats = prev.map(chat => {
+            if (chat.id === selectedPrivateChat.id) {
+              return {
+                ...chat,
+                messages: chat.messages.map((msg: any) => 
+                  msg._id === tempMessage._id ? updatedMessage : msg
+                ),
+                lastMessage: updatedMessage
+              };
+            }
+            return chat;
+          });
+          saveChatsToStorage(updatedChats);
+          return updatedChats;
+        });
+      }
+    } catch (error) {
+      console.error('Error sending message to backend:', error);
+      
+      // แสดงข้อความ error ใน UI
+      if (showWebappNotification) {
+        showWebappNotification('ไม่สามารถส่งข้อความได้ กรุณาลองใหม่อีกครั้ง', 'error');
+      }
+      
+      // ลบข้อความชั่วคราวออก
+      setSelectedPrivateChat((prev: any) => ({
+        ...prev,
+        messages: prev.messages.filter((msg: any) => msg._id !== tempMessage._id)
+      }));
+
       setPrivateChats(prev => {
         const updatedChats = prev.map(chat => {
           if (chat.id === selectedPrivateChat.id) {
-            const existingMessages = chat.messages || [];
-            // ตรวจสอบ duplicate
-            const isDuplicate = existingMessages.some((msg: any) => 
-              msg._id === socketMessage._id || 
-              (msg.content === socketMessage.content && msg.senderId === socketMessage.senderId && msg.isTemporary)
-            );
-            
-            if (!isDuplicate) {
-              return { ...chat, messages: [...existingMessages, socketMessage], lastMessage: socketMessage };
-            }
+            return {
+              ...chat,
+              messages: chat.messages.filter((msg: any) => msg._id !== tempMessage._id)
+            };
           }
           return chat;
         });
         saveChatsToStorage(updatedChats);
         return updatedChats;
       });
-      
-      return; // ไม่ต้องส่งไปยัง API เพราะเป็นข้อความชั่วคราว
     }
-    
+
     // ถ้าเป็นข้อความของตัวเองจาก Socket.IO ให้แทนที่ข้อความชั่วคราว
-    if (socketMessage && messageType === 'own-message') {
-      console.log('📨 Received own message from Socket.IO:', socketMessage);
+    if (messageData.socketMessage && messageData.messageType === 'own-message') {
+      console.log('📨 Received own message from Socket.IO:', messageData.socketMessage);
       
       // อัปเดตแชทที่เลือกด้วยข้อความจริงแทนที่ข้อความชั่วคราว
       setSelectedPrivateChat((prev: any) => {
@@ -2109,8 +2213,8 @@ function App() {
         
         // ตรวจสอบว่ามีข้อความนี้อยู่แล้วหรือไม่ (อาจมาจาก custom event)
         const isDuplicate = existingMessages.some((msg: any) => 
-          msg._id === socketMessage._id || 
-          (msg.content === socketMessage.content && msg.senderId === socketMessage.senderId && !msg.isTemporary)
+          msg._id === messageData.socketMessage._id || 
+          (msg.content === messageData.socketMessage.content && msg.senderId === messageData.socketMessage.senderId && !msg.isTemporary)
         );
         
         if (isDuplicate) {
@@ -2121,10 +2225,10 @@ function App() {
         const updatedMessages = existingMessages.map((msg: any) => {
           // หาข้อความชั่วคราวที่มีเนื้อหาเดียวกันและเป็นของตัวเอง
           if (msg.isTemporary && 
-              msg.content === socketMessage.content && 
-              msg.senderId === socketMessage.senderId) {
+              msg.content === messageData.socketMessage.content && 
+              msg.senderId === messageData.socketMessage.senderId) {
             console.log('📨 Replacing temporary message with real message');
-            return socketMessage; // แทนที่ข้อความชั่วคราวด้วยข้อความจริง
+            return messageData.socketMessage; // แทนที่ข้อความชั่วคราวด้วยข้อความจริง
           }
           return msg;
         }).filter((msg: any, index: number, arr: any[]) => {
@@ -2135,7 +2239,7 @@ function App() {
         return {
           ...prev,
           messages: updatedMessages,
-          lastMessage: socketMessage
+          lastMessage: messageData.socketMessage
         };
       });
       
@@ -2146,14 +2250,14 @@ function App() {
             const updatedMessages = chat.messages?.map((msg: any) => {
               // หาข้อความชั่วคราวที่มีเนื้อหาเดียวกันและเป็นของตัวเอง
               if (msg.isTemporary && 
-                  msg.content === socketMessage.content && 
-                  msg.senderId === socketMessage.senderId) {
-                return socketMessage; // แทนที่ข้อความชั่วคราวด้วยข้อความจริง
+                  msg.content === messageData.socketMessage.content && 
+                  msg.senderId === messageData.socketMessage.senderId) {
+                return messageData.socketMessage; // แทนที่ข้อความชั่วคราวด้วยข้อความจริง
               }
               return msg;
             }) || [];
             
-            return { ...chat, messages: updatedMessages, lastMessage: socketMessage };
+            return { ...chat, messages: updatedMessages, lastMessage: messageData.socketMessage };
           }
           return chat;
         });
@@ -2165,15 +2269,15 @@ function App() {
     }
     
     // ถ้าเป็นข้อความจาก Socket.IO ให้ใช้ข้อมูลจาก Socket.IO
-    if (socketMessage && messageType === 'socket-message') {
-      console.log('📨 Received message from Socket.IO:', socketMessage);
+    if (messageData.socketMessage && messageData.messageType === 'socket-message') {
+      console.log('📨 Received message from Socket.IO:', messageData.socketMessage);
       
       // ตรวจสอบว่าข้อความนี้มีอยู่แล้วหรือไม่ (เพื่อป้องกัน duplicate)
       const messageExists = selectedPrivateChat.messages?.some((msg: any) => 
-        msg._id === socketMessage._id || 
-        (msg.content === socketMessage.content && 
-         msg.senderId === socketMessage.senderId && 
-         Math.abs(new Date(msg.timestamp).getTime() - new Date(socketMessage.timestamp).getTime()) < 1000)
+        msg._id === messageData.socketMessage._id || 
+        (msg.content === messageData.socketMessage.content && 
+         msg.senderId === messageData.socketMessage.senderId && 
+         Math.abs(new Date(msg.timestamp).getTime() - new Date(messageData.socketMessage.timestamp).getTime()) < 1000)
       );
       
       if (messageExists) {
@@ -2184,15 +2288,15 @@ function App() {
       // อัปเดตแชทที่เลือกด้วยข้อความจาก Socket.IO
       setSelectedPrivateChat((prev: any) => ({
         ...prev,
-        messages: [...(prev.messages || []), socketMessage],
-        lastMessage: socketMessage
+        messages: [...(prev.messages || []), messageData.socketMessage],
+        lastMessage: messageData.socketMessage
       }));
       
       // อัปเดตรายการแชทด้วยข้อความจาก Socket.IO
       setPrivateChats(prev => {
         const updatedChats = prev.map(chat => 
           chat.id === selectedPrivateChat.id 
-            ? { ...chat, messages: [...(chat.messages || []), socketMessage], lastMessage: socketMessage }
+            ? { ...chat, messages: [...(chat.messages || []), messageData.socketMessage], lastMessage: messageData.socketMessage }
             : chat
         );
         saveChatsToStorage(updatedChats);
@@ -2202,55 +2306,9 @@ function App() {
       return; // ไม่ต้องส่งไปยัง API เพราะส่งผ่าน Socket.IO แล้ว
     }
     
-    // สร้างข้อความใหม่สำหรับการส่งผ่าน API
-    const tempId = `msg_${Date.now()}`;
-    const newMessage = {
-      _id: tempId,
-      content: content,
-      senderId: user._id || user.id,
-      timestamp: new Date(),
-      fileUrl: file ? URL.createObjectURL(file) : null,
-      fileType: file ? file.type : null,
-      isRead: false,
-      isDelivered: false, // เริ่มต้นยังไม่ส่ง
-      isTemporary: true // ข้อความชั่วคราว
-    };
-    
-    console.log('💬 Sending private message via API:', newMessage);
+    // ใช้ข้อความชั่วคราวที่สร้างไว้แล้ว
+    console.log('💬 Sending private message via API:', tempMessage);
     console.log('🔍 Selected chat:', selectedPrivateChat.id);
-    
-    // อัปเดตแชทที่เลือก
-    setSelectedPrivateChat((prev: any) => ({
-      ...prev,
-      messages: [...(prev.messages || []), newMessage],
-      lastMessage: newMessage
-    }));
-    
-    // อัปเดตรายการแชท
-    setPrivateChats(prev => {
-      const updatedChats = prev.map(chat => 
-        chat.id === selectedPrivateChat.id 
-          ? { ...chat, messages: [...(chat.messages || []), newMessage], lastMessage: newMessage }
-          : chat
-      );
-      console.log('📝 Updated chats with new message:', updatedChats.length);
-      console.log('🔍 Message added to chat:', selectedPrivateChat.id);
-      // บันทึกข้อมูลที่อัปเดตแล้วลง localStorage
-      saveChatsToStorage(updatedChats);
-      
-      // ตรวจสอบว่าข้อมูลถูกบันทึกจริงหรือไม่
-      setTimeout(() => {
-        const verification = localStorage.getItem('privateChats');
-        if (verification) {
-          const parsed = JSON.parse(verification);
-          console.log('✅ Message saved successfully, total chats:', parsed.length);
-        } else {
-          console.error('❌ Failed to save message to localStorage');
-        }
-      }, 100);
-      
-      return updatedChats;
-    });
     
     // ส่งข้อความไปยัง backend ผ่าน API
     try {
@@ -2270,10 +2328,11 @@ function App() {
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({
-          content: content,
+          content: messageData.content,
           senderId: user._id || user.id,
           chatRoomId: selectedPrivateChat.id,
-          messageType: 'text'
+          messageType: 'text',
+          replyToId: messageData.replyTo || null
         })
       });
 
@@ -2286,8 +2345,61 @@ function App() {
       
       // อัปเดตข้อความด้วย ID จาก backend และข้อมูล sender ที่ถูกต้อง
       if (result.success && result.data) {
+        // ส่ง notification ไปยังผู้รับข้อความ (ถ้ามี Socket.IO)
+        if (window.socketManager && window.socketManager.socket) {
+          const otherUser = selectedPrivateChat.otherUser || selectedPrivateChat.participants?.find(p => p._id !== user._id);
+          if (otherUser) {
+            window.socketManager.socket.emit('private-message-sent', {
+              chatId: selectedPrivateChat.id,
+              message: result.data,
+              recipientId: otherUser._id,
+              senderId: user._id
+            });
+          }
+        }
+        
+        // อัปเดตรายการแชทฝั่งผู้รับ
+        const otherUser = selectedPrivateChat.otherUser || selectedPrivateChat.participants?.find(p => p._id !== user._id);
+        if (otherUser) {
+          await updateRecipientChatList(selectedPrivateChat.id, result.data, user._id);
+          
+          // ส่ง API call ไปยัง backend เพื่ออัปเดตรายการแชทฝั่งผู้รับ
+          try {
+            const updateResponse = await fetch(`${import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000'}/api/messages/update-recipient-chat-list`, {
+              method: 'POST',
+              headers: {
+                'Authorization': `Bearer ${sessionStorage.getItem('token')}`,
+                'Content-Type': 'application/json'
+              },
+              body: JSON.stringify({
+                chatId: selectedPrivateChat.id,
+                message: result.data,
+                senderId: user._id,
+                recipientId: otherUser._id
+              })
+            });
+            
+            if (updateResponse.ok) {
+              console.log('✅ Recipient chat list updated successfully');
+            } else {
+              console.error('❌ Failed to update recipient chat list');
+            }
+          } catch (error) {
+            console.error('❌ Error updating recipient chat list:', error);
+          }
+
+          // ส่ง notification ไปยังผู้รับข้อความ
+          if (window.socketManager && window.socketManager.socket) {
+            window.socketManager.socket.emit('private-chat-notification', {
+              senderId: user._id,
+              recipientId: otherUser._id,
+              message: result.data
+            });
+          }
+        }
+        
         const updatedMessage = {
-          ...newMessage,
+          ...tempMessage,
           _id: result.data._id,
           isDelivered: true,
           isTemporary: false, // ไม่ใช่ข้อความชั่วคราวแล้ว
@@ -2302,7 +2414,7 @@ function App() {
         setSelectedPrivateChat((prev: any) => ({
           ...prev,
           messages: prev.messages.map((msg: any) => 
-            msg._id === newMessage._id 
+            msg._id === tempMessage._id 
               ? updatedMessage
               : msg
           )
@@ -2314,7 +2426,7 @@ function App() {
               ? {
                   ...chat, 
                   messages: chat.messages.map((msg: any) => 
-                    msg._id === newMessage._id 
+                    msg._id === tempMessage._id 
                       ? updatedMessage
                       : msg
                   ),
@@ -2459,6 +2571,52 @@ function App() {
       if (socket) {
         console.log('🔌 Setting up new-private-chat listener on socket:', socket.id);
         socket.on('new-private-chat', handleNewPrivateChat);
+        
+        // ฟัง event สำหรับการรีเฟรชรายการแชทฝั่งผู้รับ
+        socket.on('refresh-private-chat-list', (data) => {
+          console.log('🔄 Received refresh-private-chat-list event:', data);
+          const { recipientId, chatId, message, senderId } = data;
+          
+          // ตรวจสอบว่าเป็นผู้รับหรือไม่
+          if (recipientId === user?._id) {
+            console.log('🎯 This user is the recipient, refreshing chat list');
+            
+            // ส่ง custom event ไปยัง PrivateChatList component
+            window.dispatchEvent(new CustomEvent('refresh-private-chat-list', {
+              detail: { recipientId, chatId, message, senderId }
+            }));
+            
+            // รีเฟรชรายการแชทส่วนตัว
+            setTimeout(() => {
+              fetchPrivateChats();
+            }, 500);
+          }
+        });
+
+        // ฟัง event สำหรับ real-time notifications
+        socket.on('newNotification', (notification) => {
+          console.log('🔔 Received new notification:', notification);
+          
+          // ตรวจสอบว่าเป็น notification สำหรับผู้ใช้ปัจจุบันหรือไม่
+          if (notification.recipientId === user?._id) {
+            console.log('🎯 This notification is for current user');
+            
+            // อัปเดต notifications state
+            setNotifications(prev => [notification, ...prev]);
+            setUnreadCount(prev => prev + 1);
+            
+            // แสดง webapp notification
+            if (showWebappNotification) {
+              showWebappNotification(notification.message, 'info');
+            }
+            
+            // ส่ง custom event ไปยัง components อื่นๆ
+            window.dispatchEvent(new CustomEvent('newNotification', {
+              detail: notification
+            }));
+          }
+        });
+        
         return socket;
       }
       return null;
@@ -4191,6 +4349,7 @@ function App() {
                           onSelectChat={handleSelectPrivateChat}
                           onCreateNewChat={() => setShowNewPrivateChatModal(true)}
                           onDeleteChat={handleDeletePrivateChat}
+                          onRefresh={fetchPrivateChats}
                           privateChats={privateChats}
                           isLoading={false}
                           showWebappNotification={showWebappNotification}
@@ -4198,17 +4357,14 @@ function App() {
                       ) : (
                         <PrivateChat
                           currentUser={user}
-                          otherUser={selectedPrivateChat?.otherUser}
-                          onBack={handleBackToPrivateChatList}
+                          selectedChat={selectedPrivateChat}
                           onSendMessage={handleSendPrivateMessage}
+                          onClose={handleBackToPrivateChatList}
                           messages={selectedPrivateChat?.messages || []}
                           isLoading={false}
-                          isOtherUserTyping={false}
-                          onSimulateTyping={() => {}}
-                          onSimulateRead={() => {}}
-                          onMessageRead={handleMessageRead}
-                          chatRoomId={selectedPrivateChat?.id}
-                          showWebappNotification={showWebappNotification}
+                          isTyping={false}
+                          onTyping={() => {}}
+                          onStopTyping={() => {}}
                         />
                       )
                     )}

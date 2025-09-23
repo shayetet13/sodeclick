@@ -151,12 +151,8 @@ router.post('/', upload.array('attachments', 5), async (req, res) => {
       });
     }
 
-    // ตรวจสอบว่าผู้ส่งและห้องแชทมีอยู่จริง
-    const [sender, chatRoom] = await Promise.all([
-      User.findById(senderId),
-      ChatRoom.findById(chatRoomId)
-    ]);
-
+    // ตรวจสอบว่าผู้ส่งมีอยู่จริง
+    const sender = await User.findById(senderId);
     if (!sender) {
       return res.status(404).json({
         success: false,
@@ -164,19 +160,28 @@ router.post('/', upload.array('attachments', 5), async (req, res) => {
       });
     }
 
-    if (!chatRoom) {
-      return res.status(404).json({
-        success: false,
-        message: 'Chat room not found'
-      });
-    }
+    // ตรวจสอบว่าเป็น private chat หรือไม่
+    let chatRoom = null;
+    if (chatRoomId.startsWith('private_')) {
+      // สำหรับ private chat ไม่ต้องตรวจสอบ ChatRoom
+      console.log('🔒 Processing private chat message:', chatRoomId);
+    } else {
+      // สำหรับ ChatRoom ปกติ
+      chatRoom = await ChatRoom.findById(chatRoomId);
+      if (!chatRoom) {
+        return res.status(404).json({
+          success: false,
+          message: 'Chat room not found'
+        });
+      }
 
-    // ตรวจสอบว่าผู้ส่งเป็นสมาชิกของห้องหรือไม่
-    if (!chatRoom.isMember(senderId)) {
-      return res.status(403).json({
-        success: false,
-        message: 'You are not a member of this chat room'
-      });
+      // ตรวจสอบว่าผู้ส่งเป็นสมาชิกของห้องหรือไม่
+      if (!chatRoom.isMember(senderId)) {
+        return res.status(403).json({
+          success: false,
+          message: 'You are not a member of this chat room'
+        });
+      }
     }
 
     // ตรวจสอบข้อจำกัดการส่งข้อความตาม membership
@@ -217,15 +222,17 @@ router.post('/', upload.array('attachments', 5), async (req, res) => {
 
     await message.save();
 
-    // อัปเดตสถิติห้องแชทและผู้ใช้
-    chatRoom.stats.totalMessages += 1;
-    chatRoom.lastActivity = new Date();
+    // อัปเดตสถิติผู้ใช้
     sender.dailyUsage.chatCount += 1;
 
-    await Promise.all([
-      chatRoom.save(),
-      sender.save()
-    ]);
+    // อัปเดตสถิติห้องแชท (เฉพาะ ChatRoom ปกติ)
+    if (chatRoom) {
+      chatRoom.stats.totalMessages += 1;
+      chatRoom.lastActivity = new Date();
+      await chatRoom.save();
+    }
+
+    await sender.save();
 
     // Populate ข้อมูลก่อนส่งกลับ
     await message.populate([
@@ -798,6 +805,79 @@ router.post('/create-private-chat', async (req, res) => {
 
   } catch (error) {
     console.error('Error creating private chat:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error',
+      error: error.message
+    });
+  }
+});
+
+// POST /api/messages/update-recipient-chat-list - อัปเดตรายการแชทฝั่งผู้รับ
+router.post('/update-recipient-chat-list', async (req, res) => {
+  try {
+    const { chatId, message, senderId, recipientId } = req.body;
+    
+    if (!chatId || !message || !senderId || !recipientId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Missing required fields'
+      });
+    }
+
+    console.log('🔄 Updating recipient chat list:', { chatId, senderId, recipientId });
+
+    // ตรวจสอบว่าผู้ใช้ทั้งสองมีอยู่จริง
+    const [sender, recipient] = await Promise.all([
+      User.findById(senderId),
+      User.findById(recipientId)
+    ]);
+
+    if (!sender || !recipient) {
+      return res.status(404).json({
+        success: false,
+        message: 'Sender or recipient not found'
+      });
+    }
+
+    // สร้าง private chat ID สำหรับผู้รับ (สลับลำดับ user IDs)
+    const sortedUserIds = [senderId, recipientId].sort();
+    const recipientChatId = `private_${sortedUserIds[0]}_${sortedUserIds[1]}`;
+
+    console.log('📋 Recipient chat ID:', recipientChatId);
+
+    // ตรวจสอบว่ามีข้อความใน private chat นี้อยู่แล้วหรือไม่
+    const existingMessages = await Message.find({
+      chatRoom: recipientChatId
+    }).limit(1);
+
+    if (existingMessages.length === 0) {
+      console.log('📝 Creating new private chat for recipient');
+      // สร้างข้อความแรกใน private chat สำหรับผู้รับ
+      const firstMessage = new Message({
+        content: message.content || '',
+        sender: senderId,
+        chatRoom: recipientChatId,
+        messageType: message.messageType || 'text',
+        attachments: message.attachments || [],
+        replyTo: message.replyTo || null
+      });
+
+      await firstMessage.save();
+      console.log('✅ First message created for recipient');
+    }
+
+    res.status(200).json({
+      success: true,
+      message: 'Recipient chat list updated successfully',
+      data: {
+        chatId: recipientChatId,
+        message: message
+      }
+    });
+
+  } catch (error) {
+    console.error('Error updating recipient chat list:', error);
     res.status(500).json({
       success: false,
       message: 'Internal server error',

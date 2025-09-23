@@ -1598,6 +1598,19 @@ io.on('connection', (socket) => {
       // ส่งข้อความไปยังสมาชิกทุกคนในห้อง
       io.to(chatRoomId).emit('new-message', message);
       
+      // ส่ง notification ไปยังเจ้าของข้อความเดิมเมื่อมีคนตอบกลับ
+      if (replyToId) {
+        const originalMessage = await Message.findById(replyToId);
+        if (originalMessage && originalMessage.sender.toString() !== senderId) {
+          io.emit('public-chat-reply-notification', {
+            messageId: message._id,
+            userId: senderId,
+            originalMessageOwnerId: originalMessage.sender.toString(),
+            roomId: chatRoomId
+          });
+        }
+      }
+      
       // ส่งข้อมูล unread count ให้สมาชิกทุกคนในห้อง
       const members = chatRoom.members.map(member => member.user.toString());
       for (const memberId of members) {
@@ -1683,6 +1696,15 @@ io.on('connection', (socket) => {
         stats: message.stats,
         action: finalAction
       });
+
+      // ส่ง notification ไปยังเจ้าของข้อความเมื่อมีคนกดหัวใจ
+      if (finalAction === 'added' && reactionType === 'heart') {
+        io.emit('heart-notification', {
+          messageId: message._id,
+          userId,
+          messageOwnerId: message.sender.toString()
+        });
+      }
       
     } catch (error) {
       console.error('Error reacting to message:', error);
@@ -1909,6 +1931,270 @@ io.on('connection', (socket) => {
           console.log(`🔴 User ${userId} disconnected from room ${roomId}`);
         }
       }
+    }
+  });
+
+  // อัปเดตรายการแชทฝั่งผู้รับ
+  socket.on('update-recipient-chat-list', async (data) => {
+    try {
+      console.log('🔄 Update recipient chat list event received:', data);
+      const { chatId, message, senderId } = data;
+      
+      if (!chatId || !message || !senderId) {
+        console.warn('⚠️ Missing required data for update-recipient-chat-list');
+        return;
+      }
+
+      // หา recipient ID จาก chatId (format: private_userId1_userId2)
+      const chatParts = chatId.split('_');
+      if (chatParts.length >= 3) {
+        const userId1 = chatParts[1];
+        const userId2 = chatParts[2];
+        const recipientId = userId1 === senderId ? userId2 : userId1;
+        
+        console.log('🎯 Sending chat list update to recipient:', recipientId);
+        
+        // ส่ง event ไปยังผู้รับเพื่อให้รีเฟรชรายการแชท
+        io.emit('refresh-private-chat-list', {
+          recipientId,
+          chatId,
+          message,
+          senderId
+        });
+        
+        console.log('✅ Chat list refresh notification sent');
+      } else {
+        console.warn('⚠️ Invalid chat ID format:', chatId);
+      }
+    } catch (error) {
+      console.error('❌ Error handling update-recipient-chat-list:', error);
+    }
+  });
+
+  // แจ้งเตือนเมื่อมีคนโหวต
+  socket.on('vote-notification', async (data) => {
+    try {
+      console.log('🗳️ Vote notification event received:', data);
+      const { voterId, candidateId, voteType, action } = data;
+      
+      if (!voterId || !candidateId) {
+        console.warn('⚠️ Missing required data for vote-notification');
+        return;
+      }
+
+      // ดึงข้อมูลผู้ใช้
+      const [voter, candidate] = await Promise.all([
+        User.findById(voterId),
+        User.findById(candidateId)
+      ]);
+
+      if (!voter || !candidate) {
+        console.warn('⚠️ Voter or candidate not found');
+        return;
+      }
+
+      // สร้าง notification สำหรับผู้ที่ถูกโหวต
+      const notification = {
+        type: 'vote',
+        title: action === 'cast' ? 'คุณได้รับโหวต' : 'มีคนยกเลิกการโหวต',
+        message: action === 'cast' 
+          ? `${voter.displayName || voter.username} โหวตให้คุณ`
+          : `${voter.displayName || voter.username} ยกเลิกการโหวต`,
+        data: {
+          voterId: voter._id,
+          voterName: voter.displayName || voter.username,
+          voterProfileImage: voter.profileImages && voter.profileImages.length > 0 
+            ? voter.profileImages[voter.mainProfileImageIndex || 0] 
+            : null,
+          voteType,
+          action
+        },
+        createdAt: new Date(),
+        isRead: false
+      };
+
+      // ส่ง notification ไปยังผู้ที่ถูกโหวต
+      io.emit('newNotification', {
+        ...notification,
+        recipientId: candidateId
+      });
+
+      console.log('✅ Vote notification sent to:', candidateId);
+    } catch (error) {
+      console.error('❌ Error handling vote-notification:', error);
+    }
+  });
+
+  // แจ้งเตือนเมื่อมีคนกดหัวใจข้อความ
+  socket.on('heart-notification', async (data) => {
+    try {
+      console.log('❤️ Heart notification event received:', data);
+      const { messageId, userId, messageOwnerId } = data;
+      
+      if (!messageId || !userId || !messageOwnerId) {
+        console.warn('⚠️ Missing required data for heart-notification');
+        return;
+      }
+
+      // ตรวจสอบว่าไม่ใช่คนเดียวกัน
+      if (userId === messageOwnerId) {
+        console.log('ℹ️ User hearted their own message, no notification needed');
+        return;
+      }
+
+      // ดึงข้อมูลผู้ใช้
+      const [user, messageOwner] = await Promise.all([
+        User.findById(userId),
+        User.findById(messageOwnerId)
+      ]);
+
+      if (!user || !messageOwner) {
+        console.warn('⚠️ User or message owner not found');
+        return;
+      }
+
+      // สร้าง notification สำหรับเจ้าของข้อความ
+      const notification = {
+        type: 'heart',
+        title: 'คุณได้รับหัวใจ',
+        message: `${user.displayName || user.username} กดหัวใจข้อความของคุณ`,
+        data: {
+          userId: user._id,
+          userName: user.displayName || user.username,
+          userProfileImage: user.profileImages && user.profileImages.length > 0 
+            ? user.profileImages[user.mainProfileImageIndex || 0] 
+            : null,
+          messageId
+        },
+        createdAt: new Date(),
+        isRead: false
+      };
+
+      // ส่ง notification ไปยังเจ้าของข้อความ
+      io.emit('newNotification', {
+        ...notification,
+        recipientId: messageOwnerId
+      });
+
+      console.log('✅ Heart notification sent to:', messageOwnerId);
+    } catch (error) {
+      console.error('❌ Error handling heart-notification:', error);
+    }
+  });
+
+  // แจ้งเตือนเมื่อมีแชทส่วนตัวเข้ามา
+  socket.on('private-chat-notification', async (data) => {
+    try {
+      console.log('💬 Private chat notification event received:', data);
+      const { senderId, recipientId, message } = data;
+      
+      if (!senderId || !recipientId) {
+        console.warn('⚠️ Missing required data for private-chat-notification');
+        return;
+      }
+
+      // ตรวจสอบว่าไม่ใช่คนเดียวกัน
+      if (senderId === recipientId) {
+        console.log('ℹ️ User sent message to themselves, no notification needed');
+        return;
+      }
+
+      // ดึงข้อมูลผู้ใช้
+      const [sender, recipient] = await Promise.all([
+        User.findById(senderId),
+        User.findById(recipientId)
+      ]);
+
+      if (!sender || !recipient) {
+        console.warn('⚠️ Sender or recipient not found');
+        return;
+      }
+
+      // สร้าง notification สำหรับผู้รับ
+      const notification = {
+        type: 'private_chat',
+        title: 'ข้อความใหม่',
+        message: `${sender.displayName || sender.username} ส่งข้อความมา`,
+        data: {
+          senderId: sender._id,
+          senderName: sender.displayName || sender.username,
+          senderProfileImage: sender.profileImages && sender.profileImages.length > 0 
+            ? sender.profileImages[sender.mainProfileImageIndex || 0] 
+            : null,
+          messageContent: message?.content || 'ข้อความ',
+          chatId: message?.chatRoom
+        },
+        createdAt: new Date(),
+        isRead: false
+      };
+
+      // ส่ง notification ไปยังผู้รับ
+      io.emit('newNotification', {
+        ...notification,
+        recipientId
+      });
+
+      console.log('✅ Private chat notification sent to:', recipientId);
+    } catch (error) {
+      console.error('❌ Error handling private-chat-notification:', error);
+    }
+  });
+
+  // แจ้งเตือนเมื่อมีคนตอบกลับแชทสาธารณะ
+  socket.on('public-chat-reply-notification', async (data) => {
+    try {
+      console.log('💬 Public chat reply notification event received:', data);
+      const { messageId, userId, originalMessageOwnerId, roomId } = data;
+      
+      if (!messageId || !userId || !originalMessageOwnerId) {
+        console.warn('⚠️ Missing required data for public-chat-reply-notification');
+        return;
+      }
+
+      // ตรวจสอบว่าไม่ใช่คนเดียวกัน
+      if (userId === originalMessageOwnerId) {
+        console.log('ℹ️ User replied to their own message, no notification needed');
+        return;
+      }
+
+      // ดึงข้อมูลผู้ใช้
+      const [user, originalMessageOwner] = await Promise.all([
+        User.findById(userId),
+        User.findById(originalMessageOwnerId)
+      ]);
+
+      if (!user || !originalMessageOwner) {
+        console.warn('⚠️ User or original message owner not found');
+        return;
+      }
+
+      // สร้าง notification สำหรับเจ้าของข้อความเดิม
+      const notification = {
+        type: 'public_chat_reply',
+        title: 'มีคนตอบกลับข้อความของคุณ',
+        message: `${user.displayName || user.username} ตอบกลับข้อความของคุณ`,
+        data: {
+          userId: user._id,
+          userName: user.displayName || user.username,
+          userProfileImage: user.profileImages && user.profileImages.length > 0 
+            ? user.profileImages[user.mainProfileImageIndex || 0] 
+            : null,
+          messageId,
+          roomId
+        },
+        createdAt: new Date(),
+        isRead: false
+      };
+
+      // ส่ง notification ไปยังเจ้าของข้อความเดิม
+      io.emit('newNotification', {
+        ...notification,
+        recipientId: originalMessageOwnerId
+      });
+
+      console.log('✅ Public chat reply notification sent to:', originalMessageOwnerId);
+    } catch (error) {
+      console.error('❌ Error handling public-chat-reply-notification:', error);
     }
   });
 });

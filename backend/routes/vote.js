@@ -154,6 +154,14 @@ router.post('/cast', async (req, res) => {
           }
         });
 
+        // ส่ง notification ไปยังผู้ที่ถูกโหวต
+        io.emit('vote-notification', {
+          voterId,
+          candidateId,
+          voteType,
+          action: 'cast'
+        });
+
         console.log('📡 Sent vote-updated event:', {
           candidateId,
           voteType,
@@ -274,6 +282,14 @@ router.post('/uncast', async (req, res) => {
             username: candidate.username,
             displayName: candidate.displayName
           }
+        });
+
+        // ส่ง notification ไปยังผู้ที่ถูกยกเลิกการโหวต
+        io.emit('vote-notification', {
+          voterId,
+          candidateId,
+          voteType,
+          action: 'uncast'
         });
 
         console.log('📡 Sent vote-updated event (uncast):', {
