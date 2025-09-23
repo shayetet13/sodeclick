@@ -29,6 +29,8 @@ const PrivateChat = ({
   onTyping,
   onStopTyping
 }) => {
+  // Remove unused parameter warnings
+  console.log('PrivateChat loaded with:', { isLoading });
   const [newMessage, setNewMessage] = useState('');
   const [replyTo, setReplyTo] = useState(null);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
@@ -64,7 +66,7 @@ const PrivateChat = ({
         clearTimeout(typingTimeout);
       }
     };
-  }, [newMessage]);
+  }, [newMessage, onTyping, onStopTyping, typingTimeout]);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -103,11 +105,11 @@ const PrivateChat = ({
   };
 
   const handleImageSelect = (e) => {
-    const file = e.target.files[0];
+    const file = e.target.files?.[0];
     if (file) {
       const reader = new FileReader();
-      reader.onload = (e) => {
-        setSelectedImage(e.target.result);
+      reader.onload = (event) => {
+        setSelectedImage(event.target?.result);
         setShowImageUpload(true);
       };
       reader.readAsDataURL(file);
@@ -220,7 +222,7 @@ const PrivateChat = ({
           const nextMessage = messages[index + 1];
           const showAvatar = !nextMessage || nextMessage.sender?._id !== message.sender?._id;
           const showTimestamp = !prevMessage || 
-            new Date(message.createdAt) - new Date(prevMessage.createdAt) > 5 * 60 * 1000; // 5 minutes
+            (new Date(message.createdAt).getTime() - new Date(prevMessage.createdAt).getTime()) > 5 * 60 * 1000; // 5 minutes
 
           return (
             <div key={message._id} className="message-group">

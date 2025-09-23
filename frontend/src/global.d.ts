@@ -47,15 +47,6 @@ declare module './components/MembershipPlans' {
   export default MembershipPlans;
 }
 
-declare module './components/PaymentGateway' {
-  const PaymentGateway: any;
-  export default PaymentGateway;
-}
-
-declare module './components/PaymentSuccess' {
-  const PaymentSuccess: any;
-  export default PaymentSuccess;
-}
 
 declare module './components/LoginModal' {
   const LoginModal: any;
@@ -125,3 +116,16 @@ declare module './contexts/AuthContext' {
 declare module './services/membershipAPI' {
   export const membershipAPI: any;
 }
+
+// Extend Window interface to include socketManager
+declare global {
+  interface Window {
+    socketManager?: {
+      socket: any;
+      connect: () => void;
+      disconnect: () => void;
+    };
+  }
+}
+
+export {};

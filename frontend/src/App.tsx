@@ -2002,57 +2002,6 @@ function App() {
     console.log(`แชท ${chatId} ถูกลบสำหรับผู้ใช้ ${user?._id || user?.id}`);
   };
 
-  // ฟังก์ชันตรวจจับการอ่านข้อความ
-  const handleMessageRead = (messageId: string) => {
-    if (!selectedPrivateChat || !user) return;
-    
-    console.log('📖 Message read:', messageId);
-    
-    // อัปเดตข้อความในแชทที่เลือก
-    setSelectedPrivateChat((prev: any) => ({
-      ...prev,
-      messages: prev.messages.map((message: any) => 
-        message._id === messageId 
-          ? { ...message, isRead: true }
-          : message
-      )
-    }));
-    
-    // อัปเดตรายการแชท
-    setPrivateChats(prev => {
-      const updatedChats = prev.map(chat => 
-        chat.id === selectedPrivateChat.id 
-          ? {
-              ...chat,
-              messages: chat.messages.map((message: any) => 
-                message._id === messageId 
-                  ? { ...message, isRead: true }
-                  : message
-              )
-            }
-          : chat
-      );
-      console.log('📝 Updated chats with read status:', updatedChats.length);
-      console.log('🔍 Message read:', messageId);
-      // บันทึกข้อมูลที่อัปเดตแล้วลง localStorage
-      saveChatsToStorage(updatedChats);
-      
-      // ตรวจสอบว่าข้อมูลถูกบันทึกจริงหรือไม่
-      setTimeout(() => {
-        const verification = localStorage.getItem('privateChats');
-        if (verification) {
-          const parsed = JSON.parse(verification);
-          console.log('✅ Read status saved successfully, total chats:', parsed.length);
-        } else {
-          console.error('❌ Failed to save read status to localStorage');
-        }
-      }, 100);
-      
-      return updatedChats;
-    });
-    
-    console.log('✅ Message read status updated');
-  };
 
 
 
@@ -2447,7 +2396,7 @@ function App() {
       setSelectedPrivateChat((prev: any) => ({
         ...prev,
         messages: prev.messages.map((msg: any) => 
-          msg._id === newMessage._id 
+          msg._id === tempMessage._id 
             ? { ...msg, isDelivered: false, error: true }
             : msg
         )
@@ -2607,7 +2556,7 @@ function App() {
             
             // แสดง webapp notification
             if (showWebappNotification) {
-              showWebappNotification(notification.message, 'info');
+              showWebappNotification(notification.message, 'warning');
             }
             
             // ส่ง custom event ไปยัง components อื่นๆ
