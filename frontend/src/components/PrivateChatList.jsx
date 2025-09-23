@@ -69,6 +69,13 @@ const PrivateChatList = ({
         userId: currentUser._id,
         token
       });
+      
+      console.log('📤 Sent join-user-room event:', { userId: currentUser._id });
+    });
+
+    // ฟังการยืนยันการเข้าร่วม user room
+    newSocket.on('user-room-joined', (data) => {
+      console.log('✅ User room joined successfully:', data);
     });
 
     newSocket.on('disconnect', () => {

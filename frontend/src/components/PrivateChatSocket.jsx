@@ -85,6 +85,13 @@ const PrivateChatSocket = ({
         otherUserId: otherUser?._id,
         token
       });
+      
+      console.log('📤 Sent join-private-chat event:', { chatId, userId: currentUser._id, otherUserId: otherUser?._id });
+    });
+
+    // ฟังการยืนยันการเข้าร่วม
+    newSocket.on('private-chat-joined', (data) => {
+      console.log('✅ Private chat joined successfully:', data);
     });
 
     // รับ error จาก server
@@ -292,14 +299,17 @@ const PrivateChatSocket = ({
     scrollToBottomOnNewMessage();
 
     // ส่งข้อความใหม่ผ่าน Socket.IO (ไม่มี limit สำหรับแชทส่วนตัว)
-    socket.emit('send-private-message', {
+    const messageData = {
       content: newMessage,
       senderId: currentUser._id,
       chatId: chatId,
       messageType: 'text',
       replyToId: replyTo?._id,
       otherUserId: otherUser?._id
-    });
+    };
+    
+    console.log('📤 Sending private message:', messageData);
+    socket.emit('send-private-message', messageData);
     
     setNewMessage('');
     setReplyTo(null);

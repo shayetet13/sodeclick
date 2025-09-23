@@ -1852,8 +1852,12 @@ io.on('connection', (socket) => {
       io.to(chatId).emit('new-private-message', message);
       console.log('✅ Private message broadcasted successfully to', io.sockets.adapter.rooms.get(chatId)?.size || 0, 'clients');
       
-      // ส่ง notification ไปยังผู้รับข้อความ
+      // ส่งข้อความไปยังผู้รับข้อความผ่าน user room (เพื่อให้แน่ใจว่าได้รับ)
       if (otherUserId) {
+        io.to(`user_${otherUserId}`).emit('new-private-message', message);
+        console.log('✅ Private message also sent to user room user_' + otherUserId);
+        
+        // ส่ง notification ไปยังผู้รับข้อความ
         io.to(`user_${otherUserId}`).emit('newNotification', {
           type: 'private_message',
           message: `ข้อความใหม่จาก ${sender.displayName || sender.username}`,
