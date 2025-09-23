@@ -2433,7 +2433,7 @@ function App() {
       
       // แสดงการแจ้งเตือน
       if (showWebappNotification) {
-        showWebappNotification(`${sender.displayName} ส่งข้อความมา`, 'info');
+        showWebappNotification(`${sender.displayName} ส่งข้อความมา`, 'success');
       }
       
       // รีเฟรชรายการแชทส่วนตัวเพื่อให้แน่ใจว่ามีแชทใหม่
