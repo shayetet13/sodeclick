@@ -10,13 +10,10 @@ import {
   MoreVertical, 
   Heart, 
   Reply, 
-  Trash2,
   Image as ImageIcon,
-  X,
-  MessageCircle
+  X
 } from 'lucide-react';
 import { getProfileImageUrl } from '../utils/profileImageUtils';
-import { membershipHelpers } from '../services/membershipAPI';
 
 const PrivateChatSocket = ({ 
   chatId, 
@@ -33,7 +30,6 @@ const PrivateChatSocket = ({
   const [isConnected, setIsConnected] = useState(false);
   const [typingUsers, setTypingUsers] = useState([]);
   const [replyTo, setReplyTo] = useState(null);
-  const [editingMessage, setEditingMessage] = useState(null);
   const [selectedImage, setSelectedImage] = useState(null);
   const [imagePreview, setImagePreview] = useState(null);
   const [uploadingImage, setUploadingImage] = useState(false);
@@ -114,7 +110,29 @@ const PrivateChatSocket = ({
     newSocket.on('new-private-message', (message) => {
       console.log('📨 New private message received:', message);
       
-      setMessages(prev => [...prev, message]);
+      setMessages(prev => {
+        // ตรวจสอบว่ามีข้อความชั่วคราวที่ต้องแทนที่หรือไม่
+        const hasTempMessage = prev.some(msg => 
+          msg.isTemporary && 
+          msg.content === message.content && 
+          msg.sender._id === message.sender._id
+        );
+        
+        if (hasTempMessage) {
+          // แทนที่ข้อความชั่วคราวด้วยข้อความจริง
+          return prev.map(msg => 
+            msg.isTemporary && 
+            msg.content === message.content && 
+            msg.sender._id === message.sender._id
+              ? { ...message, isTemporary: false }
+              : msg
+          );
+        } else {
+          // เพิ่มข้อความใหม่
+          return [...prev, message];
+        }
+      });
+      
       scrollToBottomOnNewMessage();
       
       // แจ้ง parent component
@@ -164,6 +182,18 @@ const PrivateChatSocket = ({
     newSocket.on('connect_error', (error) => {
       console.error('❌ Private chat socket connection error:', error);
       setIsConnected(false);
+    });
+
+    // ฟัง error events
+    newSocket.on('error', (error) => {
+      console.error('❌ Socket error:', error);
+      if (error.message === 'Failed to send private message') {
+        // ลบข้อความชั่วคราวถ้าส่งไม่สำเร็จ
+        setMessages(prev => prev.filter(msg => !msg.isTemporary));
+        if (showWebappNotification) {
+          showWebappNotification('ไม่สามารถส่งข้อความได้ กรุณาลองใหม่อีกครั้ง');
+        }
+      }
     });
 
     setSocket(newSocket);
@@ -240,99 +270,51 @@ const PrivateChatSocket = ({
   const handleSendMessage = () => {
     if (!newMessage.trim() || !socket || !isConnected) return;
 
-    // ตรวจสอบระดับสมาชิกก่อนส่งข้อความ
-    const userLimits = getUserMembershipLimits(currentUser.membership?.tier || 'member');
-    
-    if (editingMessage) {
-      // แก้ไขข้อความ
-      handleEditMessage(editingMessage._id, newMessage);
-    } else {
-      // ตรวจสอบจำนวนข้อความที่ส่งได้ตามระดับสมาชิก
-      const canSend = canSendMessage(currentUser.membership?.tier || 'member');
-      
-      if (!canSend) {
-        if (showWebappNotification) {
-          showWebappNotification(`คุณส่งข้อความครบตามระดับสมาชิกแล้ว (${userLimits.dailyChats} ข้อความต่อวัน)`);
-        }
-        return;
-      }
+    // สร้างข้อความชั่วคราวเพื่อแสดงใน UI ทันที
+    const tempMessage = {
+      _id: `temp-${Date.now()}-${Math.random()}`,
+      content: newMessage,
+      sender: {
+        _id: currentUser._id,
+        username: currentUser.username,
+        displayName: currentUser.displayName || currentUser.firstName,
+        profileImages: currentUser.profileImages || []
+      },
+      chatRoom: chatId,
+      messageType: 'text',
+      replyTo: replyTo,
+      createdAt: new Date().toISOString(),
+      isTemporary: true
+    };
 
-      // ส่งข้อความใหม่ผ่าน Socket.IO
-      socket.emit('send-private-message', {
-        content: newMessage,
-        senderId: currentUser._id,
-        chatId: chatId,
-        messageType: 'text',
-        replyToId: replyTo?._id,
+    // แสดงข้อความชั่วคราวใน UI ทันที
+    setMessages(prev => [...prev, tempMessage]);
+    scrollToBottomOnNewMessage();
+
+    // ส่งข้อความใหม่ผ่าน Socket.IO (ไม่มี limit สำหรับแชทส่วนตัว)
+    socket.emit('send-private-message', {
+      content: newMessage,
+      senderId: currentUser._id,
+      chatId: chatId,
+      messageType: 'text',
+      replyToId: replyTo?._id,
+      otherUserId: otherUser?._id
+    });
+    
+    setNewMessage('');
+    setReplyTo(null);
+    
+    // Stop typing
+    if (isTyping) {
+      setIsTyping(false);
+      socket.emit('stop-typing-private', {
+        chatId,
+        userId: currentUser._id,
         otherUserId: otherUser?._id
       });
-      
-      // เพิ่มจำนวนข้อความที่ส่งไปแล้ววันนี้ (สำหรับ tier ที่มี limit)
-      const currentTier = currentUser.membership?.tier || 'member';
-      const limits = getUserMembershipLimits(currentTier);
-      if (limits.dailyChats !== -1) {
-        const now = new Date();
-        const today = now.toDateString();
-        const dailyUsage = JSON.parse(localStorage.getItem('dailyUsage') || '{}');
-        
-        if (dailyUsage[today]) {
-          dailyUsage[today].chats = (dailyUsage[today].chats || 0) + 1;
-        } else {
-          dailyUsage[today] = { chats: 1, votes: 0, blurs: 0 };
-        }
-        
-        localStorage.setItem('dailyUsage', JSON.stringify(dailyUsage));
-      }
-      
-      setNewMessage('');
-      setReplyTo(null);
-      
-      // Stop typing
-      if (isTyping) {
-        setIsTyping(false);
-        socket.emit('stop-typing-private', {
-          chatId,
-          userId: currentUser._id,
-          otherUserId: otherUser?._id
-        });
-      }
     }
   };
 
-  const handleEditMessage = async (messageId, newContent) => {
-    if (!socket || !isConnected) return;
-
-    socket.emit('edit-private-message', {
-      messageId,
-      newContent,
-      chatId,
-      userId: currentUser._id
-    });
-
-    setEditingMessage(null);
-    setNewMessage('');
-  };
-
-  const handleDeleteMessage = async (messageId) => {
-    if (!socket || !isConnected) return;
-
-    socket.emit('delete-private-message', {
-      messageId,
-      chatId,
-      userId: currentUser._id
-    });
-  };
-
-  const handleReaction = async (messageId, reactionType) => {
-    if (!socket || !isConnected) return;
-
-    socket.emit('react-to-private-message', {
-      messageId,
-      reactionType,
-      chatId,
-      userId: currentUser._id
-    });
-  };
 
   const handleImageSelect = (e) => {
     const file = e.target.files?.[0];
@@ -400,18 +382,11 @@ const PrivateChatSocket = ({
     }
   };
 
-  const getUserMembershipLimits = (tier) => {
-    return membershipHelpers.getUserLimits(tier);
-  };
-
-  const canSendMessage = (tier) => {
-    return membershipHelpers.canSendMessage(tier);
-  };
 
   return (
-    <div className="flex flex-col h-full bg-white">
+    <div className="flex flex-col h-full bg-gradient-to-br from-pink-50 via-purple-50 to-indigo-50">
       {/* Header */}
-      <div className="flex items-center justify-between p-4 border-b bg-white">
+      <div className="flex items-center justify-between p-4 border-b bg-white/80 backdrop-blur-sm border-pink-200">
         <div className="flex items-center space-x-3">
           <Button
             variant="ghost"
@@ -440,7 +415,7 @@ const PrivateChatSocket = ({
                 {isConnected ? 'ออนไลน์' : 'ออฟไลน์'}
               </span>
               {otherUserTyping && (
-                <span className="text-xs text-blue-500">กำลังพิมพ์...</span>
+                <span className="text-xs text-pink-500">กำลังพิมพ์...</span>
               )}
             </div>
           </div>
@@ -465,8 +440,8 @@ const PrivateChatSocket = ({
             <div
               className={`max-w-xs lg:max-w-md px-4 py-2 rounded-lg ${
                 message.sender?._id === currentUser._id
-                  ? 'bg-blue-500 text-white'
-                  : 'bg-gray-100 text-gray-900'
+                  ? 'bg-gradient-to-r from-pink-500 to-purple-500 text-white shadow-lg'
+                  : 'bg-white/90 backdrop-blur-sm text-gray-900 border border-pink-200 shadow-sm'
               }`}
             >
               {message.replyTo && (
@@ -492,31 +467,10 @@ const PrivateChatSocket = ({
               
               <div className="text-sm">{message.content}</div>
               
-              <div className="flex items-center justify-between mt-1">
+              <div className="flex items-center justify-end mt-1">
                 <span className="text-xs opacity-75">
                   {formatTime(message.createdAt)}
                 </span>
-                
-                {message.sender?._id === currentUser._id && (
-                  <div className="flex items-center space-x-1">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="p-1 h-auto"
-                      onClick={() => setEditingMessage(message)}
-                    >
-                      <MessageCircle className="h-3 w-3" />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="p-1 h-auto"
-                      onClick={() => handleDeleteMessage(message._id)}
-                    >
-                      <Trash2 className="h-3 w-3" />
-                    </Button>
-                  </div>
-                )}
               </div>
             </div>
           </div>
@@ -525,11 +479,11 @@ const PrivateChatSocket = ({
         {/* Typing indicator */}
         {typingUsers.length > 0 && (
           <div className="flex justify-start">
-            <div className="bg-gray-100 px-4 py-2 rounded-lg">
+            <div className="bg-white/90 backdrop-blur-sm border border-pink-200 px-4 py-2 rounded-lg shadow-sm">
               <div className="flex space-x-1">
-                <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" />
-                <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0.1s' }} />
-                <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }} />
+                <div className="w-2 h-2 bg-pink-400 rounded-full animate-bounce" />
+                <div className="w-2 h-2 bg-pink-400 rounded-full animate-bounce" style={{ animationDelay: '0.1s' }} />
+                <div className="w-2 h-2 bg-pink-400 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }} />
               </div>
             </div>
           </div>
@@ -540,7 +494,7 @@ const PrivateChatSocket = ({
 
       {/* Image Preview */}
       {imagePreview && (
-        <div className="p-4 border-t bg-gray-50">
+        <div className="p-4 border-t bg-white/80 backdrop-blur-sm border-pink-200">
           <div className="relative">
             <img
               src={imagePreview}
@@ -563,9 +517,9 @@ const PrivateChatSocket = ({
       )}
 
       {/* Input */}
-      <div className="p-4 border-t bg-white">
+      <div className="p-4 border-t bg-white/80 backdrop-blur-sm border-pink-200">
         {replyTo && (
-          <div className="mb-2 p-2 bg-gray-100 rounded text-sm">
+          <div className="mb-2 p-2 bg-pink-50 border border-pink-200 rounded text-sm">
             <div className="flex items-center justify-between">
               <span>ตอบกลับ: {replyTo.content}</span>
               <Button
@@ -614,7 +568,7 @@ const PrivateChatSocket = ({
                 }
               }}
               placeholder="พิมพ์ข้อความ..."
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full px-3 py-2 border border-pink-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500 bg-white/90 backdrop-blur-sm"
             />
           </div>
           
@@ -622,7 +576,7 @@ const PrivateChatSocket = ({
             <Button
               onClick={handleSendImage}
               disabled={uploadingImage}
-              className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600"
+              className="px-4 py-2 bg-gradient-to-r from-pink-500 to-purple-500 text-white rounded-lg hover:from-pink-600 hover:to-purple-600 shadow-lg transition-all duration-200"
             >
               {uploadingImage ? 'กำลังส่ง...' : 'ส่งรูป'}
             </Button>
@@ -630,7 +584,7 @@ const PrivateChatSocket = ({
             <Button
               onClick={handleSendMessage}
               disabled={!newMessage.trim() || !isConnected}
-              className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:opacity-50"
+              className="px-4 py-2 bg-gradient-to-r from-pink-500 to-purple-500 text-white rounded-lg hover:from-pink-600 hover:to-purple-600 shadow-lg transition-all duration-200 disabled:opacity-50"
             >
               <Send className="h-4 w-4" />
             </Button>
@@ -640,17 +594,17 @@ const PrivateChatSocket = ({
 
       {/* Image Modal */}
       {imageModal.show && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50">
           <div className="relative max-w-4xl max-h-full p-4">
             <img
               src={imageModal.src}
               alt={imageModal.alt}
-              className="max-w-full max-h-full object-contain"
+              className="max-w-full max-h-full object-contain rounded-lg shadow-2xl"
             />
             <Button
               variant="ghost"
               size="sm"
-              className="absolute top-2 right-2 p-2 bg-white rounded-full"
+              className="absolute top-2 right-2 p-2 bg-white/90 backdrop-blur-sm rounded-full border border-pink-200 hover:bg-pink-50"
               onClick={() => setImageModal({ show: false, src: '', alt: '' })}
             >
               <X className="h-4 w-4" />

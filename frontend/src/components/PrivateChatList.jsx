@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { io } from 'socket.io-client';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { 
@@ -28,6 +29,99 @@ const PrivateChatList = ({
   const [chatToDelete, setChatToDelete] = useState(null);
   const [unreadCounts, setUnreadCounts] = useState({}); // เพิ่ม state สำหรับ unread counts
   const [isFetchingUnread, setIsFetchingUnread] = useState(false);
+  const [socket, setSocket] = useState(null);
+  const [isConnected, setIsConnected] = useState(false);
+
+  // เชื่อมต่อ Socket.IO สำหรับ real-time updates
+  useEffect(() => {
+    if (!currentUser?._id) return;
+
+    const newSocket = io(import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000', {
+      withCredentials: true,
+      timeout: 30000,
+      reconnection: true,
+      reconnectionAttempts: 3,
+      reconnectionDelay: 3000,
+      reconnectionDelayMax: 10000,
+      forceNew: false,
+      transports: ['websocket', 'polling'],
+      upgrade: true,
+      rememberUpgrade: true,
+      autoConnect: true,
+      pingTimeout: 30000,
+      pingInterval: 15000,
+      allowEIO3: true,
+      polling: {
+        extraHeaders: {
+          'Access-Control-Allow-Origin': '*',
+          'Access-Control-Allow-Credentials': 'true'
+        }
+      }
+    });
+
+    newSocket.on('connect', () => {
+      console.log('🔌 PrivateChatList socket connected:', newSocket.id);
+      setIsConnected(true);
+      
+      // เข้าร่วม user room สำหรับรับ notifications
+      const token = sessionStorage.getItem('token');
+      newSocket.emit('join-user-room', {
+        userId: currentUser._id,
+        token
+      });
+    });
+
+    newSocket.on('disconnect', () => {
+      console.log('🔌 PrivateChatList socket disconnected');
+      setIsConnected(false);
+    });
+
+    // ฟังข้อความใหม่ในแชทส่วนตัว
+    newSocket.on('new-private-message', (message) => {
+      console.log('📨 New private message received in chat list:', message);
+      
+      // อัปเดต unread count
+      setUnreadCounts(prev => ({
+        ...prev,
+        [message.chatRoom]: (prev[message.chatRoom] || 0) + 1
+      }));
+      
+      // ส่ง event ไปยัง parent component เพื่ออัปเดตรายการแชท
+      if (onRefresh) {
+        onRefresh();
+      }
+      
+      // แสดง notification
+      if (showWebappNotification) {
+        const senderName = message.sender?.displayName || message.sender?.username || 'ผู้ใช้';
+        showWebappNotification(`ข้อความใหม่จาก ${senderName}`);
+      }
+    });
+
+    // ฟัง notifications
+    newSocket.on('newNotification', (notification) => {
+      console.log('🔔 New notification received:', notification);
+      
+      if (notification.type === 'private_message' && notification.recipientId === currentUser._id) {
+        // อัปเดต unread count สำหรับแชทนี้
+        setUnreadCounts(prev => ({
+          ...prev,
+          [notification.chatId]: (prev[notification.chatId] || 0) + 1
+        }));
+        
+        // รีเฟรชรายการแชท
+        if (onRefresh) {
+          onRefresh();
+        }
+      }
+    });
+
+    setSocket(newSocket);
+
+    return () => {
+      newSocket.close();
+    };
+  }, [currentUser?._id, onRefresh, showWebappNotification]);
 
   // ดึงข้อมูล unread count เมื่อ component mount (มี debounce)
   useEffect(() => {
@@ -155,20 +249,42 @@ const PrivateChatList = ({
     }))
   });
 
-  // Filter chats based on search and filter
-  const filteredChats = privateChats.filter(chat => {
-    const matchesSearch = chat.otherUser?.displayName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         chat.otherUser?.firstName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         chat.otherUser?.lastName?.toLowerCase().includes(searchTerm.toLowerCase());
-    
-    if (filterType === 'online') {
-      return matchesSearch && chat.otherUser?.isOnline;
-    } else if (filterType === 'recent') {
-      return matchesSearch && chat.lastMessage;
-    }
-    
-    return matchesSearch;
-  });
+  // ฟังก์ชัน getUnreadCount (ย้ายขึ้นมาก่อน filteredChats)
+  const getUnreadCount = (chat) => {
+    // ใช้ข้อมูลจาก unreadCounts state แทน chat.unreadCount
+    const chatId = chat.roomId || chat.id;
+    return unreadCounts[chatId] || 0;
+  };
+
+  // Filter and sort chats based on search, filter, and real-time updates
+  const filteredChats = privateChats
+    .filter(chat => {
+      const matchesSearch = chat.otherUser?.displayName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                           chat.otherUser?.firstName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                           chat.otherUser?.lastName?.toLowerCase().includes(searchTerm.toLowerCase());
+      
+      if (filterType === 'online') {
+        return matchesSearch && chat.otherUser?.isOnline;
+      } else if (filterType === 'recent') {
+        return matchesSearch && chat.lastMessage;
+      }
+      
+      return matchesSearch;
+    })
+    .sort((a, b) => {
+      // เรียงลำดับตาม unread count ก่อน (ข้อความที่ยังไม่ได้อ่านมาก่อน)
+      const unreadA = getUnreadCount(a);
+      const unreadB = getUnreadCount(b);
+      
+      if (unreadA > 0 && unreadB === 0) return -1; // a มี unread, b ไม่มี
+      if (unreadA === 0 && unreadB > 0) return 1;  // b มี unread, a ไม่มี
+      
+      // ถ้าทั้งคู่มี unread หรือไม่มี unread ให้เรียงตามเวลาข้อความล่าสุด
+      const timeA = new Date(a.lastMessage?.createdAt || a.updatedAt || 0).getTime();
+      const timeB = new Date(b.lastMessage?.createdAt || b.updatedAt || 0).getTime();
+      
+      return timeB - timeA; // ใหม่กว่ามาก่อน
+    });
 
   const formatTime = (timestamp) => {
     if (!timestamp) return '';
@@ -189,12 +305,6 @@ const PrivateChatList = ({
         day: 'numeric' 
       });
     }
-  };
-
-  const getUnreadCount = (chat) => {
-    // ใช้ข้อมูลจาก unreadCounts state แทน chat.unreadCount
-    const chatId = chat.roomId || chat.id;
-    return unreadCounts[chatId] || 0;
   };
 
   const getLastMessagePreview = (chat) => {
@@ -343,7 +453,11 @@ const PrivateChatList = ({
             {filteredChats.map((chat) => (
               <div
                 key={chat.id}
-                className="border-b border-gray-100 hover:bg-gray-50 transition-colors cursor-pointer"
+                className={`border-b border-gray-100 hover:bg-gray-50 transition-all duration-200 cursor-pointer ${
+                  getUnreadCount(chat) > 0 
+                    ? 'bg-pink-50 border-l-4 border-l-pink-500 shadow-sm' 
+                    : ''
+                }`}
                 onClick={() => handleSelectChat(chat)}
               >
                 <div className="p-3 sm:p-4">
@@ -396,6 +510,11 @@ const PrivateChatList = ({
                       {/* Online indicator */}
                       {chat.otherUser.isOnline && (
                         <div className="absolute -bottom-1 -right-1 w-3 h-3 sm:w-4 sm:h-4 bg-green-500 rounded-full border-2 border-white"></div>
+                      )}
+                      
+                      {/* Unread indicator */}
+                      {getUnreadCount(chat) > 0 && (
+                        <div className="absolute -top-1 -right-1 w-3 h-3 sm:w-4 sm:h-4 bg-pink-500 rounded-full border-2 border-white animate-pulse"></div>
                       )}
                     </div>
 

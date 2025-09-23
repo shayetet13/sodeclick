@@ -1364,6 +1364,35 @@ io.on('connection', (socket) => {
     }
   });
 
+  // เข้าร่วม user room สำหรับรับ notifications
+  socket.on('join-user-room', async (data) => {
+    try {
+      const { userId, token } = data;
+      
+      console.log('👤 Join user room request:', { userId });
+      
+      // ตรวจสอบสิทธิ์
+      const authenticatedUser = await authenticateSocketUser(token);
+      if (!authenticatedUser) {
+        socket.emit('error', { message: 'Unauthorized to join user room' });
+        return;
+      }
+      
+      // เข้าร่วม user room
+      socket.join(`user_${userId}`);
+      socket.userId = userId;
+      
+      console.log(`🔗 Socket ${socket.id} joined user room user_${userId}`);
+      
+      // ส่งการยืนยันการเข้าร่วม
+      socket.emit('user-room-joined', { userId });
+      
+    } catch (error) {
+      console.error('❌ Error joining user room:', error);
+      socket.emit('error', { message: 'Failed to join user room' });
+    }
+  });
+
   // เข้าร่วมแชทส่วนตัว
   socket.on('join-private-chat', async (data) => {
     try {
