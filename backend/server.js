@@ -49,7 +49,7 @@ const corsOptions = {
       'https://sodeclick.com',
       'https://www.sodeclick.com',
       'https://sodeclick-frontend-production.up.railway.app',
-      'https://sodeclick-frontend-production-8907.up.railway.app'
+      'https://front-test-production-7f59.up.railway.app'
     ];
     
     console.log('🌐 CORS check - Origin:', origin);
@@ -1054,15 +1054,11 @@ const io = socketIo(server, {
   cors: {
     origin: [
       'http://localhost:5173',
-      'http://localhost:5174',
-      'http://localhost:5175',
       'http://127.0.0.1:5173',
-      'http://127.0.0.1:5174',
-      'http://127.0.0.1:5175',
       'https://sodeclick.com',
       'https://www.sodeclick.com',
       'https://sodeclick-frontend-production.up.railway.app',
-      'https://sodeclick-frontend-production-8907.up.railway.app'
+      'https://front-test-production-7f59.up.railway.app'
     ],
     methods: ["GET", "POST"],
     credentials: true
