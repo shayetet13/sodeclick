@@ -7,6 +7,7 @@ const http = require('http');
 const socketIo = require('socket.io');
 const axios = require('axios');
 const QRCode = require('qrcode');
+const { setSocketInstance } = require('./utils/socket');
 // Load environment variables
 const NODE_ENV = process.env.NODE_ENV || 'development';
 
@@ -1068,6 +1069,9 @@ const io = socketIo(server, {
   maxHttpBufferSize: 1e6, // 1MB
   allowEIO3: true
 });
+
+// Set the Socket.IO instance in the utility module
+setSocketInstance(io);
 
 // Socket.IO error handling
 io.on('connection_error', (error) => {
@@ -2261,9 +2265,4 @@ setTimeout(() => {
   }
 }, 10000);
 
-// Export function to get Socket.IO instance
-function getSocketInstance() {
-  return io;
-}
-
-module.exports = { getSocketInstance };
+// Socket.IO instance is now managed by utils/socket.js to avoid circular dependencies

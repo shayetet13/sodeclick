@@ -5,7 +5,7 @@ const VoteTransaction = require('../models/VoteTransaction');
 const User = require('../models/User');
 
 // Import socket.io instance
-const { getSocketInstance } = require('../server');
+const { getSocketInstance } = require('../utils/socket');
 
 // POST /api/vote/cast - โหวตให้ผู้ใช้ (1 user 1 vote)
 router.post('/cast', async (req, res) => {
