@@ -3348,7 +3348,7 @@ function App() {
                       <div>
                         <h1 className="text-3xl sm:text-4xl md:text-5xl lg:text-6xl xl:text-7xl font-bold leading-tight mb-4 sm:mb-6 md:mb-8 gradient-text">
                           Find Your<br />
-                          Perfect Match 123✨
+                          Perfect Match ✨
                         </h1>
                         <p className="text-base sm:text-lg md:text-xl text-gray-600 mb-6 sm:mb-8 md:mb-10 leading-relaxed max-w-lg">
                           Join thousands of verified singles creating meaningful connections. Your love story starts here.
