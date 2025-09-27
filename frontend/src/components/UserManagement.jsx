@@ -735,9 +735,27 @@ const UserManagement = () => {
                       <td className="p-4">
                         <div className="flex items-center gap-3">
                           <div className="relative">
-                            <div className="w-10 h-10 bg-gradient-to-br from-pink-400 to-violet-400 rounded-full flex items-center justify-center text-white font-semibold">
-                              {user.firstName?.charAt(0) || user.username?.charAt(0) || 'U'}
-                            </div>
+                            {user.profileImages && user.profileImages.length > 0 ? (
+                              <div className="w-10 h-10 rounded-full overflow-hidden border-2 border-white shadow-sm">
+                                <img
+                                  src={user.profileImages[0]}
+                                  alt={`${user.firstName} ${user.lastName}`}
+                                  className="w-full h-full object-cover"
+                                  onError={(e) => {
+                                    // ถ้ารูปภาพโหลดไม่ได้ ให้แสดง placeholder
+                                    e.target.style.display = 'none';
+                                    e.target.nextSibling.style.display = 'flex';
+                                  }}
+                                />
+                                <div className="w-10 h-10 bg-gradient-to-br from-pink-400 to-violet-400 rounded-full flex items-center justify-center text-white font-semibold" style={{display: 'none'}}>
+                                  {user.firstName?.charAt(0) || user.username?.charAt(0) || 'U'}
+                                </div>
+                              </div>
+                            ) : (
+                              <div className="w-10 h-10 bg-gradient-to-br from-pink-400 to-violet-400 rounded-full flex items-center justify-center text-white font-semibold">
+                                {user.firstName?.charAt(0) || user.username?.charAt(0) || 'U'}
+                              </div>
+                            )}
                             {/* Online Status Indicator */}
                             <div className={`absolute -bottom-1 -right-1 h-3 w-3 rounded-full border-2 border-white ${user.isOnline ? 'bg-green-500' : 'bg-gray-400'}`} 
                                  title={user.isOnline ? 'ออนไลน์' : 'ออฟไลน์'}></div>

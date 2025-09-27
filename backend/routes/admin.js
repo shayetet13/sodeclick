@@ -139,9 +139,14 @@ router.get('/users', requireAdmin, async (req, res) => {
     
     const usersWithImageUrls = users.map(user => ({
       ...user.toObject(),
-      profileImages: user.profileImages.map(img => 
-        img.startsWith('http') ? img : `${baseUrl}/uploads/${img}`
-      )
+      profileImages: user.profileImages.map(img => {
+        // ถ้าเป็น data URL หรือ URL เต็มแล้ว ให้ใช้ตามเดิม
+        if (img.startsWith('http') || img.startsWith('data:')) {
+          return img;
+        }
+        // ถ้าเป็น path ให้แปลงเป็น URL เต็ม
+        return `${baseUrl}/uploads/${img}`;
+      })
     }));
 
     res.json({
