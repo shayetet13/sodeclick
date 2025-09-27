@@ -4853,22 +4853,59 @@ function App() {
             {/* Image Container */}
             <div className="relative w-full h-full">
               {/* Full Size Image */}
-              {selectedProfile.images && selectedProfile.images.length > 0 && selectedProfile.images[activeImageIndex] && !selectedProfile.images[activeImageIndex].startsWith('data:image/svg+xml') ? (
-                <img
-                  src={selectedProfile.images[activeImageIndex]}
-                  alt={selectedProfile.name}
-                  className="w-full h-full object-cover"
-                />
-              ) : (
-                /* Fallback when no image */
-                <div className="w-full h-full bg-gradient-to-br from-pink-500 to-violet-500 flex items-center justify-center">
-                  <div className="text-center text-white">
-                    <User className="h-24 w-24 mx-auto mb-4 opacity-80" />
-                    <h3 className="text-2xl font-bold mb-2">{selectedProfile.name}</h3>
-                    <p className="text-lg opacity-90">ไม่มีรูปภาพ</p>
-                  </div>
-                </div>
-              )}
+              {(() => {
+                // Get images from images field
+                const images = selectedProfile.images || [];
+                const currentImage = images[activeImageIndex];
+                
+                if (images.length > 0 && currentImage && !currentImage.startsWith('data:image/svg+xml')) {
+                  // Use getProfileImageUrl to ensure correct URL
+                  const imageUrl = getProfileImageUrl(currentImage, selectedProfile.id?.toString());
+                  return (
+                    <img
+                      src={imageUrl}
+                      alt={selectedProfile.name}
+                      className="w-full h-full object-cover"
+                      onError={(e) => {
+                        console.error('❌ Profile modal image failed to load:', {
+                          imageUrl: imageUrl,
+                          originalImage: currentImage,
+                          profileId: selectedProfile.id
+                        });
+                        (e.target as HTMLImageElement).style.display = 'none';
+                      }}
+                      onLoad={() => {
+                        console.log('✅ Profile modal image loaded successfully:', {
+                          imageUrl: imageUrl,
+                          originalImage: currentImage,
+                          profileId: selectedProfile.id
+                        });
+                      }}
+                    />
+                  );
+                }
+                return null;
+              })()}
+              {(() => {
+                // Show fallback if no image is displayed
+                const images = selectedProfile.images || [];
+                const currentImage = images[activeImageIndex];
+                const hasValidImage = images.length > 0 && currentImage && !currentImage.startsWith('data:image/svg+xml');
+                
+                if (!hasValidImage) {
+                  return (
+                    /* Fallback when no image */
+                    <div className="w-full h-full bg-gradient-to-br from-pink-500 to-violet-500 flex items-center justify-center">
+                      <div className="text-center text-white">
+                        <User className="h-24 w-24 mx-auto mb-4 opacity-80" />
+                        <h3 className="text-2xl font-bold mb-2">{selectedProfile.name}</h3>
+                        <p className="text-lg opacity-90">ไม่มีรูปภาพ</p>
+                      </div>
+                    </div>
+                  );
+                }
+                return null;
+              })()}
             </div>
 
             {/* Control Buttons - ต้องอยู่นอก image container */}
@@ -4969,19 +5006,22 @@ function App() {
                   
                   
                   {/* Image Indicators */}
-                  {selectedProfile.images && selectedProfile.images.length > 1 && (
-                    <div className="flex justify-center space-x-2 mb-1">
-                      {selectedProfile.images.map((_, index) => (
-                        <button
-                          key={index}
-                          onClick={() => setActiveImageIndex(index)}
-                          className={`w-3 h-3 rounded-full transition-all ${
-                            index === activeImageIndex ? 'bg-white' : 'bg-white/50'
-                          }`}
-                        />
-                      ))}
-                    </div>
-                  )}
+                  {(() => {
+                    const images = selectedProfile.images || [];
+                    return images.length > 1 && (
+                      <div className="flex justify-center space-x-2 mb-1">
+                        {images.map((_, index) => (
+                          <button
+                            key={index}
+                            onClick={() => setActiveImageIndex(index)}
+                            className={`w-3 h-3 rounded-full transition-all ${
+                              index === activeImageIndex ? 'bg-white' : 'bg-white/50'
+                            }`}
+                          />
+                        ))}
+                      </div>
+                    );
+                  })()}
                   
                   {/* Action Icons - ซ่อนเมื่อแสดงรายละเอียดโปรไฟล์ */}
                   {!showProfileDetails && (
@@ -5183,9 +5223,9 @@ function App() {
                       const unifiedProfile = {
                         ...selectedProfile,
                         ...profileData,
-                        // Ensure images field is available
-                        profileImages: profileData?.profileImages || selectedProfile?.images || [],
-                        images: selectedProfile?.images || profileData?.profileImages || [],
+                        // Ensure images field is available - prioritize profileData
+                        profileImages: profileData?.profileImages || profileData?.images || selectedProfile?.images || [],
+                        images: profileData?.images || profileData?.profileImages || selectedProfile?.images || [],
                         // Ensure basic fields are always available
                         name: profileData?.name || selectedProfile?.name || 'ไม่ระบุชื่อ',
                         age: profileData?.age || selectedProfile?.age || null,

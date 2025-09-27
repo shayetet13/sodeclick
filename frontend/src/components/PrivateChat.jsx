@@ -131,9 +131,9 @@ const PrivateChat = ({
               }
             }, 1000);
           } else {
-            // แสดงข้อผิดพลาดอื่น ๆ ให้ผู้ใช้
-            if (window.alert) {
-              window.alert(`เกิดข้อผิดพลาด: ${error.message || 'ไม่สามารถส่งข้อความได้'}`);
+            // แสดงข้อผิดพลาดเฉพาะกรณีที่สำคัญเท่านั้น
+            if (error.message && !error.message.includes('Failed to send message')) {
+              console.warn('⚠️ Socket error (non-critical):', error.message);
             }
           }
         });
@@ -222,21 +222,24 @@ const PrivateChat = ({
     try {
       // ลองส่งผ่าน Socket ก่อน
       if (window.socketManager?.socket?.connected) {
-        console.log('📤 Sending message via socket:', {
+        const socketMessage = {
           content: messageData.content,
           senderId: currentUser._id,
           chatRoomId: selectedChat.id,
-          messageType: 'text',
+          messageType: selectedImage ? 'image' : 'text',
           replyToId: messageData.replyTo
-        });
+        };
 
-        window.socketManager.socket.emit('send-message', {
-          content: messageData.content,
-          senderId: currentUser._id,
-          chatRoomId: selectedChat.id,
-          messageType: 'text',
-          replyToId: messageData.replyTo
-        });
+        // ถ้ามีรูปภาพ ให้เพิ่มข้อมูลรูปภาพ
+        if (selectedImage) {
+          socketMessage.imageUrl = selectedImage;
+          socketMessage.fileType = 'image';
+          socketMessage.fileName = 'image.jpg';
+        }
+
+        console.log('📤 Sending message via socket:', socketMessage);
+
+        window.socketManager.socket.emit('send-message', socketMessage);
 
         console.log('✅ Message sent via socket successfully');
       } else {
@@ -448,14 +451,42 @@ const PrivateChat = ({
                     )}
 
                     {/* Message Image */}
-                    {message.image && (
+                    {(message.image || message.fileUrl) && (
                       <div className="mt-2">
                         <img 
-                          src={message.image} 
+                          src={message.image || message.fileUrl} 
                           alt="Message attachment" 
                           className="max-w-full h-auto rounded-lg cursor-pointer hover:opacity-90 transition-opacity"
-                          onClick={() => window.open(message.image, '_blank')}
+                          onClick={() => window.open(message.image || message.fileUrl, '_blank')}
                         />
+                      </div>
+                    )}
+
+                    {/* Message Attachments */}
+                    {message.attachments && message.attachments.length > 0 && (
+                      <div className="mt-2 space-y-2">
+                        {message.attachments.map((attachment, index) => (
+                          <div key={index}>
+                            {attachment.type === 'image' && (
+                              <img 
+                                src={attachment.url} 
+                                alt="Message attachment" 
+                                className="max-w-full h-auto rounded-lg cursor-pointer hover:opacity-90 transition-opacity"
+                                onClick={() => window.open(attachment.url, '_blank')}
+                              />
+                            )}
+                            {attachment.type !== 'image' && (
+                              <div className="p-2 bg-gray-100 rounded-lg">
+                                <div className="text-sm text-gray-600">
+                                  📎 {attachment.filename || 'Attachment'}
+                                </div>
+                                <div className="text-xs text-gray-500">
+                                  {attachment.size ? `${(attachment.size / 1024).toFixed(1)} KB` : ''}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        ))}
                       </div>
                     )}
 

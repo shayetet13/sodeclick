@@ -20,7 +20,8 @@ import {
   Mail,
   Clock,
   AlertTriangle,
-  Key
+  Key,
+  RotateCcw
 } from 'lucide-react';
 
 const UserManagement = () => {
@@ -58,6 +59,8 @@ const UserManagement = () => {
 
   const [imageUrl, setImageUrl] = useState('');
   const [imagePreview, setImagePreview] = useState('');
+  const [uploadingImage, setUploadingImage] = useState(false);
+  const [selectedFile, setSelectedFile] = useState(null);
 
   const [resetPasswordForm, setResetPasswordForm] = useState({
     newPassword: '',
@@ -144,13 +147,27 @@ const UserManagement = () => {
   const handleEditUser = async (userId) => {
     try {
       const token = sessionStorage.getItem('token');
+      
+      // แปลง profileImages จาก URL กลับเป็น path สำหรับส่งไป backend
+      const formData = {
+        ...editForm,
+        profileImages: editForm.profileImages.map(img => {
+          // ถ้าเป็น URL เต็ม ให้ตัดเอาเฉพาะ path
+          if (img.startsWith('http')) {
+            const url = new URL(img);
+            return url.pathname.replace('/uploads/', '');
+          }
+          return img;
+        })
+      };
+      
       const res = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/admin/users/${userId}`, {
         method: 'PUT',
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify(editForm)
+        body: JSON.stringify(formData)
       });
 
       if (res.ok) {
@@ -158,6 +175,7 @@ const UserManagement = () => {
         setShowEditModal(false);
         setImageUrl('');
         setImagePreview('');
+        setSelectedFile(null);
         success('✅ แก้ไขผู้ใช้สำเร็จ', 3000);
       }
          } catch (error) {
@@ -210,6 +228,77 @@ const UserManagement = () => {
     const newImages = editForm.profileImages.filter((_, i) => i !== index);
     setEditForm({...editForm, profileImages: newImages});
     success('✅ ลบรูปภาพสำเร็จ', 2000);
+  };
+
+  const handleFileSelect = (event) => {
+    const file = event.target.files[0];
+    if (file) {
+      // ตรวจสอบประเภทไฟล์
+      const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp', 'image/bmp', 'image/avif'];
+      if (!allowedTypes.includes(file.type)) {
+        error('รองรับเฉพาะไฟล์รูปภาพ (JPEG, JPG, PNG, GIF, WebP, BMP, AVIF)', 3000);
+        return;
+      }
+      
+      // ตรวจสอบขนาดไฟล์ (5MB)
+      if (file.size > 5 * 1024 * 1024) {
+        error('ไฟล์มีขนาดใหญ่เกินไป (สูงสุด 5MB)', 3000);
+        return;
+      }
+      
+      setSelectedFile(file);
+      
+      // สร้าง preview
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        setImagePreview(e.target.result);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const handleUploadImage = async () => {
+    if (!selectedFile || !selectedUser) {
+      error('กรุณาเลือกไฟล์รูปภาพ', 3000);
+      return;
+    }
+
+    setUploadingImage(true);
+    
+    try {
+      const token = sessionStorage.getItem('token');
+      const formData = new FormData();
+      formData.append('profileImage', selectedFile);
+
+      const res = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/admin/users/${selectedUser._id}/upload-image`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`
+        },
+        body: formData
+      });
+
+      const data = await res.json();
+
+      if (res.ok && data.success) {
+        // อัปเดตรายการรูปภาพใน editForm โดยใช้ imageUrl แทน imagePath
+        const newImages = [...editForm.profileImages, data.imageUrl];
+        setEditForm({...editForm, profileImages: newImages});
+        
+        // รีเซ็ต state
+        setSelectedFile(null);
+        setImagePreview('');
+        
+        success('✅ อัปโหลดรูปภาพสำเร็จ', 3000);
+      } else {
+        error(data.message || 'เกิดข้อผิดพลาดในการอัปโหลดรูปภาพ', 5000);
+      }
+    } catch (error) {
+      console.error('Error uploading image:', error);
+      error('เกิดข้อผิดพลาดในการอัปโหลดรูปภาพ', 5000);
+    } finally {
+      setUploadingImage(false);
+    }
   };
 
   const handleCreateUser = async () => {
@@ -482,6 +571,41 @@ const UserManagement = () => {
     }
   };
 
+  const handleResetSpinWheel = async () => {
+    if (!selectedUser) return;
+    
+    try {
+      setIsLoading(true);
+      const token = sessionStorage.getItem('token');
+      
+      const response = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/admin/reset-spin-wheel`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          userId: selectedUser._id
+        })
+      });
+
+      const data = await response.json();
+
+      if (data.success) {
+        success('✅ รีเซ็ตการหมุนวงล้อสำเร็จ', 'ผู้ใช้สามารถหมุนวงล้อได้อีกครั้งแล้ว');
+        // รีโหลดข้อมูลผู้ใช้เพื่ออัพเดต UI
+        fetchUsers();
+      } else {
+        error('เกิดข้อผิดพลาด', data.message || 'ไม่สามารถรีเซ็ตการหมุนวงล้อได้');
+      }
+    } catch (err) {
+      console.error('Error resetting spin wheel:', err);
+      error('เกิดข้อผิดพลาด', 'ไม่สามารถรีเซ็ตการหมุนวงล้อได้');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const getStatusBadge = (user) => {
     if (user.isBanned) {
       return <Badge variant="destructive" className="text-center">ถูกแบน</Badge>;
@@ -672,6 +796,7 @@ const UserManagement = () => {
                                   });
                                   setImageUrl('');
                                   setImagePreview('');
+                                  setSelectedFile(null);
                                   setShowEditModal(true);
                                 }}
                               >
@@ -916,7 +1041,7 @@ const UserManagement = () => {
                     <div className="grid grid-cols-2 gap-2 mt-2">
                       {editForm.profileImages.map((image, index) => (
                         <div key={index} className="relative group">
-                          <div className="w-full h-20 bg-slate-50 rounded-md border border-slate-200 flex items-center justify-center overflow-hidden">
+                          <div className="w-full h-16 bg-slate-50 rounded-md border border-slate-200 flex items-center justify-center overflow-hidden">
                             <img
                               src={image}
                               alt={`Profile ${index + 1}`}
@@ -949,23 +1074,70 @@ const UserManagement = () => {
                 <div>
                   <Label className="text-sm text-slate-600">เพิ่มรูปภาพใหม่:</Label>
                   <p className="text-xs text-slate-500 mt-1">
-                    รองรับเฉพาะ: JPG, JPEG, PNG, BMP, WebP, AVIF
+                    รองรับเฉพาะ: JPG, JPEG, PNG, GIF, WebP, BMP, AVIF (สูงสุด 5MB)
                   </p>
-                  <div className="flex gap-2 mt-2">
-                    <Input
-                      placeholder="ใส่ URL ของรูปภาพ (รองรับเฉพาะ: JPG, JPEG, PNG, BMP, WebP, AVIF)"
-                      value={imageUrl}
-                      onChange={(e) => setImageUrl(e.target.value)}
-                      className="flex-1"
-                    />
-                    <Button
-                      type="button"
-                      variant="outline"
-                      onClick={handleAddImageUrl}
-                      disabled={!imageUrl.trim()}
-                    >
-                      พรีวิว
-                    </Button>
+                  
+                  {/* อัปโหลดไฟล์ */}
+                  <div className="mt-2 space-y-3">
+                    <div>
+                      <Label htmlFor="file-upload" className="text-sm font-medium text-slate-700">
+                        อัปโหลดไฟล์รูปภาพ
+                      </Label>
+                      <input
+                        id="file-upload"
+                        type="file"
+                        accept="image/jpeg,image/jpg,image/png,image/gif,image/webp,image/bmp,image/avif"
+                        onChange={handleFileSelect}
+                        className="mt-1 block w-full text-sm text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-medium file:bg-pink-50 file:text-pink-700 hover:file:bg-pink-100"
+                      />
+                    </div>
+                    
+                    {selectedFile && (
+                      <div className="flex gap-2">
+                        <Button
+                          type="button"
+                          size="sm"
+                          onClick={handleUploadImage}
+                          disabled={uploadingImage}
+                          className="flex-1"
+                        >
+                          {uploadingImage ? 'กำลังอัปโหลด...' : 'อัปโหลดรูปภาพ'}
+                        </Button>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          onClick={() => {
+                            setSelectedFile(null);
+                            setImagePreview('');
+                          }}
+                          className="flex-1"
+                        >
+                          ยกเลิก
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+                  
+                  {/* หรือใส่ URL */}
+                  <div className="mt-3 pt-3 border-t border-slate-200">
+                    <Label className="text-sm text-slate-600">หรือใส่ URL ของรูปภาพ:</Label>
+                    <div className="flex gap-2 mt-2">
+                      <Input
+                        placeholder="ใส่ URL ของรูปภาพ (รองรับเฉพาะ: JPG, JPEG, PNG, BMP, WebP, AVIF)"
+                        value={imageUrl}
+                        onChange={(e) => setImageUrl(e.target.value)}
+                        className="flex-1"
+                      />
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={handleAddImageUrl}
+                        disabled={!imageUrl.trim()}
+                      >
+                        พรีวิว
+                      </Button>
+                    </div>
                   </div>
                 </div>
 
@@ -974,7 +1146,7 @@ const UserManagement = () => {
                   <div>
                     <Label className="text-sm text-slate-600">พรีวิว:</Label>
                     <div className="mt-2 space-y-2">
-                      <div className="w-full max-h-64 bg-slate-50 rounded-md border border-slate-200 flex items-center justify-center overflow-hidden">
+                      <div className="w-full max-h-32 bg-slate-50 rounded-md border border-slate-200 flex items-center justify-center overflow-hidden">
                         <img
                           src={imagePreview}
                           alt="Preview"
@@ -1350,6 +1522,23 @@ const UserManagement = () => {
                         <Clock size={14} className="text-slate-400" />
                         <span className="text-sm">เข้าสู่ระบบล่าสุด: {formatDate(selectedUser.lastLogin)}</span>
                       </div>
+                    </div>
+                  </div>
+
+                  {/* Admin Actions */}
+                  <div>
+                    <Label className="text-sm font-medium text-slate-600">การจัดการ Admin</Label>
+                    <div className="mt-2 space-y-2">
+                      <Button
+                        onClick={handleResetSpinWheel}
+                        disabled={isLoading}
+                        size="sm"
+                        variant="outline"
+                        className="w-full text-left justify-start text-blue-600 hover:text-blue-700 hover:bg-blue-50 border-blue-200"
+                      >
+                        <RotateCcw size={14} className="mr-2" />
+                        รีเซ็ตการหมุนวงล้อ
+                      </Button>
                     </div>
                   </div>
                 </div>

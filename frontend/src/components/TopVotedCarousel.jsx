@@ -8,24 +8,23 @@ import voteAPI from '../services/voteAPI';
 const getImageUrl = (userData) => {
   console.log('🖼️ Getting image for user data:', userData);
   
-  // userData is from ranking API, structure: { user: {...}, stats: {...}, rank: ... }
-  const user = userData?.user;
-  if (!user) {
-    console.log('❌ No user object found');
+  // userData is from ranking API, structure: { _id, username, profileImages, ... }
+  if (!userData) {
+    console.log('❌ No user data found');
     return null;
   }
   
-  console.log('👤 User object:', user);
-  console.log('📸 Profile images:', user.profileImages);
-  console.log('🔢 Main image index:', user.mainProfileImageIndex);
+  console.log('👤 User object:', userData);
+  console.log('📸 Profile images:', userData.profileImages);
+  console.log('🔢 Main image index:', userData.mainProfileImageIndex || 0);
   
-  if (user.profileImages && user.profileImages.length > 0) {
+  if (userData.profileImages && userData.profileImages.length > 0) {
     // ใช้ guest mode function ที่รองรับ fallback
     const imageUrl = getMainProfileImageGuest(
-      user.profileImages, 
-      user.mainProfileImageIndex, 
-      user._id || user.id,
-      user.gender
+      userData.profileImages, 
+      userData.mainProfileImageIndex || 0, 
+      userData._id || userData.candidateId,
+      userData.gender
     );
     console.log('🔗 Generated image URL (guest mode):', imageUrl);
     return imageUrl;
@@ -33,7 +32,7 @@ const getImageUrl = (userData) => {
   
   console.log('❌ No images found for user, using default avatar');
   // ใช้ default avatar เมื่อไม่มีรูป
-  return getDefaultAvatarUrl(user.gender);
+  return getDefaultAvatarUrl(userData.gender);
 };
 
 const TopVotedCarousel = () => {
@@ -48,29 +47,36 @@ const TopVotedCarousel = () => {
       console.log('🔍 TopVotedCarousel - Fetching top voted users...');
       setLoading(true);
       
-      // ใช้ voteAPI service เดียวกับ VoteRanking component
-      const response = await voteAPI.getRanking('popularity_combined', 'all', 3);
+      // ใช้ vote ranking API โดยตรง
+      const response = await fetch(`${import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000'}/api/vote/ranking?voteType=popularity_combined&limit=3&sortBy=totalVotes`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      });
       
-      console.log('📊 TopVotedCarousel - API Response:', response);
+      const result = await response.json();
       
-      if (response.success && response.data && response.data.ranking) {
-        const rankingData = response.data.ranking;
+      console.log('📊 TopVotedCarousel - API Response:', result);
+      
+      if (result.success && result.data && result.data.rankings) {
+        const rankingData = result.data.rankings;
         console.log('✅ TopVotedCarousel - Top voted users:', rankingData);
         console.log('📊 TopVotedCarousel - Ranking count:', rankingData.length);
         
         // ตรวจสอบข้อมูลผู้ใช้แต่ละคน
         rankingData.forEach((item, index) => {
           console.log(`🔍 TopVotedCarousel User ${index + 1}:`, {
-            user: item.user,
-            profileImages: item.user?.profileImages,
-            mainProfileImageIndex: item.user?.mainProfileImageIndex,
-            userId: item.user?._id
+            user: item,
+            profileImages: item?.profileImages,
+            mainProfileImageIndex: item?.mainProfileImageIndex || 0,
+            userId: item?._id || item?.candidateId
           });
         });
         
         setTopVotedUsers(rankingData);
       } else {
-        console.warn('⚠️ TopVotedCarousel - No ranking data found:', response);
+        console.warn('⚠️ TopVotedCarousel - No ranking data found:', result);
         setTopVotedUsers([]);
       }
     } catch (error) {
@@ -260,7 +266,7 @@ const TopVotedCarousel = () => {
                   {getImageUrl(userData) ? (
                     <img
                       src={getImageUrl(userData)}
-                      alt={userData.user?.displayName || userData.user?.username}
+                      alt={userData?.displayName || userData?.username}
                       className="w-full h-full object-cover"
                       onError={(e) => {
                         console.log('❌ Image failed to load:', e.target.src);
@@ -277,10 +283,10 @@ const TopVotedCarousel = () => {
                   ) : null}
                   
                   {/* Fallback Avatar */}
-                  <div className={`fallback-avatar w-full h-full ${userData.user?.isOnline ? 'bg-gradient-to-br from-green-600 to-green-700' : 'bg-gradient-to-br from-gray-600 to-gray-700'} items-center justify-center ${getImageUrl(userData) ? 'hidden' : 'flex'}`}>
+                  <div className={`fallback-avatar w-full h-full ${userData?.isOnline ? 'bg-gradient-to-br from-green-600 to-green-700' : 'bg-gradient-to-br from-gray-600 to-gray-700'} items-center justify-center ${getImageUrl(userData) ? 'hidden' : 'flex'}`}>
                     <div className="w-32 h-32 bg-white rounded-full flex items-center justify-center shadow-lg">
                       <span className="text-5xl font-bold text-gray-600">
-                        {userData.user?.displayName?.[0] || userData.user?.username?.[0] || '?'}
+                        {userData?.displayName?.[0] || userData?.username?.[0] || '?'}
                       </span>
                     </div>
                   </div>
@@ -294,12 +300,12 @@ const TopVotedCarousel = () => {
                   {/* User Info */}
                   <div className="text-white mb-4">
                     <h3 className="text-xl font-bold mb-2">
-                      {userData.user?.displayName || userData.user?.username}
+                      {userData?.displayName || userData?.username}
                     </h3>
                     <div className="flex items-center space-x-2 mb-2">
                       <span className="text-sm opacity-90">อันดับ #{userData.rank}</span>
                       <span className="text-sm opacity-75">•</span>
-                      <span className="text-sm opacity-90">{userData.user?.gender === 'male' ? '👨 ชาย' : '👩 หญิง'}</span>
+                      <span className="text-sm opacity-90">{userData?.gender === 'male' ? '👨 ชาย' : '👩 หญิง'}</span>
                     </div>
                   </div>
 
@@ -307,7 +313,7 @@ const TopVotedCarousel = () => {
                   <div className="absolute bottom-4 right-4 bg-white/90 backdrop-blur-sm px-3 py-2 rounded-full flex items-center space-x-2 shadow-lg">
                     <Heart className="h-4 w-4 text-pink-500" fill="currentColor" />
                     <span className="text-sm font-bold text-gray-800">
-                      {userData.stats?.totalVotes || 0} votes
+                      {userData?.totalVotes || 0} votes
                     </span>
                   </div>
                   

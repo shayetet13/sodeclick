@@ -82,7 +82,7 @@ const MembershipDashboard = ({ userId }) => {
   }
 
   // หมุนวงล้อของขวัญ
-  const spinWheel = async (prize) => {
+  const spinWheel = async () => {
     try {
       setActionLoading(prev => ({ ...prev, spinWheel: true }))
       const response = await membershipAPI.spinWheel(userId)
@@ -90,23 +90,14 @@ const MembershipDashboard = ({ userId }) => {
       // อัพเดตข้อมูลใหม่
       await fetchMembershipData()
       
-      // แสดงรางวัลที่ได้
-      const receivedPrize = response.data.data.prize
-      let message = ''
-      
-      if (receivedPrize.type === 'coins') {
-        message = `ยินดีด้วย! ได้รับ ${receivedPrize.amount} เหรียญ! 🎉`
-      } else if (receivedPrize.type === 'votePoints') {
-        message = `ยินดีด้วย! ได้รับ ${receivedPrize.amount} คะแนนโหวต! 🎉`
-      } else {
-        message = `ยินดีด้วย! ได้รับ ${receivedPrize.name}! 🎉`
-      }
-      
-      success(message)
-      // ไม่ปิด popup เพื่อให้แสดงรางวัลในหน้า popup
+      // คืนค่ารางวัลที่ได้เพื่อให้ SpinWheelModal ใช้ (ไม่แสดง success message ที่นี่)
+      return response.data.data.prize
     } catch (err) {
       console.error('Error spinning wheel:', err)
-      showError(err.response?.data?.message || 'ไม่สามารถหมุนวงล้อได้')
+      
+      // ไม่แสดง error message ที่นี่ เพราะ SpinWheelModal จะจัดการเอง
+      // แต่จะโยน error ต่อเพื่อให้ SpinWheelModal จัดการ
+      throw err
     } finally {
       setActionLoading(prev => ({ ...prev, spinWheel: false }))
     }

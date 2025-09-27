@@ -384,24 +384,29 @@ router.post('/spin-wheel', async (req, res) => {
       });
     }
 
-    // สุ่มรางวัล
+    // สุ่มรางวัล - ใช้ระบบน้ำหนักการสุ่ม
     const prizes = [
-      { type: 'coins', amount: 100, probability: 30 },
-      { type: 'coins', amount: 500, probability: 25 },
-      { type: 'coins', amount: 1000, probability: 20 },
-      { type: 'coins', amount: 2000, probability: 15 },
-      { type: 'votePoints', amount: 50, probability: 5 },
-      { type: 'votePoints', amount: 100, probability: 3 },
-      { type: 'specialItem', name: 'Lucky Charm', probability: 2 }
+      { type: 'coins', amount: 50, weight: 60 },
+      { type: 'coins', amount: 100, weight: 50 },
+      { type: 'coins', amount: 200, weight: 30 },
+      { type: 'coins', amount: 500, weight: 10 },
+      { type: 'votePoints', amount: 50, weight: 20 },
+      { type: 'votePoints', amount: 100, weight: 10 },
+      { type: 'votePoints', amount: 300, weight: 5 },
+      { type: 'grand', coins: 500, votePoints: 500, weight: 3 }
     ];
 
-    const random = Math.random() * 100;
-    let cumulativeProbability = 0;
+    // คำนวณน้ำหนักรวม
+    const totalWeight = prizes.reduce((sum, prize) => sum + prize.weight, 0);
+    
+    // สุ่มตัวเลขระหว่าง 0 ถึง totalWeight
+    const random = Math.random() * totalWeight;
+    let cumulativeWeight = 0;
     let selectedPrize = prizes[0];
 
     for (const prize of prizes) {
-      cumulativeProbability += prize.probability;
-      if (random <= cumulativeProbability) {
+      cumulativeWeight += prize.weight;
+      if (random <= cumulativeWeight) {
         selectedPrize = prize;
         break;
       }
@@ -412,6 +417,10 @@ router.post('/spin-wheel', async (req, res) => {
       user.coins += selectedPrize.amount;
     } else if (selectedPrize.type === 'votePoints') {
       user.votePoints += selectedPrize.amount;
+    } else if (selectedPrize.type === 'grand') {
+      // รางวัลใหญ่ - ได้ทั้งเหรียญและโหวต
+      user.coins += selectedPrize.coins;
+      user.votePoints += selectedPrize.votePoints;
     }
 
     // อัพเดตเวลาหมุนล่าสุด

@@ -21,7 +21,14 @@ import {
   Frown,
   Image,
   Trash2,
-  Smile
+  Smile,
+  Crown,
+  Star,
+  Diamond,
+  Gem,
+  Shield,
+  Award,
+  Zap
 } from 'lucide-react';
 
 const RealTimeChat = ({ roomId, currentUser, onBack, showWebappNotification }) => {
@@ -866,6 +873,31 @@ const RealTimeChat = ({ roomId, currentUser, onBack, showWebappNotification }) =
     return colors[tier] || colors.member;
   };
 
+  const getMembershipIcon = (tier) => {
+    const iconProps = { className: "w-4 h-4" };
+    
+    switch (tier) {
+      case 'member':
+        return <Shield {...iconProps} className="w-4 h-4 text-gray-600" />;
+      case 'silver':
+        return <Award {...iconProps} className="w-4 h-4 text-slate-600" />;
+      case 'gold':
+        return <Star {...iconProps} className="w-4 h-4 text-amber-600" />;
+      case 'vip':
+        return <Crown {...iconProps} className="w-4 h-4 text-purple-600" />;
+      case 'vip1':
+        return <Crown {...iconProps} className="w-4 h-4 text-purple-700" />;
+      case 'vip2':
+        return <Crown {...iconProps} className="w-4 h-4 text-purple-800" />;
+      case 'diamond':
+        return <Diamond {...iconProps} className="w-4 h-4 text-blue-600" />;
+      case 'platinum':
+        return <Gem {...iconProps} className="w-4 h-4 text-indigo-600" />;
+      default:
+        return <Shield {...iconProps} className="w-4 h-4 text-gray-600" />;
+    }
+  };
+
   const formatTime = (date) => {
     return new Date(date).toLocaleTimeString('th-TH', {
       hour: '2-digit',
@@ -877,7 +909,9 @@ const RealTimeChat = ({ roomId, currentUser, onBack, showWebappNotification }) =
 
 
 
-  const renderMessageContent = (message) => {
+  const renderMessageContent = (message, isOwnMessage = false) => {
+    const textColor = isOwnMessage ? 'text-white' : 'text-gray-900';
+    
     // Image message
     if (message.messageType === 'image' && (message.imageUrl || message.fileUrl)) {
       const imageUrl = message.imageUrl || message.fileUrl;
@@ -900,7 +934,7 @@ const RealTimeChat = ({ roomId, currentUser, onBack, showWebappNotification }) =
             }}
           />
           {message.content && (
-            <div className="text-sm">
+            <div className={`text-sm ${textColor}`}>
               {message.content}
             </div>
           )}
@@ -916,7 +950,7 @@ const RealTimeChat = ({ roomId, currentUser, onBack, showWebappNotification }) =
         <div className="space-y-2">
           {/* Display clean text if any */}
           {text && (
-            <div className="text-sm whitespace-pre-wrap">
+            <div className={`text-sm ${textColor} whitespace-pre-wrap`}>
               {text}
             </div>
           )}
@@ -988,7 +1022,7 @@ const RealTimeChat = ({ roomId, currentUser, onBack, showWebappNotification }) =
         </div>
 
         {/* Messages Area - Scrollable */}
-        <div ref={messagesContainerRef} className="messages-container flex-1 overflow-y-auto p-2 sm:p-4 space-y-2 sm:space-y-4 bg-gray-50">
+        <div ref={messagesContainerRef} className="messages-container flex-1 overflow-y-auto p-2 sm:p-4 space-y-4 sm:space-y-6 bg-gray-50">
          {messages.map((message, index) => (
                      <div
             key={message._id}
@@ -996,7 +1030,7 @@ const RealTimeChat = ({ roomId, currentUser, onBack, showWebappNotification }) =
               index % 2 === 0 ? 'bg-gray-50' : 'bg-white'
             } p-2 rounded-lg`}
           >
-            <div className={`flex max-w-[70%] ${message.sender && message.sender._id === currentUser._id ? 'flex-row-reverse' : 'flex-row'}`}>
+            <div className={`flex max-w-[50%] ${message.sender && message.sender._id === currentUser._id ? 'flex-row-reverse' : 'flex-row'}`}>
               {/* Avatar */}
               <Avatar className="w-8 h-8 mx-2">
                 {message.sender ? (
@@ -1017,7 +1051,7 @@ const RealTimeChat = ({ roomId, currentUser, onBack, showWebappNotification }) =
               </Avatar>
 
               {/* Message Content */}
-              <div className={`flex flex-col ${message.sender && message.sender._id === currentUser._id ? 'items-end' : 'items-start'}`}>
+              <div className={`flex flex-col group w-full ${message.sender && message.sender._id === currentUser._id ? 'items-end' : 'items-start'}`}>
                 {/* Sender Info */}
                 <div className={`flex items-center space-x-2 mb-1 ${message.sender && message.sender._id === currentUser._id ? 'flex-row-reverse space-x-reverse' : ''}`}>
                   {message.sender ? (
@@ -1025,18 +1059,18 @@ const RealTimeChat = ({ roomId, currentUser, onBack, showWebappNotification }) =
                       <span className="text-sm font-medium text-gray-700">
                         {message.sender.displayName || message.sender.username}
                       </span>
-                      <Badge className={`text-xs ${getMembershipBadgeColor(message.sender.membershipTier)}`}>
-                        {membershipHelpers.getTierDisplayName(message.sender.membershipTier || 'member')}
-                      </Badge>
+                      <div className="flex items-center justify-center w-6 h-6 rounded-full bg-white shadow-sm border">
+                        {getMembershipIcon(message.sender.membershipTier || 'member')}
+                      </div>
                     </>
                   ) : (
                     <>
                       <span className="text-sm font-medium text-gray-700">
                         Unknown User
                       </span>
-                      <Badge className="text-xs bg-gray-100 text-gray-800">
-                        {membershipHelpers.getTierDisplayName('member')}
-                      </Badge>
+                      <div className="flex items-center justify-center w-6 h-6 rounded-full bg-white shadow-sm border">
+                        {getMembershipIcon('member')}
+                      </div>
                     </>
                   )}
                   <span className="text-xs text-gray-500">
@@ -1056,109 +1090,107 @@ const RealTimeChat = ({ roomId, currentUser, onBack, showWebappNotification }) =
                   </div>
                 )}
 
-                {/* Message Bubble */}
-                <div
-                  className={`relative rounded-2xl px-4 py-2 max-w-full break-words group ${
-                    message.sender && message.sender._id === currentUser._id
-                      ? 'bg-gray-100 text-black'
-                      : 'bg-white text-black shadow-sm border'
-                  }`}
-                >
-                                     {renderMessageContent(message)}
-                   
-                   {message.isEdited && (
-                     <div className="text-xs opacity-70 mt-1">
-                       แก้ไขแล้ว
-                     </div>
-                   )}
-
-                                       {/* Message Actions - ปุ่ม Like, Reply และ Delete ใต้ข้อความ */}
-                    <div className="flex items-center space-x-4 mt-2 pt-2 border-t border-gray-200">
-                                             {/* Like Button */}
-                       <button
-                         onClick={() => handleReactToMessage(message._id, 'heart')}
-                         disabled={hasUserLiked(message)}
-                         className={`flex items-center space-x-1 text-xs transition-all duration-200 rounded-full px-2 py-1 ${
-                           hasUserLiked(message) 
-                             ? 'bg-red-100 text-red-600 cursor-not-allowed' 
-                             : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                         }`}
-                         title={hasUserLiked(message) ? 'คุณได้กดหัวใจแล้ว' : 'กดไลค์'}
-                       >
-                         <Heart className={`h-4 w-4 ${hasUserLiked(message) ? 'fill-current text-red-600' : 'text-gray-600'}`} />
-                         <span className="font-medium">{hasUserLiked(message) ? 'Liked' : 'Like'}</span>
-                         {getLikeCount(message) > 0 && (
-                           <span className="text-xs ml-1">({getLikeCount(message)})</span>
-                         )}
-                       </button>
-                      
-                      {/* Reply Button */}
-                      <button
-                        onClick={() => setReplyTo(message)}
-                        className="flex items-center space-x-1 text-xs text-black hover:text-blue-500 transition-colors"
-                        title="ตอบกลับข้อความนี้"
-                      >
-                        <Reply className="h-4 w-4" />
-                        <span>Reply</span>
-                      </button>
-
-                     {/* Delete Button - แสดงเฉพาะข้อความรูปภาพที่ยังไม่เกิน 3 วินาที */}
-                     {message.messageType === 'image' && message.sender && message.sender._id === currentUser._id && (
-                       (() => {
-                         const messageTime = new Date(message.createdAt);
-                         const currentTime = new Date();
-                         const timeDiff = (currentTime - messageTime) / 1000;
-                         
-                         if (timeDiff <= 3) {
-                           return (
-                             <button
-                               onClick={() => handleDeleteMessage(message._id)}
-                               className="flex items-center space-x-1 text-xs text-red-500 hover:text-red-700 transition-colors"
-                             >
-                               <Trash2 className="h-4 w-4" />
-                               <span>ลบ ({Math.ceil(3 - timeDiff)}s)</span>
-                             </button>
-                           );
-                         }
-                         return null;
-                       })()
-                     )}
-                   </div>
-
-                                      {/* Reactions */}
-                    {message.reactions && message.reactions.length > 0 && (
-                      <div className="flex items-center flex-wrap gap-1 mt-2">
-                        {Object.entries(
-                          message.reactions.reduce((acc, reaction) => {
-                            acc[reaction.type] = (acc[reaction.type] || 0) + 1;
-                            return acc;
-                          }, {})
-                        ).map(([type, count]) => {
-                          const userHasReacted = hasUserReacted(message, type);
-                          return (
-                                                         <button
-                               key={type}
-                               onClick={() => handleReactToMessage(message._id, type)}
-                               disabled={userHasReacted}
-                               className={`flex items-center space-x-1 rounded-full px-2 py-1 text-xs transition-colors ${
-                                 userHasReacted 
-                                   ? 'bg-red-100 text-red-600 cursor-not-allowed' 
-                                   : 'bg-gray-100 hover:bg-gray-200 text-gray-600'
-                               }`}
-                               title={userHasReacted ? `คุณได้กด ${type} แล้ว` : `กด ${type}`}
-                             >
-                               <div className={userHasReacted ? 'text-red-600' : 'text-gray-600'}>
-                                 {getReactionIcon(type)}
-                               </div>
-                               <span>{count}</span>
-                             </button>
-                          );
-                        })}
+                {/* Message Content */}
+                <div className={`relative ${message.sender && message.sender._id === currentUser._id ? 'text-right' : 'text-left'} max-w-full`}>
+                  <div className={`inline-block rounded-xl px-3 py-1.5 max-w-[280px] sm:max-w-sm break-words ${
+                    message.sender && message.sender._id === currentUser._id 
+                      ? 'bg-gradient-to-r from-pink-500 to-violet-500 text-white rounded-br-md' 
+                      : 'bg-white text-gray-900 shadow-sm border border-gray-200 rounded-bl-md'
+                  }`}>
+                    {renderMessageContent(message, message.sender && message.sender._id === currentUser._id)}
+                     
+                    {message.isEdited && (
+                      <div className={`text-xs opacity-70 mt-1 ${
+                        message.sender && message.sender._id === currentUser._id ? 'text-white/70' : 'text-gray-500'
+                      }`}>
+                        แก้ไขแล้ว
                       </div>
                     )}
+                  </div>
 
+                  {/* Message Actions - ปุ่ม Like, Reply - แสดงเมื่อ hover */}
+                  <div className={`absolute -bottom-8 ${message.sender && message.sender._id === currentUser._id ? 'right-0' : 'left-0'} opacity-0 group-hover:opacity-100 transition-opacity duration-200 flex items-center space-x-2 bg-white rounded-full shadow-md px-2 py-1 z-10`}>
+                    {/* Like Button */}
+                    <button
+                      onClick={() => handleReactToMessage(message._id, 'heart')}
+                      disabled={hasUserLiked(message)}
+                      className={`flex items-center space-x-1 text-xs transition-all duration-200 rounded-full px-2 py-1 ${
+                        hasUserLiked(message) 
+                          ? 'text-red-600 cursor-not-allowed' 
+                          : 'text-gray-600 hover:text-red-500'
+                      }`}
+                      title={hasUserLiked(message) ? 'คุณได้กดหัวใจแล้ว' : 'กดไลค์'}
+                    >
+                      <Heart className={`h-3 w-3 ${hasUserLiked(message) ? 'fill-current text-red-600' : 'text-gray-600'}`} />
+                      {getLikeCount(message) > 0 && (
+                        <span className="text-xs">({getLikeCount(message)})</span>
+                      )}
+                    </button>
+                    
+                    {/* Reply Button */}
+                    <button
+                      onClick={() => setReplyTo(message)}
+                      className="flex items-center space-x-1 text-xs text-gray-600 hover:text-blue-500 transition-colors rounded-full px-2 py-1"
+                      title="ตอบกลับข้อความนี้"
+                    >
+                      <Reply className="h-3 w-3" />
+                    </button>
 
+                    {/* Delete Button - แสดงเฉพาะข้อความรูปภาพที่ยังไม่เกิน 3 วินาที */}
+                    {message.messageType === 'image' && message.sender && message.sender._id === currentUser._id && (
+                      (() => {
+                        const messageTime = new Date(message.createdAt);
+                        const currentTime = new Date();
+                        const timeDiff = (currentTime - messageTime) / 1000;
+                        
+                        if (timeDiff <= 3) {
+                          return (
+                            <button
+                              onClick={() => handleDeleteMessage(message._id)}
+                              className="flex items-center space-x-1 text-xs text-red-500 hover:text-red-700 transition-colors rounded-full px-2 py-1"
+                            >
+                              <Trash2 className="h-3 w-3" />
+                            </button>
+                          );
+                        }
+                        return null;
+                      })()
+                    )}
+                  </div>
                 </div>
+
+                {/* Reactions */}
+                {message.reactions && message.reactions.length > 0 && (
+                  <div className="flex items-center flex-wrap gap-1 mt-2">
+                    {Object.entries(
+                      message.reactions.reduce((acc, reaction) => {
+                        acc[reaction.type] = (acc[reaction.type] || 0) + 1;
+                        return acc;
+                      }, {})
+                    ).map(([type, count]) => {
+                      const userHasReacted = hasUserReacted(message, type);
+                      return (
+                        <button
+                          key={type}
+                          onClick={() => handleReactToMessage(message._id, type)}
+                          disabled={userHasReacted}
+                          className={`flex items-center space-x-1 rounded-full px-2 py-1 text-xs transition-colors ${
+                            userHasReacted 
+                              ? 'bg-red-100 text-red-600 cursor-not-allowed' 
+                              : 'bg-gray-100 hover:bg-gray-200 text-gray-600'
+                          }`}
+                          title={userHasReacted ? `คุณได้กด ${type} แล้ว` : `กด ${type}`}
+                        >
+                          <div className={userHasReacted ? 'text-red-600' : 'text-gray-600'}>
+                            {getReactionIcon(type)}
+                          </div>
+                          <span>{count}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+
               </div>
             </div>
           </div>

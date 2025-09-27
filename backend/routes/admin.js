@@ -1,12 +1,80 @@
 const express = require('express');
 const router = express.Router();
 const bcrypt = require('bcryptjs');
+const multer = require('multer');
+const path = require('path');
+const fs = require('fs');
 const User = require('../models/User');
 const MembershipPlan = require('../models/MembershipPlan');
 const ChatRoom = require('../models/ChatRoom');
 const Message = require('../models/Message');
 const { requireAdmin, requireSuperAdmin } = require('../middleware/adminAuth');
 const { requireAdminPermissions, ADMIN_PERMISSIONS } = require('../middleware/adminPermissions');
+
+// Configure multer for admin image uploads
+const storage = multer.diskStorage({
+  destination: function (req, file, cb) {
+    const userId = req.params.id;
+    const userUploadPath = path.join(__dirname, '..', 'uploads', 'users', userId);
+    
+    // สร้างโฟลเดอร์ถ้ายังไม่มี
+    if (!fs.existsSync(userUploadPath)) {
+      fs.mkdirSync(userUploadPath, { recursive: true });
+      console.log('📁 Created user upload directory:', userUploadPath);
+    }
+    
+    cb(null, userUploadPath);
+  },
+  filename: function (req, file, cb) {
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+    cb(null, 'profile-' + uniqueSuffix + path.extname(file.originalname));
+  }
+});
+
+const upload = multer({ 
+  storage: storage,
+  limits: {
+    fileSize: 5 * 1024 * 1024 // 5MB limit
+  },
+  fileFilter: function (req, file, cb) {
+    const allowedTypes = /jpeg|jpg|png|gif|webp|bmp|avif/;
+    const extname = allowedTypes.test(path.extname(file.originalname).toLowerCase());
+    const mimetype = allowedTypes.test(file.mimetype);
+
+    if (mimetype && extname) {
+      return cb(null, true);
+    } else {
+      cb(new Error('รองรับเฉพาะไฟล์รูปภาพ (JPEG, JPG, PNG, GIF, WebP, BMP, AVIF)'));
+    }
+  }
+});
+
+// Multer error handling middleware
+const handleMulterError = (err, req, res, next) => {
+  console.error('❌ Multer Error:', err);
+  
+  if (err instanceof multer.MulterError) {
+    if (err.code === 'LIMIT_FILE_SIZE') {
+      return res.status(400).json({
+        success: false,
+        message: 'ไฟล์มีขนาดใหญ่เกินไป (สูงสุด 5MB)'
+      });
+    }
+    return res.status(400).json({
+      success: false,
+      message: 'เกิดข้อผิดพลาดในการอัปโหลดไฟล์'
+    });
+  }
+  
+  if (err.message.includes('รองรับเฉพาะไฟล์รูปภาพ')) {
+    return res.status(400).json({
+      success: false,
+      message: err.message
+    });
+  }
+  
+  next(err);
+};
 
 // Get all users with pagination
 router.get('/users', requireAdmin, async (req, res) => {
@@ -64,8 +132,20 @@ router.get('/users', requireAdmin, async (req, res) => {
 
     const total = await User.countDocuments(query);
 
+    // แปลง profileImages จาก path เป็น URL เต็ม
+    const baseUrl = process.env.NODE_ENV === 'production' 
+      ? process.env.BACKEND_URL || `${req.protocol}://${req.get('host')}`
+      : `${req.protocol}://${req.get('host')}`;
+    
+    const usersWithImageUrls = users.map(user => ({
+      ...user.toObject(),
+      profileImages: user.profileImages.map(img => 
+        img.startsWith('http') ? img : `${baseUrl}/uploads/${img}`
+      )
+    }));
+
     res.json({
-      users,
+      users: usersWithImageUrls,
       pagination: {
         page,
         limit,
@@ -324,6 +404,92 @@ router.put('/users/:id', requireAdmin, async (req, res) => {
     res.json(user);
   } catch (error) {
     res.status(500).json({ message: 'Server error', error: error.message });
+  }
+});
+
+// Upload profile image for user (Admin only)
+router.post('/users/:id/upload-image', requireAdmin, (req, res, next) => {
+  console.log('📤 Admin upload request received for user:', req.params.id);
+  console.log('📤 Admin user:', req.user?.id);
+  console.log('📤 Content-Type:', req.headers['content-type']);
+  next();
+}, upload.single('profileImage'), handleMulterError, async (req, res) => {
+  try {
+    const { id } = req.params;
+    console.log('📤 Processing admin upload for user:', id);
+    console.log('📤 File received:', req.file ? 'Yes' : 'No');
+    
+    if (!req.file) {
+      console.log('❌ No file received in request');
+      return res.status(400).json({
+        success: false,
+        message: 'กรุณาเลือกไฟล์รูปภาพ'
+      });
+    }
+
+    console.log('📤 File details:', {
+      filename: req.file.filename,
+      originalname: req.file.originalname,
+      size: req.file.size,
+      mimetype: req.file.mimetype
+    });
+
+    const user = await User.findById(id);
+    
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'ไม่พบผู้ใช้'
+      });
+    }
+
+    // เพิ่มรูปภาพใหม่เข้าไปใน profileImages array
+    const imagePath = req.file.filename;
+    const userImagePath = `users/${id}/${imagePath}`; // path ที่รวม user ID
+    
+    // สร้าง URL สำหรับรูปภาพที่อัปโหลดจริง
+    const baseUrl = process.env.NODE_ENV === 'production' 
+      ? process.env.BACKEND_URL || `${req.protocol}://${req.get('host')}`
+      : `${req.protocol}://${req.get('host')}`;
+    const imageUrl = `${baseUrl}/uploads/${userImagePath}`;
+    
+    console.log('📤 Generated image URL:', imageUrl);
+    console.log('📤 Base URL:', baseUrl);
+    console.log('📤 Image path:', imagePath);
+    console.log('📤 User image path:', userImagePath);
+    
+    user.profileImages.push(userImagePath); // เก็บ path ที่รวม user ID
+
+    // จำกัดจำนวนรูปภาพ (admin สามารถอัปโหลดได้ไม่จำกัด)
+    const maxImages = 20; // จำกัดที่ 20 รูปสำหรับ admin
+    
+    if (user.profileImages.length > maxImages) {
+      user.profileImages = user.profileImages.slice(-maxImages);
+    }
+
+    await user.save();
+
+    console.log('✅ Admin image uploaded successfully:', {
+      userId: id,
+      imagePath,
+      imageUrl,
+      totalImages: user.profileImages.length
+    });
+
+    res.json({
+      success: true,
+      message: 'อัปโหลดรูปภาพสำเร็จ',
+      imageUrl: imageUrl,
+      imagePath: userImagePath,
+      totalImages: user.profileImages.length
+    });
+
+  } catch (error) {
+    console.error('Error uploading profile image:', error);
+    res.status(500).json({
+      success: false,
+      message: 'เกิดข้อผิดพลาดในการอัปโหลดรูปภาพ'
+    });
   }
 });
 
@@ -1913,6 +2079,57 @@ router.get('/chatrooms', requireAdminPermissions([ADMIN_PERMISSIONS.CHATROOM_MAN
     res.status(500).json({
       success: false,
       message: 'เกิดข้อผิดพลาดในการดึงข้อมูลห้องแชท'
+    });
+  }
+});
+
+// POST /api/admin/reset-spin-wheel - รีเซ็ตการหมุนวงล้อ (เฉพาะ Admin)
+router.post('/reset-spin-wheel', requireAdmin, async (req, res) => {
+  try {
+    console.log('🎪 Reset spin wheel request received:', req.body);
+    const { userId } = req.body;
+
+    if (!userId) {
+      console.log('❌ Missing userId in request');
+      return res.status(400).json({
+        success: false,
+        message: 'User ID is required'
+      });
+    }
+
+    console.log('🔍 Looking for user with ID:', userId);
+    const user = await User.findById(userId);
+    if (!user) {
+      console.log('❌ User not found:', userId);
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
+    console.log('👤 Found user:', user.username, 'Current lastSpinWheelTime:', user.dailyUsage?.lastSpinWheelTime);
+
+    // รีเซ็ตเวลาหมุนวงล้อ โดยลบ lastSpinWheelTime หรือตั้งเป็น null
+    user.dailyUsage.lastSpinWheelTime = null;
+    await user.save();
+
+    console.log('✅ Spin wheel reset successfully for user:', user.username);
+    res.json({
+      success: true,
+      message: 'Spin wheel reset successfully',
+      data: {
+        userId: user._id,
+        username: user.username,
+        canSpinWheel: user.canSpinWheel()
+      }
+    });
+
+  } catch (error) {
+    console.error('Error resetting spin wheel:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to reset spin wheel',
+      error: error.message
     });
   }
 });

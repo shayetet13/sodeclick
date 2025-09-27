@@ -8,6 +8,8 @@ const SpinWheelModal = ({ isOpen, onClose, onSpin, isLoading, canSpin, userRole 
   const [rotation, setRotation] = useState(0)
   const [selectedPrize, setSelectedPrize] = useState(null)
   const [hasSpun, setHasSpun] = useState(false)
+  const [showPrizeResult, setShowPrizeResult] = useState(false)
+  const [errorMessage, setErrorMessage] = useState(null)
   const wheelRef = useRef(null)
   const spinTimeoutRef = useRef(null)
 
@@ -16,11 +18,12 @@ const SpinWheelModal = ({ isOpen, onClose, onSpin, isLoading, canSpin, userRole 
     { id: 1, name: '200 เหรียญ', type: 'coins', amount: 200, color: '#FF6347', icon: Coins },
     { id: 2, name: '100 เหรียญ', type: 'coins', amount: 100, color: '#FFA500', icon: Coins },
     { id: 3, name: '50 เหรียญ', type: 'coins', amount: 50, color: '#FFD700', icon: Coins },
-    { id: 4, name: 'รางวัลใหญ่', type: 'grand', amount: 1, color: '#00CED1', icon: Trophy },
-    { id: 5, name: 'หัวใจพิเศษ', type: 'hearts', amount: 5, color: '#FF69B4', icon: Heart },
-    { id: 6, name: 'โบนัสพิเศษ', type: 'bonus', amount: 1, color: '#FF1493', icon: Gift },
-    { id: 7, name: '100 คะแนนโหวต', type: 'votePoints', amount: 100, color: '#8A2BE2', icon: Star },
-    { id: 8, name: '50 คะแนนโหวต', type: 'votePoints', amount: 50, color: '#9370DB', icon: Star }
+    { id: 4, name: '500 เหรียญ', type: 'coins', amount: 500, color: '#32CD32', icon: Coins },
+    { id: 5, name: 'รางวัลใหญ่', type: 'grand', amount: 1, color: '#00CED1', icon: Trophy },
+    { id: 6, name: '300 โหวต', type: 'votePoints', amount: 300, color: '#FF69B4', icon: Star },
+    { id: 7, name: '500 เหรียญ', type: 'coins', amount: 500, color: '#FF1493', icon: Coins },
+    { id: 8, name: '100 โหวต', type: 'votePoints', amount: 100, color: '#8A2BE2', icon: Star },
+    { id: 9, name: '50 โหวต', type: 'votePoints', amount: 50, color: '#9370DB', icon: Star }
   ]
 
   const handleSpin = () => {
@@ -28,7 +31,8 @@ const SpinWheelModal = ({ isOpen, onClose, onSpin, isLoading, canSpin, userRole 
 
     setIsSpinning(true)
     setSelectedPrize(null)
-    setHasSpun(true)
+    setShowPrizeResult(false)
+    setErrorMessage(null)
 
     // เพิ่มเอฟเฟกต์การสั่นของปุ่ม
     const button = document.querySelector('.spin-button')
@@ -36,33 +40,162 @@ const SpinWheelModal = ({ isOpen, onClose, onSpin, isLoading, canSpin, userRole 
       button.classList.add('animate-pulse')
     }
 
-    // สุ่มรางวัล
+    // เริ่มการหมุนแอนิเมชันก่อน (แบบสุ่ม)
+    const spins = 5 + Math.random() * 3
     const randomPrize = prizes[Math.floor(Math.random() * prizes.length)]
-    
-    // คำนวณการหมุน (5-10 รอบ + หยุดที่รางวัลที่เลือก)
-    const spins = 5 + Math.random() * 5
     const prizeIndex = prizes.findIndex(p => p.id === randomPrize.id)
     const segmentAngle = 360 / prizes.length
-    const prizeAngle = segmentAngle * prizeIndex
-    // หยุดที่ตำแหน่งที่รางวัลอยู่ด้านบน (ตรงกับเข็ม)
-    // หมุนเพิ่ม 180 องศาเพื่อให้รางวัลอยู่ตรงข้ามกับเข็ม แล้วหมุนกลับมาที่ตำแหน่งที่ถูกต้อง
-    const finalRotation = rotation + (spins * 360) + (180 - prizeAngle)
+    const prizeAngle = segmentAngle * prizeIndex + (segmentAngle / 2)
+    const initialRotation = rotation + (spins * 360) + (360 - prizeAngle)
 
     // เริ่มการหมุน
-    setRotation(finalRotation)
+    setRotation(initialRotation)
 
-    // หยุดการหมุนหลังจาก 5 วินาที
-    spinTimeoutRef.current = setTimeout(() => {
-      setIsSpinning(false)
-      setSelectedPrize(randomPrize)
-      
-      // ลบเอฟเฟกต์การสั่น
-      if (button) {
-        button.classList.remove('animate-pulse')
+    // หลังจากหมุนไปแล้ว 4 วินาที ค่อยเรียก API และแสดงผล
+    spinTimeoutRef.current = setTimeout(async () => {
+      try {
+        console.log('🚀 Starting API call...')
+        // เรียก API เพื่อได้รางวัลจริง
+        const result = await onSpin()
+        setHasSpun(true)
+        
+        console.log('🎲 API Response:', result)
+        
+        // ตรวจสอบว่า API ส่งข้อมูลมาหรือไม่
+        if (!result) {
+          throw new Error('No result from API')
+        }
+        
+        // หารางวัลที่ได้จาก API ในรายการ prizes
+        let prizeFromAPI = null
+        
+        if (result?.type === 'coins') {
+          prizeFromAPI = prizes.find(p => p.type === 'coins' && p.amount === result.amount)
+          console.log('🪙 Looking for coins prize:', result.amount, 'Found:', prizeFromAPI)
+        } else if (result?.type === 'votePoints') {
+          prizeFromAPI = prizes.find(p => p.type === 'votePoints' && p.amount === result.amount)
+          console.log('⭐ Looking for votePoints prize:', result.amount, 'Found:', prizeFromAPI)
+        } else if (result?.type === 'grand') {
+          prizeFromAPI = prizes.find(p => p.type === 'grand')
+          console.log('🏆 Looking for grand prize, Found:', prizeFromAPI)
+        }
+        
+        // ถ้าไม่พบรางวัลใน prizes ให้สร้างรางวัลใหม่
+        let finalPrize
+        if (!prizeFromAPI) {
+          console.log('⚠️ Prize not found in frontend list, creating custom prize')
+          if (result?.type === 'coins') {
+            finalPrize = {
+              id: `custom_coins_${result.amount}`,
+              name: `${result.amount} เหรียญ`,
+              type: 'coins',
+              amount: result.amount,
+              color: '#FFD700',
+              icon: Coins
+            }
+          } else if (result?.type === 'votePoints') {
+            finalPrize = {
+              id: `custom_votes_${result.amount}`,
+              name: `${result.amount} โหวต`,
+              type: 'votePoints',
+              amount: result.amount,
+              color: '#FF69B4',
+              icon: Star
+            }
+          } else if (result?.type === 'grand') {
+            finalPrize = {
+              id: 'custom_grand',
+              name: 'รางวัลใหญ่',
+              type: 'grand',
+              amount: 1,
+              color: '#00CED1',
+              icon: Trophy
+            }
+          } else {
+            finalPrize = prizes[0] // fallback
+          }
+        } else {
+          finalPrize = prizeFromAPI
+        }
+        
+        console.log('🎯 Final prize selected:', finalPrize)
+        
+        // ปรับตำแหน่งวงล้อให้ตรงกับรางวัลจริง (ถ้าไม่ตรงกับที่หมุนไป)
+        if (finalPrize.id !== randomPrize.id) {
+          let correctPrizeIndex = prizes.findIndex(p => p.id === finalPrize.id)
+          
+          // ถ้าไม่พบในรายการเดิม (เป็น custom prize) ให้ใช้ตำแหน่งแรกที่ตรงกับ type และ amount
+          if (correctPrizeIndex === -1) {
+            if (finalPrize.type === 'coins') {
+              correctPrizeIndex = prizes.findIndex(p => p.type === 'coins' && p.amount === finalPrize.amount)
+            } else if (finalPrize.type === 'votePoints') {
+              correctPrizeIndex = prizes.findIndex(p => p.type === 'votePoints' && p.amount === finalPrize.amount)
+            } else if (finalPrize.type === 'grand') {
+              correctPrizeIndex = prizes.findIndex(p => p.type === 'grand')
+            }
+          }
+          
+          // ถ้ายังไม่พบ ให้ใช้ตำแหน่งที่ใกล้เคียง
+          if (correctPrizeIndex === -1) {
+            correctPrizeIndex = 0 // ใช้ตำแหน่งแรก
+          }
+          
+          const correctPrizeAngle = segmentAngle * correctPrizeIndex + (segmentAngle / 2)
+          const correctRotation = rotation + (spins * 360) + (360 - correctPrizeAngle)
+          
+          console.log('🎯 Adjusting wheel to correct position:', correctPrizeIndex, correctPrizeAngle)
+          
+          // ปรับการหมุนให้หยุดที่รางวัลที่ถูกต้อง
+          setRotation(correctRotation)
+        }
+
+        // แสดงรางวัลทันทีหลังจาก API สำเร็จ
+        console.log('🎉 Showing prize result immediately:', finalPrize)
+        
+        // แสดงรางวัล
+        setIsSpinning(false)
+        setSelectedPrize(finalPrize)
+        setShowPrizeResult(true)
+        setErrorMessage(null)
+        
+        // ลบเอฟเฟกต์การสั่น
+        const button = document.querySelector('.spin-button')
+        if (button) {
+          button.classList.remove('animate-pulse')
+        }
+        
+      } catch (error) {
+        console.error('🚨 Error during spin:', error)
+        
+        // ถ้า API ผิดพลาด ให้หยุดการหมุนและแสดง error
+        setIsSpinning(false)
+        
+        // จัดการข้อความ error
+        let errorMsg = 'ไม่สามารถหมุนวงล้อได้'
+        
+        if (error.response?.status === 400) {
+          const responseMessage = error.response?.data?.message
+          if (responseMessage === 'Spin wheel not available yet') {
+            errorMsg = 'ยังไม่สามารถหมุนวงล้อได้ กรุณารอ 24 ชั่วโมง'
+          } else {
+            errorMsg = responseMessage || errorMsg
+          }
+        }
+        
+        // แสดง error แทนรางวัล
+        setSelectedPrize(null)
+        setShowPrizeResult(false)
+        setErrorMessage(errorMsg)
+        
+        console.log('🔴 Error state set:', { errorMsg, showPrizeResult: false })
+        
+        // ลบเอฟเฟกต์การสั่น
+        const button = document.querySelector('.spin-button')
+        if (button) {
+          button.classList.remove('animate-pulse')
+        }
       }
-      
-      // ไม่เรียก API ที่นี่ ให้รอจนกว่าจะกดปุ่ม "ตกลง"
-    }, 5000)
+    }, 4000) // เรียก API หลังหมุนไปแล้ว 4 วินาที
   }
 
   useEffect(() => {
@@ -75,15 +208,45 @@ const SpinWheelModal = ({ isOpen, onClose, onSpin, isLoading, canSpin, userRole 
 
   useEffect(() => {
     if (!isOpen) {
-      setIsSpinning(false)
-      setSelectedPrize(null)
-      setRotation(0)
-      setHasSpun(false)
+      // ล้าง timeout เมื่อปิด modal
       if (spinTimeoutRef.current) {
         clearTimeout(spinTimeoutRef.current)
       }
+      
+      // Reset states หลังจากปิด modal เป็นเวลา 500ms เพื่อให้ User เห็นผลลัพธ์ก่อน
+      const resetTimeout = setTimeout(() => {
+        console.log('🔄 Resetting modal states...')
+        setIsSpinning(false)
+        setSelectedPrize(null)
+        setRotation(0)
+        setHasSpun(false)
+        setShowPrizeResult(false)
+        setErrorMessage(null)
+      }, 500)
+      
+      return () => clearTimeout(resetTimeout)
     }
   }, [isOpen])
+
+  // Debug useEffect เพื่อติดตาม state changes
+  useEffect(() => {
+    console.log('🔄 State changed:', {
+      isSpinning,
+      selectedPrize: selectedPrize ? { id: selectedPrize.id, name: selectedPrize.name, type: selectedPrize.type } : null,
+      showPrizeResult,
+      errorMessage,
+      hasSpun
+    })
+    
+    // แสดงสถานะของ popup อย่างชัดเจน
+    if (showPrizeResult && selectedPrize) {
+      console.log('✅ POPUP SHOULD BE VISIBLE NOW!')
+    } else if (errorMessage) {
+      console.log('❌ ERROR MESSAGE SHOULD BE VISIBLE:', errorMessage)
+    } else {
+      console.log('⏳ Waiting for result...')
+    }
+  }, [isSpinning, selectedPrize, showPrizeResult, errorMessage, hasSpun])
 
   const renderWheel = () => {
     const segmentAngle = 360 / prizes.length
@@ -274,10 +437,12 @@ const SpinWheelModal = ({ isOpen, onClose, onSpin, isLoading, canSpin, userRole 
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className={`max-w-md backdrop-blur-md border shadow-2xl rounded-2xl p-6 ${
+      <DialogContent className={`${showPrizeResult ? 'max-w-lg' : 'max-w-md'} backdrop-blur-md border shadow-2xl rounded-2xl p-6 ${
         isSpinning 
           ? 'bg-gradient-to-br from-yellow-50/95 to-orange-50/95 border-yellow-200 ring-4 ring-yellow-300 ring-opacity-30 animate-pulse' 
-          : 'bg-white/95 border-white/20'
+          : showPrizeResult
+            ? 'bg-gradient-to-br from-green-50/95 to-emerald-50/95 border-green-200'
+            : 'bg-white/95 border-white/20'
       }`}>
         <DialogHeader>
           <DialogTitle className={`text-2xl font-bold text-center mb-4 ${
@@ -293,88 +458,136 @@ const SpinWheelModal = ({ isOpen, onClose, onSpin, isLoading, canSpin, userRole 
         </DialogHeader>
 
         <div className="space-y-6">
-          {/* วงล้อ */}
-          {renderWheel()}
+          {/* แสดง error message ถ้ามี */}
+          {errorMessage && (
+            <div className="text-center p-6 bg-gradient-to-r from-red-50 to-pink-50 rounded-xl border-2 border-red-300 shadow-lg">
+              <div className="text-2xl mb-3">⚠️</div>
+              <div className="text-xl font-bold text-red-800 mb-2">
+                ไม่สามารถหมุนวงล้อได้
+              </div>
+              <div className="text-lg text-red-600 mb-4">
+                {errorMessage}
+              </div>
+              <Button
+                onClick={() => {
+                  setErrorMessage(null)
+                  onClose()
+                }}
+                className="bg-gradient-to-r from-red-500 to-pink-500 hover:from-red-600 hover:to-pink-600 text-white px-8 py-3 rounded-lg font-semibold shadow-lg hover:shadow-xl transform hover:scale-105 transition-all duration-300 text-lg"
+              >
+                ตกลง
+              </Button>
+            </div>
+          )}
 
-          {/* ปุ่มหมุน */}
-          <div className="text-center">
-            <Button
-              onClick={handleSpin}
-              disabled={isSpinning || isLoading || (hasSpun && userRole !== 'superadmin' && userRole !== 'admin')}
-              className={`spin-button px-8 py-3 text-lg font-semibold rounded-xl shadow-lg hover:shadow-xl transform hover:scale-105 transition-all duration-300 ${
-                isSpinning 
-                  ? 'bg-gradient-to-r from-yellow-400 to-orange-500 text-white animate-pulse ring-4 ring-yellow-300' 
-                  : hasSpun && userRole !== 'superadmin' && userRole !== 'admin'
-                    ? 'bg-gray-400 text-gray-600 cursor-not-allowed'
-                    : 'bg-gradient-to-r from-pink-500 to-violet-500 hover:from-pink-600 hover:to-violet-600 text-white'
-              }`}
-            >
-              {isSpinning ? (
-                <div className="flex items-center">
-                  <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white mr-2"></div>
-                  กำลังหมุน...
+          {/* แสดงรางวัลที่ได้ก่อน ถ้ามี */}
+          {showPrizeResult && selectedPrize && !errorMessage ? (
+            <div className="text-center p-8 bg-gradient-to-r from-green-50 to-emerald-50 rounded-xl border-2 border-green-300 shadow-xl">
+              {/* รางวัลไอคอน */}
+              <div className="flex justify-center mb-4">
+                <div className="w-20 h-20 bg-gradient-to-r from-yellow-400 to-orange-400 rounded-full flex items-center justify-center shadow-lg animate-bounce">
+                  {selectedPrize.icon && (
+                    <selectedPrize.icon className="w-10 h-10 text-white" />
+                  )}
                 </div>
-              ) : isLoading ? (
-                <div className="flex items-center">
-                  <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white mr-2"></div>
-                  กำลังประมวลผล...
+              </div>
+              
+              {/* ข้อความแสดงความยินดี */}
+              <div className="text-3xl mb-3">🎉</div>
+              <div className="text-2xl font-bold text-green-800 mb-3">
+                ยินดีด้วย!
+              </div>
+              <div className="text-lg font-semibold text-green-600 mb-4">
+                คุณได้รับรางวัล:
+              </div>
+              
+              {/* รางวัลที่ได้รับ */}
+              <div className="bg-white p-4 rounded-lg border-2 border-green-200 mb-4">
+                <div className="text-3xl font-bold bg-gradient-to-r from-green-600 to-emerald-600 bg-clip-text text-transparent">
+                  {selectedPrize.type === 'grand' ? 
+                    'รางวัลใหญ่!' : 
+                    selectedPrize.name
+                  }
                 </div>
-              ) : hasSpun && userRole !== 'superadmin' && userRole !== 'admin' ? (
-                <div className="flex items-center">
-                  <Timer className="w-5 h-5 mr-2" />
-                  รอ 24 ชม.
-                </div>
-              ) : (
-                <div className="flex items-center">
-                  <Zap className="w-5 h-5 mr-2" />
-                  หมุนวงล้อ
-                </div>
-              )}
-            </Button>
-          </div>
+                {selectedPrize.type === 'grand' && (
+                  <div className="text-lg text-green-600 mt-2">
+                    500 เหรียญ + 500 โหวต
+                  </div>
+                )}
+              </div>
+              
+              <div className="text-sm text-green-600 mb-6">
+                รางวัลได้ถูกเพิ่มเข้าบัญชีของคุณแล้ว!
+              </div>
+              
+              <Button
+                onClick={() => {
+                  // ปิด modal หลังจากรับรางวัลแล้ว
+                  setShowPrizeResult(false)
+                  setSelectedPrize(null)
+                  onClose()
+                }}
+                className="bg-gradient-to-r from-green-500 to-emerald-500 hover:from-green-600 hover:to-emerald-600 text-white px-8 py-3 rounded-lg font-semibold shadow-lg hover:shadow-xl transform hover:scale-105 transition-all duration-300 text-lg"
+              >
+                ตกลง
+              </Button>
+            </div>
+          ) : (
+            <>
+              {/* วงล้อ */}
+              {renderWheel()}
 
-                  {/* แสดงรางวัลที่ได้ */}
-        {selectedPrize && (
-          <div className="text-center p-6 bg-gradient-to-r from-green-50 to-emerald-50 rounded-xl border-2 border-green-300 shadow-lg animate-pulse">
-            <div className="text-2xl mb-3">🎉</div>
-            <div className="text-xl font-bold text-green-800 mb-2">
-              ยินดีด้วย!
-            </div>
-            <div className="text-2xl font-bold text-green-600 mb-2">
-              คุณได้รับ:
-            </div>
-            <div className="text-3xl font-bold bg-gradient-to-r from-green-600 to-emerald-600 bg-clip-text text-transparent">
-              {selectedPrize.name}
-            </div>
-            <div className="mt-3 text-sm text-green-600 mb-4">
-              รางวัลจะถูกเพิ่มเข้าบัญชีของคุณทันที!
-            </div>
-            <Button
-              onClick={async () => {
-                // เรียก API เพื่อรับรางวัล
-                await onSpin(selectedPrize)
-                // ปิด modal หลังจากรับรางวัลแล้ว
-                onClose()
-              }}
-              className="bg-gradient-to-r from-green-500 to-emerald-500 hover:from-green-600 hover:to-emerald-600 text-white px-6 py-2 rounded-lg font-semibold shadow-lg hover:shadow-xl transform hover:scale-105 transition-all duration-300"
-            >
-              ตกลง
-            </Button>
-          </div>
-        )}
+              {/* ปุ่มหมุน */}
+              <div className="text-center">
+                <Button
+                  onClick={handleSpin}
+                  disabled={isSpinning || isLoading || (hasSpun && userRole !== 'superadmin' && userRole !== 'admin')}
+                  className={`spin-button px-8 py-3 text-lg font-semibold rounded-xl shadow-lg hover:shadow-xl transform hover:scale-105 transition-all duration-300 ${
+                    isSpinning 
+                      ? 'bg-gradient-to-r from-yellow-400 to-orange-500 text-white animate-pulse ring-4 ring-yellow-300' 
+                      : (hasSpun && userRole !== 'superadmin' && userRole !== 'admin')
+                        ? 'bg-gray-400 text-gray-600 cursor-not-allowed'
+                        : 'bg-gradient-to-r from-pink-500 to-violet-500 hover:from-pink-600 hover:to-violet-600 text-white'
+                  }`}
+                >
+                  {isSpinning ? (
+                    <div className="flex items-center">
+                      <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white mr-2"></div>
+                      กำลังหมุน...
+                    </div>
+                  ) : isLoading ? (
+                    <div className="flex items-center">
+                      <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white mr-2"></div>
+                      กำลังประมวลผล...
+                    </div>
+                  ) : hasSpun && userRole !== 'superadmin' && userRole !== 'admin' ? (
+                    <div className="flex items-center">
+                      <Timer className="w-5 h-5 mr-2" />
+                      หมุนแล้ววันนี้
+                    </div>
+                  ) : (
+                    <div className="flex items-center">
+                      <Zap className="w-5 h-5 mr-2" />
+                      หมุนวงล้อ
+                    </div>
+                  )}
+                </Button>
+              </div>
 
-          {/* คำแนะนำ */}
-          <div className={`text-center text-sm ${
-            isSpinning ? 'text-yellow-700 animate-pulse' : 'text-gray-600'
-          }`}>
-            <p>💡 กดปุ่มหมุนวงล้อเพื่อรับรางวัลพิเศษ!</p>
-            <p className="mt-1">
-              {(userRole === 'superadmin' || userRole === 'admin') 
-                ? '⚡ สามารถหมุนได้ไม่จำกัด' 
-                : '⏰ สามารถหมุนได้ทุก 24 ชั่วโมง'
-              }
-            </p>
-          </div>
+              {/* คำแนะนำ - แสดงเฉพาะเมื่อยังไม่ได้รางวัล */}
+              <div className={`text-center text-sm ${
+                isSpinning ? 'text-yellow-700 animate-pulse' : 'text-gray-600'
+              }`}>
+                <p>💡 กดปุ่มหมุนวงล้อเพื่อรับรางวัลพิเศษ!</p>
+                <p className="mt-1">
+                  {(userRole === 'superadmin' || userRole === 'admin') 
+                    ? '⚡ สามารถหมุนได้ไม่จำกัด' 
+                    : '⏰ สามารถหมุนได้ทุก 24 ชั่วโมง'
+                  }
+                </p>
+              </div>
+            </>
+          )}
         </div>
       </DialogContent>
     </Dialog>
