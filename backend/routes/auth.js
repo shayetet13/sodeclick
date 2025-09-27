@@ -603,6 +603,7 @@ router.get('/me', async (req, res) => {
       email: userProfile.email,
       username: userProfile.username,
       displayName: userProfile.displayName,
+      coins: userProfile.coins, // เพิ่มการ log coins
       allKeys: Object.keys(userProfile)
     });
 

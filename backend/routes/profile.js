@@ -347,11 +347,16 @@ router.get('/premium', async (req, res) => {
           nickname: 1,
           location: 1,
           profileImages: 1,
+          mainProfileImageIndex: 1,
           membership: 1,
           membershipTier: '$membership.tier',
           lastActive: 1,
           gender: 1,
-          dateOfBirth: 1
+          dateOfBirth: 1,
+          age: 1,
+          bio: 1,
+          interests: 1,
+          isOnline: 1
         }
       }
     ])

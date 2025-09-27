@@ -101,6 +101,12 @@ const userSchema = new mongoose.Schema({
     default: null
   },
   
+  // Blur image purchases - รายการผู้ใช้ที่จ่ายเหรียญเพื่อดูรูปเบลอแล้ว
+  blurImagePurchases: [{
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User'
+  }],
+  
   // Extended Profile Information
   occupation: {
     job: { type: String, trim: true, maxlength: 100 },

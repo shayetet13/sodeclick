@@ -460,6 +460,14 @@ function App() {
   const [showProfileModal, setShowProfileModal] = useState(false)
   const [profileAlert, setProfileAlert] = useState<{message: string, type: 'error' | 'warning' | 'success'} | null>(null)
   const [activeImageIndex, setActiveImageIndex] = useState(0)
+  
+  // Payment confirmation modal
+  const [showPaymentConfirmation, setShowPaymentConfirmation] = useState(false)
+  const [paymentDetails, setPaymentDetails] = useState<{
+    targetUserId: string;
+    targetUserName: string;
+    currentCoins: number;
+  } | null>(null)
   const [isAuthenticated, setIsAuthenticated] = useState(false)
   const [likedProfiles, setLikedProfiles] = useState(new Set<string>())
   const [modalAction, setModalAction] = useState<'chat' | 'like' | 'profile' | null>(null)
@@ -1352,6 +1360,35 @@ function App() {
     return () => { isCancelled = true }
   }, [])
 
+  // Function to fetch premium users (extracted from useEffect)
+  const fetchPremiumUsers = async () => {
+    try {
+      const base = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000'
+      const token = sessionStorage.getItem('token');
+      
+      const res = await fetch(`${base}/api/profile/premium?limit=50`, {
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+        }
+      })
+      if (!res.ok) return
+      const data = await res.json()
+      const users: PublicUser[] = data?.data?.users || []
+      // Ensure final ordering and cap
+      const sorted = users
+        .sort((a: PublicUser, b: PublicUser) => {
+          const ai = premiumTierOrder.indexOf((a?.membership?.tier || '') as string)
+          const bi = premiumTierOrder.indexOf((b?.membership?.tier || '') as string)
+          return ai - bi
+        })
+        .slice(0, 50)
+      setPremiumUsers(sorted)
+    } catch (_) {
+      // ignore errors for this section
+    }
+  }
+
   // Helper function for webapp notification with duplicate prevention
   const notificationHistory = useRef(new Set<string>());
   const showWebappNotification = (message: string, type: 'warning' | 'error' | 'success' = 'warning') => {
@@ -1808,6 +1845,183 @@ function App() {
     return relationshipMap[relationship?.toLowerCase()] || relationship || 'ยังไม่ระบุ';
   };
 
+
+  // ฟังก์ชันจัดการการจ่ายเหรียญเพื่อดูรูปเบลอ
+  const handleBlurPayment = async (targetUserId: string, targetUserName: string) => {
+    try {
+      // ตรวจสอบ token
+      const token = sessionStorage.getItem('token');
+      if (!token) {
+        showWebappNotification('กรุณาเข้าสู่ระบบก่อน');
+        return;
+      }
+
+      // ดึงข้อมูลเหรียญล่าสุดจาก API
+      console.log('💰 Checking user coins before payment...');
+      
+      try {
+        const userResponse = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/auth/me`, {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          }
+        });
+        
+        if (!userResponse.ok) {
+          throw new Error(`Failed to fetch user data: ${userResponse.status}`);
+        }
+        
+        const userData = await userResponse.json();
+        const userCoins = userData.data?.user?.coins || 0;
+        
+        console.log('💰 Current user coins:', userCoins);
+        console.log('💰 Full user data:', userData);
+        
+        if (userCoins < 10000) {
+          showWebappNotification(`เหรียญไม่เพียงพอ ต้องการ 10,000 เหรียญ (ปัจจุบัน: ${userCoins.toLocaleString()})`);
+          return;
+        }
+      } catch (error) {
+        console.error('❌ Error fetching user coins:', error);
+        showWebappNotification('ไม่สามารถตรวจสอบยอดเหรียญได้');
+        return;
+      }
+
+      // ดึงข้อมูลเหรียญอีกครั้งสำหรับ confirmation
+      const userResponse2 = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/auth/me`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+      const userData2 = await userResponse2.json();
+      const currentCoins = userData2.data?.user?.coins || 0;
+      
+      // แสดง confirmation modal
+      setPaymentDetails({
+        targetUserId,
+        targetUserName,
+        currentCoins
+      });
+      setShowPaymentConfirmation(true);
+
+    } catch (error) {
+      console.error('Error preparing blur payment:', error);
+      showWebappNotification('❌ เกิดข้อผิดพลาดในการเตรียมข้อมูล');
+    }
+  };
+
+  // ฟังก์ชันจ่ายเงินจริงหลังจากยืนยัน
+  const confirmBlurPayment = async () => {
+    console.log('🟢 confirmBlurPayment function called');
+    if (!paymentDetails) {
+      console.log('❌ No payment details');
+      return;
+    }
+
+    try {
+      const token = sessionStorage.getItem('token');
+      if (!token) {
+        showWebappNotification('กรุณาเข้าสู่ระบบก่อน');
+        return;
+      }
+
+      setShowPaymentConfirmation(false);
+      showWebappNotification('⏳ กำลังดำเนินการจ่ายเหรียญ...', 'warning');
+
+      console.log('💳 Sending payment request:', {
+        targetUserId: paymentDetails.targetUserId,
+        amount: 10000,
+        url: `${import.meta.env.VITE_API_BASE_URL}/api/blur/pay`
+      });
+
+      // เรียก API เพื่อจ่ายเหรียญ
+      const response = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/blur/pay`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          targetUserId: paymentDetails.targetUserId,
+          amount: 10000
+        })
+      });
+
+      const result = await response.json();
+      
+      console.log('💳 Payment response:', {
+        status: response.status,
+        ok: response.ok,
+        result
+      });
+
+      if (response.ok && result.success) {
+        // อัพเดทข้อมูลผู้ใช้ใน sessionStorage
+        const currentUser = JSON.parse(sessionStorage.getItem('user') || '{}');
+        const updatedUser = { 
+          ...currentUser, 
+          coins: result.data.remainingCoins,
+          blurImagePurchases: [...(currentUser.blurImagePurchases || []), paymentDetails.targetUserId]
+        };
+        sessionStorage.setItem('user', JSON.stringify(updatedUser));
+        
+        console.log('✅ Payment successful, updated user coins:', updatedUser.coins);
+        console.log('✅ Updated blurImagePurchases:', updatedUser.blurImagePurchases);
+        
+        // เก็บข้อมูล payment details ก่อนปิด modal
+        const targetUserId = paymentDetails.targetUserId;
+        const targetUserName = paymentDetails.targetUserName;
+        
+        // แสดงข้อความสำเร็จ
+        showWebappNotification(`✅ จ่ายเหรียญสำเร็จ! คุณสามารถดูรูปของ ${targetUserName} ได้แล้ว`);
+        
+        // รีเฟรชข้อมูลผู้ใช้ premium เพื่ออัพเดทข้อมูลล่าสุด
+        fetchPremiumUsers();
+        
+        // อัพเดท selectedProfile เพื่อให้รูปภาพแสดงไม่เบลอทันที
+        if (selectedProfile && selectedProfile.id === targetUserId) {
+          setSelectedProfile(prevProfile => {
+            if (!prevProfile) return null;
+            return {
+              ...prevProfile,
+              // ไม่ต้องเปลี่ยนอะไร เพราะการเช็ค hasPaidForBlur จะทำงานจาก sessionStorage
+            };
+          });
+        }
+        
+        // ปิด payment confirmation modal หลังจากใช้งานข้อมูลเสร็จ
+        setShowPaymentConfirmation(false);
+        setPaymentDetails(null);
+        
+      } else {
+        console.error('❌ Payment failed:', result);
+        showWebappNotification(`❌ ${result.message || 'เกิดข้อผิดพลาดในการจ่ายเหรียญ'}`);
+        
+        // แสดงรายละเอียดข้อผิดพลาด
+        if (result.data) {
+          console.log('💰 Payment failure details:', {
+            currentCoins: result.data.currentCoins,
+            required: result.data.required
+          });
+        }
+      }
+
+    } catch (error) {
+      console.error('Error paying for blur image:', error);
+      showWebappNotification('❌ เกิดข้อผิดพลาดในการเชื่อมต่อ');
+    } finally {
+      setPaymentDetails(null);
+    }
+  };
+
+  // ฟังก์ชันยกเลิกการจ่ายเหรียญ
+  const cancelBlurPayment = () => {
+    console.log('🔴 cancelBlurPayment function called');
+    setShowPaymentConfirmation(false);
+    setPaymentDetails(null);
+    showWebappNotification('ยกเลิกการจ่ายเหรียญแล้ว', 'warning');
+  };
 
   // ฟังก์ชันจัดการการดูโปรไฟล์
   const handleViewProfile = async (profileData: any) => {
@@ -3884,16 +4098,24 @@ function App() {
                 </div>
                 <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3 sm:gap-4 md:gap-6 lg:gap-8">
                   {premiumUsers.map((u: PublicUser, idx: number) => {
-                    // ใช้ utility function เพื่อสร้าง image URL ที่ถูกต้อง
-                    const imageUrl = getMainProfileImage(
-                      u?.profileImages || [], 
-                      (u as any)?.mainProfileImageIndex, 
-                      u._id || (u as any)?.id
-                    )
-                    
-                    
+                    // ใช้ utility function เพื่อสร้าง image URL ที่ถูกต้อง - รองรับรูปเบลอ
+                    const mainImageIndex = (u as any)?.mainProfileImageIndex || 0;
+                    const mainImage = u?.profileImages?.[mainImageIndex];
                     const displayName = u?.nickname || `${u?.firstName || ''} ${u?.lastName || ''}`.trim() || 'Premium User'
                     const tier: string = (u?.membership?.tier || 'member') as string
+                    
+                    // ตรวจสอบว่าเป็นรูปเบลอหรือไม่และยังไม่ได้จ่ายเหรียญ
+                    const currentUser = JSON.parse(sessionStorage.getItem('user') || '{}');
+                    const hasPaidForBlur = currentUser.blurImagePurchases?.includes(u._id);
+                    
+                    // ตรวจสอบว่าเป็นรูปเบลอและยังไม่ได้จ่ายเหรียญ
+                    const isMainImageBlurred = typeof mainImage === 'object' && (mainImage as any)?.isBlurred && !hasPaidForBlur;
+                    
+                    const imageUrl = getMainProfileImage(
+                      u?.profileImages || [], 
+                      mainImageIndex, 
+                      u._id || (u as any)?.id
+                    )
                     const tierColors: Record<string, string> = {
                       platinum: 'from-purple-500 to-pink-500',
                       diamond: 'from-blue-500 to-cyan-500',
@@ -3925,7 +4147,10 @@ function App() {
                             interests: Array.isArray(u?.interests)
                               ? u.interests.map((it: any) => it?.category || it?.name || `${it}`).filter(Boolean)
                               : [],
-                            images: (u?.profileImages || []).filter(img => !img.startsWith('data:image/svg+xml')),
+                            images: (u?.profileImages || []).filter((img: any) => {
+                              const imgPath = typeof img === 'string' ? img : img?.url || '';
+                              return !imgPath.startsWith('data:image/svg+xml');
+                            }),
                             verified: false,
                             online: (u as any)?.isOnline || false,
                             lastActive: (u as any)?.lastActive,
@@ -3941,14 +4166,32 @@ function App() {
                       >
                         <div className="h-48 sm:h-60 md:h-72 overflow-hidden relative">
                           {imageUrl ? (
-                            <img
-                              src={imageUrl}
-                              alt={displayName}
-                              className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
-                              onError={(e) => {
-                                (e.target as HTMLImageElement).style.display = 'none';
-                              }}
-                            />
+                            <>
+                              <img
+                                src={imageUrl}
+                                alt={displayName}
+                                className={`w-full h-full object-cover transition-transform duration-500 group-hover:scale-110 ${isMainImageBlurred ? 'filter blur-md' : ''}`}
+                                style={{
+                                  ...(isMainImageBlurred && { 
+                                    filter: 'blur(12px)',
+                                    transition: 'filter 0.3s ease'
+                                  })
+                                }}
+                                onError={(e) => {
+                                  (e.target as HTMLImageElement).style.display = 'none';
+                                }}
+                              />
+                              {/* Overlay สำหรับรูปเบลอ */}
+                              {isMainImageBlurred && (
+                                <div className="absolute inset-0 bg-black bg-opacity-30 flex items-center justify-center">
+                                  <div className="w-10 h-10 text-white opacity-60">
+                                    <svg viewBox="0 0 24 24" fill="currentColor" className="w-full h-full">
+                                      <path d="M12 6c3.79 0 7.17 2.13 8.82 5.5-.59 1.22-1.42 2.27-2.41 3.12l1.41 1.41c1.39-1.23 2.49-2.77 3.18-4.53C21.27 7.11 17 4 12 4c-1.27 0-2.49.2-3.64.57l1.65 1.65C10.66 6.09 11.32 6 12 6zm-1.07 1.14L13 9.21c.57.25 1.03.71 1.28 1.28l2.07 2.07c.08-.34.14-.7.14-1.07C16.5 9.01 14.48 7 12 7c-.37 0-.72.05-1.07.14zM2.01 3.87l2.68 2.68C3.06 7.83 1.77 9.53 1 11.5 2.73 15.89 7 19 12 19c1.52 0 2.98-.29 4.32-.82l3.42 3.42 1.41-1.41L3.42 2.46 2.01 3.87zm7.5 7.5l2.61 2.61c-.04.01-.08.02-.12.02-1.38 0-2.5-1.12-2.5-2.5 0-.05.01-.08.01-.13zm-3.4-3.4l1.75 1.75c-.23.55-.36 1.15-.36 1.78 0 2.48 2.02 4.5 4.5 4.5.63 0 1.23-.13 1.77-.36l.98.98c-.88.24-1.8.38-2.75.38-3.79 0-7.17-2.13-8.82-5.5.7-1.43 1.72-2.61 2.93-3.53z"/>
+                                    </svg>
+                                  </div>
+                                </div>
+                              )}
+                            </>
                           ) : null}
                           
                           {/* Fallback element สำหรับรูปภาพที่โหลดไม่ได้ */}
@@ -4013,7 +4256,10 @@ function App() {
                                       interests: Array.isArray(u?.interests)
                                         ? u.interests.map((it: any) => it?.category || it?.name || `${it}`).filter(Boolean)
                                         : [],
-                                      images: (u?.profileImages || []).filter(img => !img.startsWith('data:image/svg+xml')),
+                                      images: (u?.profileImages || []).filter((img: any) => {
+                                        const imgPath = typeof img === 'string' ? img : img?.url || '';
+                                        return !imgPath.startsWith('data:image/svg+xml');
+                                      }),
                                       verified: false,
                                       online: (u as any)?.isOnline || false,
                                       lastActive: (u as any)?.lastActive,
@@ -4858,30 +5104,99 @@ function App() {
                 const images = selectedProfile.images || [];
                 const currentImage = images[activeImageIndex];
                 
-                if (images.length > 0 && currentImage && !currentImage.startsWith('data:image/svg+xml')) {
+                // Handle both string and object image formats
+                const imagePath = typeof currentImage === 'string' ? currentImage : (currentImage as any)?.url || '';
+                const isBlurred = typeof currentImage === 'object' && (currentImage as any)?.isBlurred;
+                
+                // ตรวจสอบว่าผู้ใช้จ่ายเหรียญเพื่อดูรูปนี้แล้วหรือไม่
+                const currentUser = JSON.parse(sessionStorage.getItem('user') || '{}');
+                const hasPaidForBlur = currentUser.blurImagePurchases?.includes(selectedProfile?.id);
+                
+                // รูปจะเบลอเมื่อ: เป็นรูปที่ตั้งค่าเบลอ และยังไม่ได้จ่ายเหรียญ
+                const finalIsBlurred = isBlurred && !hasPaidForBlur;
+                
+                console.log('🔍 Modal image blur check:', {
+                  activeImageIndex,
+                  imagePath,
+                  isBlurred,
+                  hasPaidForBlur,
+                  finalIsBlurred,
+                  profileId: selectedProfile?.id,
+                  currentImage,
+                  selectedProfile,
+                  allImages: selectedProfile.images
+                });
+                
+                if (images.length > 0 && imagePath && !imagePath.startsWith('data:image/svg+xml')) {
                   // Use getProfileImageUrl to ensure correct URL
-                  const imageUrl = getProfileImageUrl(currentImage, selectedProfile.id?.toString());
+                  const imageUrl = getProfileImageUrl(imagePath, selectedProfile.id?.toString());
                   return (
-                    <img
-                      src={imageUrl}
-                      alt={selectedProfile.name}
-                      className="w-full h-full object-cover"
-                      onError={(e) => {
-                        console.error('❌ Profile modal image failed to load:', {
-                          imageUrl: imageUrl,
-                          originalImage: currentImage,
-                          profileId: selectedProfile.id
-                        });
-                        (e.target as HTMLImageElement).style.display = 'none';
-                      }}
-                      onLoad={() => {
-                        console.log('✅ Profile modal image loaded successfully:', {
-                          imageUrl: imageUrl,
-                          originalImage: currentImage,
-                          profileId: selectedProfile.id
-                        });
-                      }}
-                    />
+                    <div className="relative w-full h-full">
+                      <img
+                        src={imageUrl}
+                        alt={selectedProfile.name}
+                        className={`w-full h-full object-cover ${finalIsBlurred ? 'filter blur-lg' : ''}`}
+                        style={{
+                          ...(finalIsBlurred && { 
+                            filter: 'blur(16px)',
+                            transition: 'filter 0.3s ease'
+                          })
+                        }}
+                        onError={(e) => {
+                          console.error('❌ Profile modal image failed to load:', {
+                            imageUrl: imageUrl,
+                            originalImage: currentImage,
+                            profileId: selectedProfile.id
+                          });
+                          (e.target as HTMLImageElement).style.display = 'none';
+                        }}
+                        onLoad={() => {
+                          console.log('✅ Profile modal image loaded successfully:', {
+                            imageUrl: imageUrl,
+                            originalImage: currentImage,
+                            profileId: selectedProfile.id
+                          });
+                        }}
+                      />
+                      {/* Overlay สำหรับรูปเบลอ */}
+                      {finalIsBlurred && (
+                        <div className="absolute inset-0 bg-black bg-opacity-30 flex flex-col items-center justify-center">
+                          <div className="w-16 h-16 text-white opacity-60 mb-4">
+                            <svg viewBox="0 0 24 24" fill="currentColor" className="w-full h-full">
+                              <path d="M12 6c3.79 0 7.17 2.13 8.82 5.5-.59 1.22-1.42 2.27-2.41 3.12l1.41 1.41c1.39-1.23 2.49-2.77 3.18-4.53C21.27 7.11 17 4 12 4c-1.27 0-2.49.2-3.64.57l1.65 1.65C10.66 6.09 11.32 6 12 6zm-1.07 1.14L13 9.21c.57.25 1.03.71 1.28 1.28l2.07 2.07c.08-.34.14-.7.14-1.07C16.5 9.01 14.48 7 12 7c-.37 0-.72.05-1.07.14zM2.01 3.87l2.68 2.68C3.06 7.83 1.77 9.53 1 11.5 2.73 15.89 7 19 12 19c1.52 0 2.98-.29 4.32-.82l3.42 3.42 1.41-1.41L3.42 2.46 2.01 3.87zm7.5 7.5l2.61 2.61c-.04.01-.08.02-.12.02-1.38 0-2.5-1.12-2.5-2.5 0-.05.01-.08.01-.13zm-3.4-3.4l1.75 1.75c-.23.55-.36 1.15-.36 1.78 0 2.48 2.02 4.5 4.5 4.5.63 0 1.23-.13 1.77-.36l.98.98c-.88.24-1.8.38-2.75.38-3.79 0-7.17-2.13-8.82-5.5.7-1.43 1.72-2.61 2.93-3.53z"/>
+                            </svg>
+                          </div>
+                          
+                          {/* ปุ่มจ่ายเหรียญ */}
+                          <button
+                            onClick={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              
+                              const token = sessionStorage.getItem('token');
+                              if (!token) {
+                                showWebappNotification('กรุณาเข้าสู่ระบบก่อน');
+                                return;
+                              }
+                              
+                              // Handle blur payment
+                              handleBlurPayment(selectedProfile?.id?.toString() || '', selectedProfile?.name || '');
+                            }}
+                            className="bg-gradient-to-r from-yellow-400 to-yellow-600 hover:from-yellow-500 hover:to-yellow-700 text-white font-bold py-3 px-6 rounded-full shadow-lg transform transition-all duration-200 hover:scale-105 flex items-center gap-2"
+                          >
+                            <span className="text-xl">💰</span>
+                            <div className="text-center">
+                              <div className="text-sm">ดูรูปนี้</div>
+                              <div className="text-xs opacity-90">10,000 เหรียญ</div>
+                            </div>
+                          </button>
+                          
+                          <p className="text-white text-xs mt-2 opacity-80 text-center">
+                            จ่ายครั้งเดียว • ดูได้ตลอด
+                          </p>
+                        </div>
+                      )}
+                    </div>
                   );
                 }
                 return null;
@@ -4890,7 +5205,8 @@ function App() {
                 // Show fallback if no image is displayed
                 const images = selectedProfile.images || [];
                 const currentImage = images[activeImageIndex];
-                const hasValidImage = images.length > 0 && currentImage && !currentImage.startsWith('data:image/svg+xml');
+                const imagePath = typeof currentImage === 'string' ? currentImage : (currentImage as any)?.url || '';
+                const hasValidImage = images.length > 0 && imagePath && !imagePath.startsWith('data:image/svg+xml');
                 
                 if (!hasValidImage) {
                   return (
@@ -5139,7 +5455,7 @@ function App() {
                             // ปิดโมดัลปัจจุบันก่อน
                             setShowProfileModal(false);
                             
-                            // เปิด profile modal พร้อมข้อมูลเต็ม
+                            // เปิด profile modal พร้อมข้อมูลเต็ม (รวม blur information)
                             setTimeout(() => {
                               openProfileModal(profileData, true);
                             }, 100);
@@ -5597,6 +5913,126 @@ function App() {
           onStartChat={handleStartPrivateChat}
           existingChats={privateChats}
         />
+      )}
+
+      {/* Payment Confirmation Modal */}
+      {showPaymentConfirmation && paymentDetails && (
+        <div 
+          className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center p-4" 
+          style={{ zIndex: 100 }}
+          onClick={(e) => {
+            // กดพื้นหลังเพื่อปิด modal
+            if (e.target === e.currentTarget) {
+              cancelBlurPayment();
+            }
+          }}
+        >
+          <div 
+            className="bg-white rounded-2xl shadow-2xl max-w-md w-full mx-4 overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div className="bg-gradient-to-r from-yellow-400 to-orange-500 px-6 py-4">
+              <div className="flex items-center justify-center text-white">
+                <div className="text-2xl mr-3">💰</div>
+                <h3 className="text-xl font-bold">ยืนยันการจ่ายเหรียญ</h3>
+              </div>
+            </div>
+
+            {/* Content */}
+            <div className="p-6">
+              <div className="text-center mb-6">
+                <div className="text-lg font-semibold text-gray-800 mb-2">
+                  ต้องการดูรูปเบลอของ
+                </div>
+                <div className="text-xl font-bold text-pink-600 mb-4">
+                  {paymentDetails.targetUserName}
+                </div>
+                
+                <div className="bg-gray-50 rounded-lg p-4 space-y-3">
+                  <div className="flex justify-between items-center">
+                    <span className="text-gray-600">จำนวนที่จ่าย:</span>
+                    <span className="font-bold text-red-600 text-lg">10,000 เหรียญ</span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-gray-600">เหรียญปัจจุบัน:</span>
+                    <span className="font-semibold text-green-600">
+                      {paymentDetails.currentCoins.toLocaleString()} เหรียญ
+                    </span>
+                  </div>
+                  <div className="border-t pt-3">
+                    <div className="flex justify-between items-center">
+                      <span className="text-gray-600">เหรียญหลังจ่าย:</span>
+                      <span className="font-bold text-blue-600 text-lg">
+                        {(paymentDetails.currentCoins - 10000).toLocaleString()} เหรียญ
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="mt-4 text-sm text-gray-500 bg-blue-50 p-3 rounded-lg">
+                  <div className="flex items-center justify-center mb-1">
+                    <span className="text-blue-600 mr-1">ℹ️</span>
+                    <span className="font-medium">จ่ายครั้งเดียว ดูได้ตลอด</span>
+                  </div>
+                  <div className="text-xs">
+                    หลังจากจ่ายแล้วจะสามารถดูรูปทั้งหมดของผู้ใช้นี้ได้
+                  </div>
+                </div>
+              </div>
+
+              {/* Buttons */}
+              <div className="flex gap-3">
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    console.log('🔴 Cancel button clicked');
+                    cancelBlurPayment();
+                  }}
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    console.log('🔴 Cancel button mousedown');
+                  }}
+                  onTouchStart={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    console.log('🔴 Cancel button touchstart');
+                  }}
+                  className="flex-1 px-4 py-3 bg-gray-200 hover:bg-gray-300 text-gray-700 font-medium rounded-lg transition-colors duration-200 cursor-pointer relative"
+                  style={{ pointerEvents: 'auto', zIndex: 1000 }}
+                >
+                  ยกเลิก
+                </button>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    console.log('🟢 Confirm button clicked');
+                    confirmBlurPayment();
+                  }}
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    console.log('🟢 Confirm button mousedown');
+                  }}
+                  onTouchStart={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    console.log('🟢 Confirm button touchstart');
+                  }}
+                  className="flex-1 px-4 py-3 bg-gradient-to-r from-yellow-400 to-orange-500 hover:from-yellow-500 hover:to-orange-600 text-white font-bold rounded-lg transition-all duration-200 transform hover:scale-[1.02] shadow-lg cursor-pointer relative"
+                  style={{ pointerEvents: 'auto', zIndex: 1000 }}
+                >
+                  ยืนยันจ่าย
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Toast Container */}

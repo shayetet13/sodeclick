@@ -276,8 +276,7 @@ const VoteRankingMini = ({
               key={item.candidateId || `ranking-${index}`}
               className={`${styling.container} rounded-xl p-3 transition-all duration-500 hover:scale-105 hover:shadow-xl cursor-pointer transform`}
               style={{
-                animationDelay: `${index * 0.2}s`,
-                animation: 'fadeInUp 0.6s ease-out forwards'
+                animation: `fadeInUp 0.6s ease-out ${index * 0.2}s forwards`
               }}
               onClick={() => {
                 // Check if user is logged in first
