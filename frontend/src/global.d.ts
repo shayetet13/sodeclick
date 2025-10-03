@@ -124,10 +124,13 @@ declare global {
       socket: any;
       connect: () => void;
       disconnect: () => void;
+      emit: (event: string, data?: any) => void;
     } | null;
     isSocketReady?: () => boolean;
     debugSocket?: () => void;
     lastBlurClickTime?: number;
+    updateAuthContext?: (user: any) => void;
+    authContextUser?: any;
   }
   
   // NodeJS types for setTimeout

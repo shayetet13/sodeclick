@@ -3694,7 +3694,7 @@ function App() {
           if (window.updateAuthContext) {
             window.updateAuthContext(userBeforeUpgrade)
           }
-          throw new Error(`การอัพเกรดล้มเหลว: ${apiError.message}`)
+          throw new Error(`การอัพเกรดล้มเหลว: ${apiError instanceof Error ? apiError.message : String(apiError)}`)
         }
       } else {
         // สำหรับ membership upgrade ปกติ
@@ -3739,14 +3739,14 @@ function App() {
           if (window.updateAuthContext) {
             window.updateAuthContext(userBeforeUpgrade)
           }
-          throw new Error(`การอัพเกรดสมาชิกล้มเหลว: ${apiError.message}`)
+          throw new Error(`การอัพเกรดสมาชิกล้มเหลว: ${apiError instanceof Error ? apiError.message : String(apiError)}`)
         }
       }
     } catch (error) {
       console.error('Error processing payment confirmation:', error)
 
       // แจ้งเตือนผู้ใช้ว่ามีปัญหาในการอัพเกรด
-      if (error.message && error.message.includes('การอัพเกรดล้มเหลว')) {
+      if (error instanceof Error && error.message && error.message.includes('การอัพเกรดล้มเหลว')) {
         // แสดง toast notification หรือ popup แจ้งเตือนผู้ใช้
         console.log('⚠️ แจ้งเตือนผู้ใช้ว่าการอัพเกรดมีปัญหา แต่การชำระเงินสำเร็จแล้ว');
 

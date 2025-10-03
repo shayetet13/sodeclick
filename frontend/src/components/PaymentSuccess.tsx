@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+import React, { useState, useEffect, useRef, useCallback } from 'react'
 import { Button } from './ui/button'
 import { Card, CardContent } from './ui/card'
 import {
@@ -18,7 +18,8 @@ import {
   TrendingUp
 } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
-// import { membershipHelpers } from '../services/membershipAPI'
+// @ts-ignore
+import { membershipHelpers } from '../services/membershipAPI'
 
 interface TransactionData {
   transactionId: string
@@ -65,11 +66,12 @@ const PaymentSuccess = ({ transactionData, plan, onContinue }: PaymentSuccessPro
 
   const [upgrading, setUpgrading] = useState(false)
   const [upgradeComplete, setUpgradeComplete] = useState(false)
-  const [upgradeError, setUpgradeError] = useState(null)
+  const [upgradeError] = useState<string | null>(null)
   const [showBenefitNotification, setShowBenefitNotification] = useState(false)
-  const [newBenefits, setNewBenefits] = useState([])
+  const [newBenefits, setNewBenefits] = useState<any[]>([])
   const [syncingData, setSyncingData] = useState(false)
-  const syncTimeoutRef = useRef(null)
+  const [, setPreviousTier] = useState<string | null>(null)
+  const syncTimeoutRef = useRef<number | null>(null)
 
   // ดึงข้อมูลผู้ใช้ล่าสุดจาก localStorage
   const getCurrentUser = useCallback(() => {
@@ -86,17 +88,36 @@ const PaymentSuccess = ({ transactionData, plan, onContinue }: PaymentSuccessPro
   const [displayUser, setDisplayUser] = useState(currentUser)
 
   // ฟังก์ชันตรวจสอบสิทธิประโยชน์ใหม่ที่ได้รับ
-  const checkNewBenefits = (oldUser, newUser) => {
+  const checkNewBenefits = (oldUser: any, newUser: any): Array<{
+    type: string;
+    title: string;
+    description: string;
+    icon: React.ReactElement;
+  }> => {
     const oldTier = oldUser?.membership?.tier || 'member'
     const newTier = newUser?.membership?.tier || 'member'
 
     if (oldTier === newTier) return []
 
-    const benefits = []
+    const benefits: Array<{
+      type: string;
+      title: string;
+      description: string;
+      icon: React.ReactElement;
+    }> = []
 
     // ตรวจสอบฟีเจอร์ใหม่ที่ได้รับ
-    const newFeatures = membershipHelpers.hasFeature(newTier, []) ?
-      membershipHelpers.getTierFeatures(newTier) : []
+    const tierFeatures = {
+      member: [],
+      silver: [],
+      gold: ['profileVideo', 'verificationBadge', 'specialFrame'],
+      vip: ['profileVideo', 'verificationBadge', 'specialFrame', 'pinPosts', 'blurImages', 'createChatRooms'],
+      vip1: ['profileVideo', 'verificationBadge', 'specialFrame', 'pinPosts', 'blurImages', 'createChatRooms', 'hideOnlineStatus'],
+      vip2: ['profileVideo', 'verificationBadge', 'specialFrame', 'pinPosts', 'blurImages', 'createChatRooms', 'hideOnlineStatus', 'unlimitedMedia'],
+      diamond: ['profileVideo', 'verificationBadge', 'specialFrame', 'pinPosts', 'blurImages', 'createChatRooms', 'hideOnlineStatus', 'unlimitedMedia', 'transferCoins'],
+      platinum: ['profileVideo', 'verificationBadge', 'specialFrame', 'pinPosts', 'blurImages', 'createChatRooms', 'hideOnlineStatus', 'unlimitedMedia', 'transferCoins', 'unlimited']
+    };
+    const newFeatures = tierFeatures[newTier] || []
 
     if (newFeatures.length > 0) {
       benefits.push({
@@ -341,7 +362,7 @@ const PaymentSuccess = ({ transactionData, plan, onContinue }: PaymentSuccessPro
   const coinDisplay = calculateCoinDisplay()
 
   const benefits: Array<{
-    icon: JSX.Element;
+    icon: React.ReactElement;
     title: string;
     description: string;
   }> = plan?.tier === 'coin_package' && coinDisplay
@@ -727,7 +748,7 @@ const PaymentSuccess = ({ transactionData, plan, onContinue }: PaymentSuccessPro
               </div>
 
               {/* Special Features */}
-              {plan?.features?.specialFeatures?.length > 0 && (
+              {plan?.features?.specialFeatures && plan.features.specialFeatures.length > 0 && (
                 <div className="border-t border-slate-200 pt-4">
                   <h3 className="font-medium text-slate-700 mb-3">ฟีเจอร์พิเศษ</h3>
                   <div className="space-y-2">
@@ -742,7 +763,7 @@ const PaymentSuccess = ({ transactionData, plan, onContinue }: PaymentSuccessPro
               )}
 
               {/* Bonus Coins */}
-              {plan?.features?.bonusCoins > 0 && (
+              {plan?.features && plan.features.bonusCoins && plan.features.bonusCoins > 0 && (
                 <div className="mt-6 p-4 bg-gradient-to-r from-yellow-50 to-orange-50 rounded-lg border border-yellow-200">
                   <div className="flex items-center">
                     <Gift className="h-5 w-5 text-yellow-500 mr-2" />
