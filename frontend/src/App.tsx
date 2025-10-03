@@ -39,6 +39,7 @@ import ErrorBoundary from './components/ErrorBoundary.jsx'
 const TopVotedCarousel = lazy(() => import('./components/TopVotedCarousel.jsx')) as any
 import { useAuth } from './contexts/AuthContext'
 import { membershipAPI } from './services/membershipAPI'
+import { paymentAPI } from './services/paymentAPI'
 import { useToast, ToastProvider } from './components/ui/toast'
 import MaintenanceMode from './components/MaintenanceMode'
 
@@ -1276,55 +1277,7 @@ function App() {
   }, [user]);
 
   // จัดการข้อความที่ได้รับจาก Socket
-  useEffect(() => {
-    const handleSocketMessage = (event: CustomEvent) => {
-      const { message, chatId, messageType } = event.detail;
-      console.log('📨 Received socket message:', { message, chatId, messageType });
-
-      if (messageType === 'socket-message') {
-        // อัปเดตข้อความในแชทปัจจุบัน
-        if (selectedPrivateChat && selectedPrivateChat.id === chatId) {
-          setSelectedPrivateChat((prev: any) => {
-            if (!prev) return prev;
-            
-            const existingMessage = prev.messages?.find((msg: any) => msg._id === message._id);
-            if (existingMessage) {
-              console.log('📨 Message already exists, skipping duplicate');
-              return prev;
-            }
-
-            return {
-              ...prev,
-              messages: [...(prev.messages || []), message],
-              lastMessage: message
-            };
-          });
-        }
-
-        // อัปเดตรายการแชท
-        setPrivateChats((prevChats: any[]) => {
-          return prevChats.map((chat: any) => {
-            if (chat.id === chatId) {
-              return {
-                ...chat,
-                lastMessage: message,
-                lastActivity: message.createdAt
-              };
-            }
-            return chat;
-          });
-        });
-      }
-    };
-
-    // เพิ่ม event listener
-    window.addEventListener('private-chat-message', handleSocketMessage as EventListener);
-
-    // Cleanup
-    return () => {
-      window.removeEventListener('private-chat-message', handleSocketMessage as EventListener);
-    };
-  }, [selectedPrivateChat])
+  // Removed duplicate listener - handled in the main private chat useEffect below
 
   // Cleanup socket connection on component unmount
   useEffect(() => {
@@ -1635,9 +1588,72 @@ function App() {
 
     window.addEventListener('refreshUserData', handleRefreshUserData);
 
+    // จัดการ event การอัพเกรดสมาชิกแบบ real-time
+    const handleUserUpgraded = (event) => {
+      const upgradeData = event.detail;
+      console.log('🎉 User upgraded event received:', upgradeData);
+
+      // แสดงการแจ้งเตือนให้ผู้ใช้ทราบว่าอัพเกรดสำเร็จแล้ว
+      if (upgradeData.userId === user?._id || upgradeData.userId === user?.id) {
+        // อัปเดตข้อมูลผู้ใช้ใน AuthContext
+        if (window.updateAuthContext) {
+          const updatedUser = { ...user };
+
+          if (upgradeData.tier) {
+            updatedUser.membership = {
+              ...updatedUser.membership,
+              tier: upgradeData.tier
+            };
+          }
+
+          if (upgradeData.coinsAdded) {
+            updatedUser.coins = (updatedUser.coins || 0) + upgradeData.coinsAdded;
+          }
+
+          if (upgradeData.votePointsAdded) {
+            updatedUser.votePoints = (updatedUser.votePoints || 0) + upgradeData.votePointsAdded;
+          }
+
+          window.updateAuthContext(updatedUser);
+          console.log('✅ AuthContext updated with upgrade data');
+        }
+
+        // แสดง toast notification หรือ popup แจ้งเตือนผู้ใช้ว่าสิทธิประโยชน์ได้รับการอัปเดตแล้ว
+        // แสดง toast notification แจ้งเตือนผู้ใช้ว่าสิทธิประโยชน์ได้รับการอัปเดตแล้ว
+        success({
+          title: 'อัพเกรดสำเร็จ! 🎉',
+          description: `ยินดีด้วย! คุณได้รับสิทธิพิเศษของ ${upgradeData.tier} แล้ว`
+        });
+      }
+    };
+
+    const handleMembershipUpdated = (event) => {
+      const membershipData = event.detail;
+      console.log('👑 Membership updated event received:', membershipData);
+
+      // อัปเดตข้อมูลสมาชิกแบบ real-time
+      if (membershipData.userId === user?._id || membershipData.userId === user?.id) {
+        if (window.updateAuthContext) {
+          const updatedUser = {
+            ...user,
+            membership: {
+              ...user.membership,
+              tier: membershipData.newTier
+            }
+          };
+          window.updateAuthContext(updatedUser);
+        }
+      }
+    };
+
+    window.addEventListener('userUpgraded', handleUserUpgraded);
+    window.addEventListener('membershipUpdated', handleMembershipUpdated);
+
     return () => {
       isCancelled = true
       window.removeEventListener('refreshUserData', handleRefreshUserData);
+      window.removeEventListener('userUpgraded', handleUserUpgraded);
+      window.removeEventListener('membershipUpdated', handleMembershipUpdated);
     }
   }, [user]) // เพิ่ม user เป็น dependency เพื่อให้โหลดใหม่เมื่อ user เปลี่ยน
 
@@ -3100,32 +3116,66 @@ function App() {
     const handlePrivateChatMessage = (event: CustomEvent) => {
       const { chatRoomId, message, messageType } = event.detail;
       console.log('📨 Global private chat message received:', { chatRoomId, message, messageType });
+      console.log('📨 Current selectedPrivateChat:', selectedPrivateChat?.id);
+      console.log('📨 Message chatRoomId:', chatRoomId);
       
       // ถ้าเป็นข้อความจาก socket ให้จัดการต่างออกไป
       if (messageType === 'socket-message') {
         console.log('📨 Processing socket message for private chat');
+        console.log('📨 Message details:', {
+          id: message._id,
+          content: message.content?.substring(0, 50),
+          sender: message.sender?.displayName || message.sender?.username,
+          chatRoom: chatRoomId,
+          timestamp: message.createdAt
+        });
         
         // อัปเดต private chats ถ้าข้อความมาจากแชทที่กำลังดู
         if (selectedPrivateChat && selectedPrivateChat.id === chatRoomId) {
           console.log('📨 Updating current selected chat with socket message');
+          console.log('📨 Previous messages count:', selectedPrivateChat.messages?.length);
+          
           setSelectedPrivateChat((prev: any) => {
-            const existingMessages = prev.messages || [];
-            const isDuplicate = existingMessages.some((msg: any) => 
-              msg._id === message._id || 
-              (msg.content === message.content && msg.sender?._id === message.sender?._id && !msg.isTemporary)
-            );
-            
-            if (isDuplicate) {
-              console.log('📨 Duplicate socket message detected, skipping');
+            if (!prev) {
+              console.log('⚠️ No previous chat state');
               return prev;
             }
             
-            return {
+            const existingMessages = prev.messages || [];
+            
+            // ลบข้อความชั่วคราว (temporary message) ที่มี content เดียวกัน
+            const filteredMessages = existingMessages.filter((msg: any) => {
+              if (msg.isTemporary && msg.content === message.content) {
+                console.log('🗑️ Removing temporary message:', msg._id);
+                return false;
+              }
+              return true;
+            });
+            
+            // เช็ค duplicate โดยดูจาก message ID
+            const isDuplicate = filteredMessages.some((msg: any) => 
+              msg._id === message._id
+            );
+            
+            if (isDuplicate) {
+              console.log('📨 Duplicate socket message detected (by ID), skipping');
+              return prev;
+            }
+            
+            console.log('✅ Adding new socket message to chat');
+            console.log('📨 New messages count:', filteredMessages.length + 1);
+            
+            const updatedChat = {
               ...prev,
-              messages: [...existingMessages, message],
+              messages: [...filteredMessages, message],
               lastMessage: message
             };
+            
+            // Force re-render โดยสร้าง object ใหม่
+            return JSON.parse(JSON.stringify(updatedChat));
           });
+        } else {
+          console.log('⏭️ Message not for current chat or no chat selected');
         }
         
         // อัปเดตรายการแชทด้วยข้อความใหม่
@@ -3492,18 +3542,223 @@ function App() {
   const handlePaymentSuccess = async (transactionData: any) => {
     setTransactionData(transactionData)
     setCurrentView('success')
-    // Call actual upgrade API
+
+    // ถ้าเป็น bypass mode สำหรับ coin package ให้อัปเดตเหรียญและโหวตจริงๆ
+    if (transactionData.paymentMethod === 'bypass' && transactionData.tier === 'coin_package') {
+      console.log('🪙 Bypass mode - updating coins and vote points...')
+
+      // อัปเดตเหรียญและโหวตให้ผู้ใช้จริงๆ
+      if (user && transactionData.plan?.rewards) {
+        console.log('🔍 Transaction data received:', JSON.stringify(transactionData, null, 2))
+        console.log('🔍 Transaction plan:', JSON.stringify(transactionData.plan, null, 2))
+        console.log('🔍 Transaction plan rewards:', JSON.stringify(transactionData.plan.rewards, null, 2))
+        console.log('👤 Current user before update:', JSON.stringify(user, null, 2))
+
+        const coinsToAdd = transactionData.plan.rewards.totalCoins || transactionData.plan.rewards.coins || 0
+        const votePointsToAdd = transactionData.plan.rewards.votePoints || 0
+
+        console.log('🪙 Coins to add:', coinsToAdd, 'Vote points to add:', votePointsToAdd)
+        console.log('👤 User before update - coins:', user.coins, 'votePoints:', user.votePoints)
+
+        // คำนวณเหรียญและคะแนนโหวตใหม่
+        const newCoins = (user.coins || 0) + coinsToAdd
+        const newVotePoints = (user.votePoints || 0) + votePointsToAdd
+
+        console.log('📊 New calculated values - coins:', newCoins, 'votePoints:', newVotePoints)
+
+        // อัปเดตข้อมูลผู้ใช้ใน memory และ localStorage
+        const updatedUser = {
+          ...user,
+          coins: newCoins,
+          votePoints: newVotePoints
+        }
+
+        console.log('📊 Final updated user - coins:', updatedUser.coins, 'votePoints:', updatedUser.votePoints)
+
+        // บันทึกข้อมูลผู้ใช้อัปเดตใน localStorage
+        localStorage.setItem('user', JSON.stringify(updatedUser))
+
+        // อัปเดตข้อมูลใน AuthContext ถ้ามี method สำหรับการนี้
+        if (window.updateAuthContext) {
+          console.log('🔄 Updating AuthContext with:', updatedUser)
+          window.updateAuthContext(updatedUser)
+        }
+
+        // ตรวจสอบการอัปเดตใน AuthContext
+        setTimeout(() => {
+          console.log('🔍 Checking AuthContext user data after update:', window.authContextUser)
+        }, 100)
+
+        console.log(`✅ Added ${coinsToAdd} coins and ${votePointsToAdd} vote points to user`)
+
+        // บันทึกข้อมูลผู้ใช้อัปเดต
+        const userDataString = JSON.stringify(updatedUser)
+        localStorage.setItem('user', userDataString)
+        console.log('💾 Saved to localStorage:', userDataString)
+
+        // ตรวจสอบว่าบันทึกสำเร็จหรือไม่
+        const savedUserString = localStorage.getItem('user')
+        if (savedUserString) {
+          const parsedUser = JSON.parse(savedUserString)
+          console.log('🔍 Verified saved user coins:', parsedUser.coins, 'votePoints:', parsedUser.votePoints)
+
+          // เปรียบเทียบกับข้อมูลก่อนบันทึก
+          console.log('✅ Verification: Coins increased by', parsedUser.coins - (user.coins || 0))
+          console.log('✅ Verification: Vote points increased by', parsedUser.votePoints - (user.votePoints || 0))
+        } else {
+          console.error('❌ Failed to save user data to localStorage')
+        }
+      } else {
+        console.error('❌ Missing user or plan rewards data')
+        console.log('👤 User:', user)
+        console.log('📋 Transaction data:', transactionData)
+      }
+
+      return
+    }
+
+    // Call actual upgrade API สำหรับการชำระเงินจริง
     try {
-      await membershipAPI.upgradeMembership({
-        userId: user._id || user.id,
-        tier: transactionData.tier,
-        paymentMethod: transactionData.paymentMethod,
-        transactionId: transactionData.transactionId,
-        amount: transactionData.amount,
-        currency: transactionData.currency
-      })
+      // ถ้าเป็น coin package ให้เรียก payment confirmation API
+      if (transactionData.tier === 'coin_package') {
+        console.log('🪙 Processing coin package payment confirmation...')
+        console.log('📋 Transaction data:', transactionData)
+        console.log('👤 User data:', { id: user._id || user.id, coins: user.coins, votePoints: user.votePoints })
+
+        // เก็บข้อมูลผู้ใช้ก่อนการอัพเกรดเพื่อ rollback ถ้าจำเป็น
+        const userBeforeUpgrade = { ...user }
+
+        try {
+          const confirmationResult = await paymentAPI.confirmPayment({
+            transactionId: transactionData.transactionId,
+            paymentReference: transactionData.transactionId,
+            amount: transactionData.amount,
+            bankId: 'rabbit_gateway',
+            planId: transactionData.planId,
+            planTier: transactionData.tier,
+            userId: user._id || user.id
+          })
+
+          console.log('✅ API Response:', confirmationResult)
+
+          if (confirmationResult.success && confirmationResult.data.upgradeResult) {
+            console.log('🎉 Coin package payment confirmed and coins/votes upgraded successfully')
+            console.log(`📊 Upgrade result:`, confirmationResult.data.upgradeResult)
+
+            // คำนวณค่าที่ถูกต้องโดยบวกกับข้อมูลปัจจุบัน
+            const currentUserData = JSON.parse(localStorage.getItem('user') || '{}')
+            const currentCoins = currentUserData.coins || 0
+            const currentVotePoints = currentUserData.votePoints || 0
+
+            console.log('🔍 Current localStorage data - coins:', currentCoins, 'votePoints:', currentVotePoints)
+            console.log('🔍 API upgrade result - coins:', confirmationResult.data.upgradeResult.totalCoins, 'votePoints:', confirmationResult.data.upgradeResult.totalVotePoints)
+
+            // ใช้ค่าที่มากกว่าเพื่อป้องกันข้อมูลหาย
+            const finalCoins = Math.max(currentCoins, confirmationResult.data.upgradeResult.totalCoins)
+            const finalVotePoints = Math.max(currentVotePoints, confirmationResult.data.upgradeResult.totalVotePoints)
+
+            // อัปเดตข้อมูลผู้ใช้ใน frontend ด้วยข้อมูลที่ถูกต้อง
+            const updatedUser = {
+              ...user,
+              coins: finalCoins,
+              votePoints: finalVotePoints
+            }
+
+            console.log('📊 Final user data - coins:', updatedUser.coins, 'votePoints:', updatedUser.votePoints)
+
+            localStorage.setItem('user', JSON.stringify(updatedUser))
+            if (window.updateAuthContext) {
+              window.updateAuthContext(updatedUser)
+            }
+
+            // ส่ง Socket.IO event เพื่อแจ้งเตือนผู้ใช้อัพเกรดสำเร็จ
+            if (window.socketManager) {
+              window.socketManager.emit('user-upgraded', {
+                userId: user._id || user.id,
+                tier: transactionData.tier,
+                coinsAdded: confirmationResult.data.upgradeResult.coins,
+                votePointsAdded: confirmationResult.data.upgradeResult.votePoints,
+                transactionId: transactionData.transactionId
+              })
+            }
+
+          } else {
+            console.error('❌ Failed to upgrade coins/votes via API')
+            // ไม่ต้อง rollback เพราะยังไม่ได้อัปเดตข้อมูลผู้ใช้ใน localStorage
+          }
+        } catch (apiError) {
+          console.error('❌ API Error during coin package upgrade:', apiError)
+          // Rollback: คืนค่าเหรียญและคะแนนโหวตให้ผู้ใช้ใน localStorage
+          console.log('🔄 Rolling back user data due to API error...')
+          localStorage.setItem('user', JSON.stringify(userBeforeUpgrade))
+          if (window.updateAuthContext) {
+            window.updateAuthContext(userBeforeUpgrade)
+          }
+          throw new Error(`การอัพเกรดล้มเหลว: ${apiError.message}`)
+        }
+      } else {
+        // สำหรับ membership upgrade ปกติ
+        console.log('👑 Processing membership upgrade...')
+        console.log('📋 Transaction data:', transactionData)
+
+        // เก็บข้อมูลผู้ใช้ก่อนการอัพเกรดเพื่อ rollback ถ้าจำเป็น
+        const userBeforeUpgrade = { ...user }
+
+        try {
+          const upgradeResult = await membershipAPI.upgradeMembership({
+            userId: user._id || user.id,
+            tier: transactionData.tier,
+            paymentMethod: transactionData.paymentMethod,
+            transactionId: transactionData.transactionId,
+            amount: transactionData.amount,
+            currency: transactionData.currency
+          })
+
+          if (upgradeResult.success) {
+            console.log('✅ Membership upgraded successfully')
+
+            // ส่ง Socket.IO event เพื่อแจ้งเตือนผู้ใช้อัพเกรดสำเร็จ
+            if (window.socketManager) {
+              window.socketManager.emit('user-upgraded', {
+                userId: user._id || user.id,
+                tier: transactionData.tier,
+                membershipStartDate: upgradeResult.data.startDate,
+                membershipEndDate: upgradeResult.data.endDate,
+                transactionId: transactionData.transactionId
+              })
+            }
+          } else {
+            console.error('❌ Failed to upgrade membership via API')
+            throw new Error('การอัพเกรดสมาชิกล้มเหลว')
+          }
+        } catch (apiError) {
+          console.error('❌ API Error during membership upgrade:', apiError)
+          // Rollback: คืนค่าระดับสมาชิกให้ผู้ใช้ใน localStorage
+          console.log('🔄 Rolling back user membership data due to API error...')
+          localStorage.setItem('user', JSON.stringify(userBeforeUpgrade))
+          if (window.updateAuthContext) {
+            window.updateAuthContext(userBeforeUpgrade)
+          }
+          throw new Error(`การอัพเกรดสมาชิกล้มเหลว: ${apiError.message}`)
+        }
+      }
     } catch (error) {
-      console.error('Error upgrading membership:', error)
+      console.error('Error processing payment confirmation:', error)
+
+      // แจ้งเตือนผู้ใช้ว่ามีปัญหาในการอัพเกรด
+      if (error.message && error.message.includes('การอัพเกรดล้มเหลว')) {
+        // แสดง toast notification หรือ popup แจ้งเตือนผู้ใช้
+        console.log('⚠️ แจ้งเตือนผู้ใช้ว่าการอัพเกรดมีปัญหา แต่การชำระเงินสำเร็จแล้ว');
+
+        // แสดง toast notification แจ้งเตือนผู้ใช้ว่าการอัพเกรดมีปัญหา
+        warning({
+          title: 'การอัพเกรดมีปัญหา ⚠️',
+          description: 'การชำระเงินสำเร็จแล้ว แต่การอัพเกรดอาจล่าช้า กรุณาติดต่อฝ่ายสนับสนุนหากไม่ได้รับสิทธิประโยชน์ภายใน 5 นาที'
+        });
+      }
+
+      // ไม่ต้องแสดง error ให้ผู้ใช้ เพราะ payment สำเร็จแล้ว
+      // แต่ควรบันทึก error ไว้สำหรับการตรวจสอบของ admin
     }
   }
   

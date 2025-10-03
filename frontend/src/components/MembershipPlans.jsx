@@ -133,15 +133,17 @@ const MembershipPlans = ({ currentUserId, currentTier = 'member' }) => {
 
       {/* Plans Grid - Compact */}
       <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 sm:gap-4">
-        {plans.map((plan) => (
-          <MembershipCard
-            key={plan.tier}
-            plan={plan}
-            isCurrentTier={plan.tier === currentTier}
-            onUpgrade={handleUpgrade}
-            isLoading={upgrading === plan.tier}
-          />
-        ))}
+        {plans
+          .filter(plan => plan.tier !== 'test') // กรอง test tier ออก
+          .map((plan) => (
+            <MembershipCard
+              key={plan.tier}
+              plan={plan}
+              isCurrentTier={plan.tier === currentTier}
+              onUpgrade={handleUpgrade}
+              isLoading={upgrading === plan.tier}
+            />
+          ))}
       </div>
 
       {/* Benefits Comparison - Compact */}

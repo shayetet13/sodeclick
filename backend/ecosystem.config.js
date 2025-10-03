@@ -36,7 +36,7 @@ module.exports = {
     env_development: {
       NODE_ENV: 'development',
       PORT: 5000,
-      MONGODB_URI: 'mongodb+srv://shayetet14:sdg5NrhmPFak8T3y@cluster0.2g7xxjp.mongodb.net/sodeclick?retryWrites=true&w=majority&appName=Cluster0'
+      MONGODB_URI: 'mongodb+srv://infosodeclick_db_user:pJOT7dbUTOmqsO7J@sodeclick.ckoyooj.mongodb.net/?retryWrites=true&w=majority&appName=SodeClick'
     },
     env_production: {
       NODE_ENV: 'production',

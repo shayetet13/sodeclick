@@ -573,6 +573,7 @@ router.get('/ranking', async (req, res) => {
           lastName: '$userInfo.lastName',
           email: '$userInfo.email',
           profileImages: '$userInfo.profileImages',
+          mainProfileImageIndex: '$userInfo.mainProfileImageIndex',
           membership: '$userInfo.membership',
           gender: '$userInfo.gender',
           totalVotes: 1,

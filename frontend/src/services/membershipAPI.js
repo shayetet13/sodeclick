@@ -31,7 +31,6 @@ export const membershipHelpers = {
   getTierName: (tier) => {
     const names = {
       member: 'สมาชิก',
-      test: 'Test Member',
       silver: 'Silver Member',
       gold: 'Gold Member',
       vip: 'VIP Member',
@@ -47,7 +46,6 @@ export const membershipHelpers = {
   getTierDisplayName: (tier) => {
     const names = {
       member: 'MEMBER',
-      test: 'TEST',
       silver: 'SILVER',
       gold: 'GOLD',
       vip: 'VIP',
@@ -63,7 +61,6 @@ export const membershipHelpers = {
   getTierColor: (tier) => {
     const colors = {
       member: 'text-slate-600',
-      test: 'text-emerald-500',
       silver: 'text-slate-500',
       gold: 'text-yellow-500',
       vip: 'text-purple-500',
@@ -79,7 +76,6 @@ export const membershipHelpers = {
   getTierGradient: (tier) => {
     const gradients = {
       member: 'from-slate-400 to-slate-600',
-      test: 'from-emerald-400 to-green-600',
       silver: 'from-slate-300 to-slate-500',
       gold: 'from-yellow-400 to-yellow-600',
       vip: 'from-purple-400 to-purple-600',
@@ -95,7 +91,6 @@ export const membershipHelpers = {
   getTierIcon: (tier) => {
     const icons = {
       member: '👤',
-      test: '🧪',
       silver: '🥈',
       gold: '🥇',
       vip: '👑',
@@ -199,10 +194,9 @@ export const membershipHelpers = {
     if (isExpired) {
       return 'หมดอายุแล้ว';
     }
-    
+
     const durations = {
       member: '365 วัน (ฟรี)',
-      test: '1 วัน',
       silver: '7 วัน',
       gold: '15 วัน',
       vip: '30 วัน (1 เดือน)',
@@ -226,7 +220,7 @@ export const membershipHelpers = {
       diamond: ['profileVideo', 'verificationBadge', 'specialFrame', 'pinPosts', 'blurImages', 'createChatRooms', 'hideOnlineStatus', 'unlimitedMedia', 'transferCoins'],
       platinum: ['profileVideo', 'verificationBadge', 'specialFrame', 'pinPosts', 'blurImages', 'createChatRooms', 'hideOnlineStatus', 'unlimitedMedia', 'transferCoins', 'unlimited']
     };
-    
+
     return tierFeatures[tier]?.includes(feature) || false;
   }
 };

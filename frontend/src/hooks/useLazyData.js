@@ -13,8 +13,8 @@ export const useLazyData = (fetchFunction, dependencies = [], options = {}) => {
     cacheKey = null,
     staleTime = 5 * 60 * 1000, // 5 นาที
     cacheTime = 30 * 60 * 1000, // 30 นาที
-    retryCount = 2, // ลดจาก 3 เป็น 2 ครั้ง
-    retryDelay = 500, // ลดจาก 1000ms เป็น 500ms
+    retryCount = 1, // ลดเหลือ 1 ครั้ง เพื่อป้องกันการ retry ซ้ำ
+    retryDelay = 1000, // เพิ่มเป็น 1000ms เพื่อให้มีเวลาเพียงพอ
     backgroundRefresh = true, // เปิดใช้ background refresh
     onSuccess = null,
     onError = null

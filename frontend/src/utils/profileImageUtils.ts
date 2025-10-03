@@ -12,9 +12,25 @@ const checkImageExists = async (url: string): Promise<boolean> => {
 export const getProfileImageUrlWithFallback = async (imagePath: string, userId?: string, baseUrl?: string): Promise<string> => {
   if (!imagePath) return '';
   
-  // ✅ NEW: If it's a Cloudinary URL, return as is (no fallback needed)
-  if (imagePath.includes('cloudinary.com')) {
+  // ✅ NEW: If it's a Cloudinary URL, convert to full URL if needed
+  if (imagePath.includes('cloudinary.com') || imagePath.includes('/image/upload/')) {
     console.log('☁️ Cloudinary CDN URL detected (async):', imagePath);
+
+    // ถ้าเป็น relative path ให้สร้าง full URL
+    if (imagePath.startsWith('/')) {
+      const fullUrl = `https://res.cloudinary.com${imagePath}`;
+      console.log('🔧 Converted relative Cloudinary URL to full URL:', fullUrl);
+
+      // ตรวจสอบว่า URL ที่สร้างขึ้นถูกต้อง
+      try {
+        new URL(fullUrl);
+        return fullUrl;
+      } catch (error) {
+        console.error('🚨 Invalid Cloudinary URL generated:', fullUrl, error);
+        return '';
+      }
+    }
+
     return imagePath;
   }
   
@@ -82,11 +98,30 @@ const fixBrokenUrl = (url: string): string => {
 
 // Utility function to generate correct profile image URL
 export const getProfileImageUrl = (imagePath: string, userId?: string, baseUrl?: string): string => {
-  if (!imagePath || typeof imagePath !== 'string') return '';
+  if (!imagePath || typeof imagePath !== 'string') {
+    console.warn('🚨 Invalid image path provided:', imagePath);
+    return '';
+  }
   
-  // ✅ NEW: If it's a Cloudinary URL (contains cloudinary.com), return as is
-  if (imagePath.includes('cloudinary.com')) {
+  // ✅ NEW: If it's a Cloudinary URL (contains cloudinary.com or /image/upload/), convert to full URL if needed
+  if (imagePath.includes('cloudinary.com') || imagePath.includes('/image/upload/')) {
     console.log('☁️ Cloudinary CDN URL detected:', imagePath);
+
+    // ถ้าเป็น relative path ให้สร้าง full URL
+    if (imagePath.startsWith('/')) {
+      const fullUrl = `https://res.cloudinary.com${imagePath}`;
+      console.log('🔧 Converted relative Cloudinary URL to full URL:', fullUrl);
+
+      // ตรวจสอบว่า URL ที่สร้างขึ้นถูกต้อง
+      try {
+        new URL(fullUrl);
+        return fullUrl;
+      } catch (error) {
+        console.error('🚨 Invalid Cloudinary URL generated:', fullUrl, error);
+        return '';
+      }
+    }
+
     return imagePath;
   }
   
@@ -213,60 +248,10 @@ export const getProfileImageUrlGuest = (imagePath: string, userId?: string, base
   return url;
 };
 
-// ฟังก์ชันสร้าง default avatar URL (ใช้ SVG data URLs)
-export const getDefaultAvatarUrl = (gender: string = 'unknown'): string => {
-  // สร้าง SVG avatars แบบ inline เพื่อไม่ต้องพึ่งพาไฟล์ภายนอก
-  const avatars = {
-    male: `data:image/svg+xml;base64,${btoa(`
-      <svg width="100" height="100" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
-        <defs>
-          <linearGradient id="maleGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-            <stop offset="0%" style="stop-color:#3B82F6;stop-opacity:1" />
-            <stop offset="100%" style="stop-color:#1E40AF;stop-opacity:1" />
-          </linearGradient>
-        </defs>
-        <circle cx="50" cy="50" r="50" fill="url(#maleGrad)"/>
-        <circle cx="50" cy="35" r="15" fill="white" opacity="0.9"/>
-        <ellipse cx="50" cy="75" rx="20" ry="15" fill="white" opacity="0.9"/>
-      </svg>
-    `)}`,
-    female: `data:image/svg+xml;base64,${btoa(`
-      <svg width="100" height="100" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
-        <defs>
-          <linearGradient id="femaleGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-            <stop offset="0%" style="stop-color:#EC4899;stop-opacity:1" />
-            <stop offset="100%" style="stop-color:#BE185D;stop-opacity:1" />
-          </linearGradient>
-        </defs>
-        <circle cx="50" cy="50" r="50" fill="url(#femaleGrad)"/>
-        <circle cx="50" cy="35" r="12" fill="white" opacity="0.9"/>
-        <ellipse cx="50" cy="75" rx="18" ry="12" fill="white" opacity="0.9"/>
-        <path d="M35 25 Q50 15 65 25" stroke="white" stroke-width="3" fill="none" opacity="0.9"/>
-      </svg>
-    `)}`,
-    unknown: `data:image/svg+xml;base64,${btoa(`
-      <svg width="100" height="100" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
-        <defs>
-          <linearGradient id="unknownGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-            <stop offset="0%" style="stop-color:#6B7280;stop-opacity:1" />
-            <stop offset="100%" style="stop-color:#374151;stop-opacity:1" />
-          </linearGradient>
-        </defs>
-        <circle cx="50" cy="50" r="50" fill="url(#unknownGrad)"/>
-        <circle cx="50" cy="35" r="15" fill="white" opacity="0.9"/>
-        <ellipse cx="50" cy="75" rx="20" ry="15" fill="white" opacity="0.9"/>
-        <circle cx="50" cy="35" r="8" fill="url(#unknownGrad)"/>
-      </svg>
-    `)}`
-  };
-  
-  return avatars[gender as keyof typeof avatars] || avatars.unknown;
-};
-
 // ฟังก์ชันสำหรับ guest mode - ไม่ต้อง authentication (synchronous version)
-export const getMainProfileImageGuest = (profileImages: string[], mainProfileImageIndex?: number, userId?: string, gender?: string): string => {
+export const getMainProfileImageGuest = (profileImages: string[], mainProfileImageIndex?: number, userId?: string, _gender?: string): string | null => {
   if (!profileImages || profileImages.length === 0) {
-    return getDefaultAvatarUrl(gender);
+    return null; // ไม่มีรูป
   }
   
   const index = mainProfileImageIndex || 0;
@@ -275,16 +260,22 @@ export const getMainProfileImageGuest = (profileImages: string[], mainProfileIma
   // Handle both string and object types
   const imagePath = typeof mainImage === 'string' ? mainImage : (mainImage as any)?.url || '';
   
-  if (!imagePath || imagePath.startsWith('data:image/svg+xml')) {
-    return getDefaultAvatarUrl(gender);
+  if (!imagePath) {
+    return null; // ไม่มีรูป
   }
   
   const imageUrl = getProfileImageUrl(imagePath, userId);
   
-  // ถ้าไม่มี URL หรือ URL ไม่ถูกต้อง ให้ใช้ default avatar
+  // ถ้าไม่มี URL หรือ URL ไม่ถูกต้อง
   if (!imageUrl || imageUrl === '' || imageUrl.includes('undefined')) {
-    return getDefaultAvatarUrl(gender);
+    return null; // ไม่มีรูป
   }
   
   return imageUrl;
+};
+
+// Default avatar function - return empty string to avoid SVG creation
+export const getDefaultAvatarUrl = (): string => {
+  console.warn('🔄 getDefaultAvatarUrl called - returning empty string to prevent SVG creation');
+  return '';
 };

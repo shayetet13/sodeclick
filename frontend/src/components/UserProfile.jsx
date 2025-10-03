@@ -10,7 +10,7 @@ import { useToast } from './ui/toast';
 import { membershipHelpers } from '../services/membershipAPI';
 import { profileAPI } from '../services/profileAPI';
 import { useLazyData } from '../hooks/useLazyData';
-import { getProfileImageUrl, getMainProfileImage } from '../utils/profileImageUtils';
+import { getProfileImageUrl, getMainProfileImage, getMainProfileImageWithFallback } from '../utils/profileImageUtils';
 import { thaiProvinces } from '../utils/thaiProvinces';
 import {
   User,
@@ -78,9 +78,12 @@ const UserProfile = ({ userId, isOwnProfile = false }) => {
   const [blurredImages, setBlurredImages] = useState([]); // รูปที่เบลอของผู้ใช้
   const [showBlurredImages, setShowBlurredImages] = useState(false); // แสดง modal รูปเบลอ
   const [purchasingImage, setPurchasingImage] = useState(null); // รูปที่กำลังซื้อ
+  const [mainProfileImageUrl, setMainProfileImageUrl] = useState(''); // URL ของรูปโปรไฟล์หลัก
   const { success, error: showError } = useToast();
   const lastClickTimeRef = useRef({ blur: 0, unblur: 0, delete: 0 }); // ป้องกันการกดเร็วเกินไปแยกตามปุ่ม
   const retryCountRef = useRef(0); // เพิ่ม ref สำหรับนับ retry
+  const lastErrorRef = useRef(null); // เพิ่ม ref สำหรับเก็บ error ล่าสุดที่แสดงแล้ว
+  const isFetchingRef = useRef(false); // เพิ่ม ref สำหรับป้องกันการเรียกซ้ำ
 
   // ใช้ lazy loading สำหรับข้อมูลโปรไฟล์
   const {
@@ -91,39 +94,59 @@ const UserProfile = ({ userId, isOwnProfile = false }) => {
     updateData: updateProfile,
     invalidateCache: invalidateProfileCache
   } = useLazyData(
-    useCallback(() => profileAPI.getUserProfile(userId), [userId]),
+    useCallback(async () => {
+      // ป้องกันการเรียกซ้ำเมื่อกำลังโหลดอยู่แล้ว
+      if (isFetchingRef.current) {
+        console.log('⚠️ Profile fetch already in progress, skipping duplicate request');
+        return null;
+      }
+
+      isFetchingRef.current = true;
+      try {
+        const result = await profileAPI.getUserProfile(userId);
+        return result;
+      } finally {
+        isFetchingRef.current = false;
+      }
+    }, [userId]),
     [userId],
     {
       cacheKey: `profile_${userId}`,
-      staleTime: 10 * 60 * 1000, // เพิ่มเป็น 10 นาที เพื่อลดการโหลดซ้ำ
+      staleTime: 2 * 60 * 1000, // ลดเหลือ 2 นาที เพื่อลดการ cache ที่อาจทำให้เกิดปัญหา
       backgroundRefresh: false, // ปิด background refresh เพื่อป้องกันการ overwrite ข้อมูลใหม่
       onSuccess: (response) => {
         console.log('✅ Profile loaded successfully:', response);
+
+        // รีเซ็ต error tracking เมื่อดึงข้อมูลสำเร็จ เพื่อให้สามารถแสดง error ได้อีกครั้งถ้าจำเป็น
+        lastErrorRef.current = null;
+
         if (response && response.success && response.data && response.data.profile) {
           console.log('📋 Profile data received:', {
             userId: response.data.profile._id || response.data.profile.id,
             hasProfileImages: !!response.data.profile.profileImages,
             profileImagesCount: response.data.profile.profileImages?.length || 0,
-            hasBasicInfo: !!(response.data.profile.firstName || response.data.profile.displayName)
+            hasBasicInfo: !!(response.data.profile.firstName || response.data.profile.displayName),
+            isOnline: response.data.profile.isOnline
           });
           setEditData(response.data.profile);
           setPetsInput(formatPetsForInput(response.data.profile?.pets));
         } else {
           console.error('❌ Profile response missing data:', response);
-          // ลด auto-refetch เพื่อไม่ให้เกิด infinite loop
-          if (retryCountRef.current < 1) { // จำกัดการ retry เพียง 1 ครั้ง
-            console.log('🔄 Attempting to refetch profile...');
-            retryCountRef.current++;
-            setTimeout(() => {
-              refetchProfile();
-            }, 500); // ลดเวลารอจาก 1000ms เป็น 500ms
-          } else {
-            console.warn('⚠️ Max retry attempts reached for profile fetch');
-          }
+          // ไม่ทำการ retry เพิ่มเติม เพราะ useLazyData มี retry mechanism แล้ว
+          console.warn('⚠️ Profile data is incomplete, but not retrying to prevent infinite loops');
         }
       },
       onError: (err) => {
         console.error('❌ Profile loading error:', err);
+
+        // ป้องกันการแสดง error ซ้ำกัน
+        const currentError = err.message;
+        if (lastErrorRef.current === currentError) {
+          console.log('⚠️ Duplicate error detected, skipping notification');
+          return;
+        }
+        lastErrorRef.current = currentError;
+
         if (err.message.includes('403')) {
           showError('ไม่มีสิทธิ์เข้าถึงโปรไฟล์นี้');
         } else if (err.message.includes('404')) {
@@ -136,6 +159,134 @@ const UserProfile = ({ userId, isOwnProfile = false }) => {
       }
     }
   );
+
+  // อัปเดต main profile image URL เมื่อข้อมูลโปรไฟล์เปลี่ยนแปลง
+  useEffect(() => {
+    const updateMainProfileImage = async () => {
+      if (profile?.data?.profileImages && profile.data.profileImages.length > 0) {
+        try {
+          // ใช้ async version เพื่อให้แน่ใจว่าการสร้าง URL ทำงานได้อย่างถูกต้อง
+          const imageUrl = await getMainProfileImageWithFallback(
+            profile.data.profileImages,
+            profile.data.mainProfileImageIndex,
+            userId
+          );
+
+          console.log('🖼️ Updated main profile image URL:', imageUrl);
+          console.log('🖼️ Profile images:', profile.data.profileImages);
+          console.log('🖼️ Main image index:', profile.data.mainProfileImageIndex);
+          setMainProfileImageUrl(imageUrl);
+        } catch (error) {
+          console.error('❌ Error getting main profile image URL:', error);
+          setMainProfileImageUrl('');
+        }
+      } else {
+        setMainProfileImageUrl('');
+      }
+    };
+
+    updateMainProfileImage();
+  }, [profile?.data?.profileImages, profile?.data?.mainProfileImageIndex, userId]);
+
+  // ฟัง event เมื่อมีการอัปเดตรูปโปรไฟล์หลัก
+  useEffect(() => {
+    const handleProfileImageUpdated = async (event) => {
+      const { userId: eventUserId, profileImages, mainProfileImageIndex } = event.detail;
+      
+      // ตรวจสอบว่าเป็น user เดียวกันหรือไม่
+      if (eventUserId === userId) {
+        console.log('🔄 Received profileImageUpdated event for user:', eventUserId);
+        console.log('🔄 New profile images:', profileImages);
+        console.log('🔄 New main image index:', mainProfileImageIndex);
+        
+        try {
+          // อัปเดต mainProfileImageUrl ทันที
+          if (profileImages && profileImages.length > 0) {
+            const imageUrl = await getMainProfileImageWithFallback(
+              profileImages,
+              mainProfileImageIndex || 0,
+              userId
+            );
+            console.log('🖼️ Updated main profile image URL from event:', imageUrl);
+            setMainProfileImageUrl(imageUrl);
+          } else {
+            setMainProfileImageUrl('');
+          }
+        } catch (error) {
+          console.error('❌ Error updating main profile image URL from event:', error);
+        }
+      }
+    };
+
+    // เพิ่ม event listener
+    window.addEventListener('profileImageUpdated', handleProfileImageUpdated);
+    
+    // Cleanup event listener เมื่อ component unmount
+    return () => {
+      window.removeEventListener('profileImageUpdated', handleProfileImageUpdated);
+    };
+  }, [userId]);
+
+  // Real-time online status update
+  useEffect(() => {
+    if (!userId) return;
+    
+    console.log('🔄 Setting up online status update for user:', userId);
+    
+    const updateOnlineStatus = async () => {
+      try {
+        const token = sessionStorage.getItem('token');
+        if (!token) return;
+
+        const response = await fetch(`${import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000'}/api/users/online-status`, {
+          method: 'GET',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          }
+        });
+
+        if (response.ok) {
+          const result = await response.json();
+          if (result.success && result.data) {
+            const onlineUsers = result.data.onlineUsers || [];
+            const isUserOnline = onlineUsers.some(u => u._id === userId);
+            
+            // อัปเดตสถานะ online ใน profile cache
+            if (profile && profile.data && profile.data.profile) {
+              const currentIsOnline = profile.data.profile.isOnline;
+              
+              if (currentIsOnline !== isUserOnline) {
+                console.log(`🔄 User ${userId} online status changed: ${currentIsOnline} -> ${isUserOnline}`);
+                
+                updateProfile({
+                  ...profile,
+                  data: {
+                    ...profile.data,
+                    profile: {
+                      ...profile.data.profile,
+                      isOnline: isUserOnline,
+                      lastActive: new Date().toISOString()
+                    }
+                  }
+                });
+              }
+            }
+          }
+        }
+      } catch (error) {
+        console.error('❌ Error updating online status:', error);
+      }
+    };
+
+    // อัปเดตทันที
+    updateOnlineStatus();
+    
+    // อัปเดตทุก 10 วินาที
+    const interval = setInterval(updateOnlineStatus, 10000);
+    
+    return () => clearInterval(interval);
+  }, [userId, profile, updateProfile]);
 
   // ใช้ lazy loading สำหรับข้อมูลสมาชิก
   const {
@@ -427,6 +578,16 @@ const UserProfile = ({ userId, isOwnProfile = false }) => {
         // อัพเดทข้อมูลใน cache แบบถาวร (ไม่ต้อง invalidate)
         updateProfile({ data: { profile: updatedProfileData } });
         console.log('✅ Profile images updated permanently in real-time:', response.data.profileImages);
+        
+        // ส่ง event เพื่ออัปเดตรูปโปรไฟล์ขนาดเล็กทันที
+        const event = new CustomEvent('profileImageUpdated', { 
+          detail: { 
+            userId, 
+            profileImages: response.data.profileImages,
+            mainProfileImageIndex: profileData?.mainProfileImageIndex || 0
+          } 
+        });
+        window.dispatchEvent(event);
       }
       
       success('อัปโหลดรูปภาพสำเร็จ');
@@ -495,6 +656,16 @@ const UserProfile = ({ userId, isOwnProfile = false }) => {
         // อัพเดทข้อมูลใน cache แบบถาวร (ไม่ต้อง invalidate)
         updateProfile({ data: { profile: updatedProfileData } });
         console.log('✅ Profile images updated permanently after delete:', response.data.profileImages);
+        
+        // ส่ง event เพื่ออัปเดตรูปโปรไฟล์ขนาดเล็กทันที
+        const event = new CustomEvent('profileImageUpdated', { 
+          detail: { 
+            userId, 
+            profileImages: response.data.profileImages,
+            mainProfileImageIndex: response.data.mainProfileImageIndex !== undefined ? response.data.mainProfileImageIndex : (profileData?.mainProfileImageIndex || 0)
+          } 
+        });
+        window.dispatchEvent(event);
       }
       
       success('ลบรูปภาพสำเร็จ');
@@ -786,6 +957,16 @@ const UserProfile = ({ userId, isOwnProfile = false }) => {
       
       // รีเฟรชข้อมูลโปรไฟล์
       await refetchProfile();
+      
+      // ส่ง event เพื่ออัปเดตรูปโปรไฟล์ขนาดเล็กทันที
+      const event = new CustomEvent('profileImageUpdated', { 
+        detail: { 
+          userId, 
+          profileImages: profile?.data?.profileImages || [],
+          mainProfileImageIndex: profile?.data?.mainProfileImageIndex || 0
+        } 
+      });
+      window.dispatchEvent(event);
       
       // ล้างการเลือก
       setSelectedImages([]);
@@ -1159,33 +1340,40 @@ const UserProfile = ({ userId, isOwnProfile = false }) => {
             <div className="relative">
               <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-full bg-gradient-to-r from-pink-500 to-violet-500 flex items-center justify-center text-white text-lg sm:text-2xl font-bold overflow-hidden relative">
                 {(() => {
+                  // แสดง loading state ถ้ายังไม่มีรูปภาพ
+                  if (profileLoading || !mainProfileImageUrl) {
+                    return <div className="animate-pulse bg-gray-300 w-full h-full rounded-full"></div>;
+                  }
                   // สร้าง profile image URL ที่ถูกต้อง
                   const mainImageIndex = profileData.mainProfileImageIndex || 0;
                   const mainImage = profileData.profileImages?.[mainImageIndex];
                   
                   // ตรวจสอบว่ารูปหลักเบลอหรือไม่
                   const isMainImageBlurred = typeof mainImage === 'object' && mainImage.isBlurred;
-                  
-                  const profileImageUrl = getMainProfileImage(
-                    profileData.profileImages || [], 
-                    profileData.mainProfileImageIndex, 
-                    userId
-                  )
-                  
+
                   console.log('🔍 Main profile image debug:', {
                     mainImageIndex,
                     mainImage,
                     isMainImageBlurred,
-                    profileImageUrl
+                    mainProfileImageUrl,
+                    mainImagePath,
+                    shouldShow: mainProfileImageUrl && !mainImagePath.startsWith('data:image/svg+xml')
                   });
-                  
-                  const mainImagePath = typeof profileData.profileImages[mainImageIndex] === 'string' 
-                    ? profileData.profileImages[mainImageIndex] 
+
+                  const mainImagePath = typeof profileData.profileImages[mainImageIndex] === 'string'
+                    ? profileData.profileImages[mainImageIndex]
                     : profileData.profileImages[mainImageIndex]?.url || '';
-                  return profileImageUrl && !mainImagePath.startsWith('data:image/svg+xml') ? (
+
+                  // ตรวจสอบว่ามี URL ที่ถูกต้องหรือไม่
+                  if (!mainProfileImageUrl || mainProfileImageUrl === '' || mainProfileImageUrl.includes('undefined') || mainProfileImageUrl.includes('null')) {
+                    console.warn('🚨 Invalid main profile image URL:', mainProfileImageUrl);
+                    return null; // ไม่แสดงอะไรถ้า URL ผิดปกติ
+                  }
+
+                  return mainProfileImageUrl && !mainImagePath.startsWith('data:image/svg+xml') ? (
                     <>
-                      <img 
-                        src={profileImageUrl}
+                      <img
+                        src={mainProfileImageUrl}
                         alt="Profile"
                         className={`w-full h-full rounded-full object-cover object-center ${isMainImageBlurred ? 'blur-sm filter' : ''}`}
                         style={{ 
@@ -1198,9 +1386,29 @@ const UserProfile = ({ userId, isOwnProfile = false }) => {
                           })
                         }}
                         onError={(e) => {
-                          console.error('❌ Profile image failed to load:', profileImageUrl);
+                          console.error('❌ Profile image failed to load:', mainProfileImageUrl);
+                          // ซ่อนรูปภาพที่โหลดไม่สำเร็จ
                           e.target.style.display = 'none';
-                          e.target.nextSibling.style.display = 'flex';
+                          // แสดง fallback icon
+                          const fallbackDiv = e.target.parentElement.querySelector('.absolute.inset-0.w-full.h-full.rounded-full.bg-gradient-to-r');
+                          if (fallbackDiv) {
+                            fallbackDiv.classList.remove('hidden');
+                            fallbackDiv.style.display = 'flex';
+                          }
+                          // ลองโหลดรูปภาพใหม่ด้วย URL ที่แตกต่าง (fallback)
+                          if (mainImagePath && !mainProfileImageUrl.includes('cloudinary.com')) {
+                            // ถ้าเป็นรูปภาพ local ลองใช้ fallback URL
+                            const fallbackUrl = getProfileImageUrl(mainImagePath, userId);
+                            if (fallbackUrl && fallbackUrl !== mainProfileImageUrl) {
+                              console.log('🔄 Trying fallback URL:', fallbackUrl);
+                              e.target.src = fallbackUrl;
+                              e.target.style.display = 'block';
+                              if (fallbackDiv) {
+                                fallbackDiv.classList.add('hidden');
+                              }
+                              return;
+                            }
+                          }
                         }}
                         onLoad={() => {
                           console.log('✅ Profile image loaded successfully');
@@ -1217,7 +1425,8 @@ const UserProfile = ({ userId, isOwnProfile = false }) => {
                     <User className="h-8 w-8 sm:h-10 sm:w-10" />
                   )
                 })()}
-                <div className={`absolute inset-0 w-full h-full rounded-full bg-gradient-to-r from-pink-500 to-violet-500 flex items-center justify-center text-white text-lg sm:text-2xl font-bold hidden`}>
+                {/* Fallback avatar - แสดงเมื่อไม่มีรูปภาพหรือโหลดไม่สำเร็จ */}
+                <div className={`absolute inset-0 w-full h-full rounded-full bg-gradient-to-r from-pink-500 to-violet-500 flex items-center justify-center text-white text-lg sm:text-2xl font-bold ${!mainProfileImageUrl ? '' : 'hidden'}`}>
                   <User className="h-8 w-8 sm:h-10 sm:w-10" />
                 </div>
               </div>
@@ -1620,12 +1829,20 @@ const UserProfile = ({ userId, isOwnProfile = false }) => {
                 
                 // สร้าง image URL ที่ถูกต้อง
                 const imageUrl = isPreviewImage ? image : getProfileImageUrl(image, userId)
-                
-                
+
+
                 // ตรวจสอบว่ารูปนี้เบลอหรือไม่
                 const isBlurred = typeof image === 'object' && image.isBlurred;
                 const imageUrlToShow = isBlurred ? image.url : image;
-                const finalImageUrl = isPreviewImage ? imageUrl : getProfileImageUrl(imageUrlToShow, userId);
+
+                // สำหรับรูปที่เบลอ ใช้ image.url โดยตรง ถ้าไม่ใช่ ให้ใช้ imageUrl ที่สร้างไว้แล้ว
+                const finalImageUrl = isPreviewImage ? imageUrl : (isBlurred ? imageUrlToShow : imageUrl);
+
+                // ตรวจสอบว่ามี URL ที่ถูกต้องหรือไม่
+                if (!finalImageUrl || finalImageUrl === '' || finalImageUrl.includes('undefined') || finalImageUrl.includes('null')) {
+                  console.warn('🚨 Invalid final image URL:', finalImageUrl, 'for image at index:', originalIndex);
+                  return null; // ข้ามรูปภาพที่ผิดปกติ
+                }
                 
                 // Debug blur status
                 console.log('🔍 Image blur debug:', {
@@ -1717,29 +1934,57 @@ const UserProfile = ({ userId, isOwnProfile = false }) => {
                       position: 'relative'
                     }}
                   >
-                    <img
-                      src={finalImageUrl}
-                      alt={`Profile ${originalIndex + 1}`}
-                      className={`w-full h-full object-cover object-center ${isBlurred ? 'blur-sm filter' : ''}`}
-                      style={{ 
-                        objectFit: 'cover',
-                        ...(isBlurred && { 
-                          filter: 'blur(8px)',
-                          transition: 'filter 0.3s ease'
-                        })
-                      }}
-                      onError={(e) => {
-                        if (!isPreviewImage) {
-                          console.error('❌ Gallery image failed to load:', finalImageUrl);
-                          e.target.style.display = 'none';
-                        }
-                      }}
-                      onLoad={() => {
-                        if (!isPreviewImage) {
-                          console.log('✅ Gallery image loaded successfully');
-                        }
-                      }}
-                    />
+                    <>
+                      <img
+                        src={finalImageUrl}
+                        alt={`Profile ${originalIndex + 1}`}
+                        className={`w-full h-full object-cover object-center ${isBlurred ? 'blur-sm filter' : ''}`}
+                        style={{
+                          objectFit: 'cover',
+                          ...(isBlurred && {
+                            filter: 'blur(8px)',
+                            transition: 'filter 0.3s ease'
+                          })
+                        }}
+                        onError={(e) => {
+                          if (!isPreviewImage) {
+                            console.error('❌ Gallery image failed to load:', finalImageUrl);
+                            // ซ่อนรูปภาพที่โหลดไม่สำเร็จ
+                            e.target.style.display = 'none';
+                            // แสดง fallback icon
+                            const fallbackDiv = e.target.nextElementSibling;
+                            if (fallbackDiv && fallbackDiv.classList.contains('absolute') && fallbackDiv.classList.contains('inset-0')) {
+                              fallbackDiv.classList.remove('hidden');
+                              fallbackDiv.style.display = 'flex';
+                            }
+                            // ลองโหลดรูปภาพใหม่ด้วย URL ที่แตกต่าง (fallback)
+                            if (imagePath && !finalImageUrl.includes('cloudinary.com')) {
+                              // ถ้าเป็นรูปภาพ local ลองใช้ fallback URL
+                              const fallbackUrl = getProfileImageUrl(imagePath, userId);
+                              if (fallbackUrl && fallbackUrl !== finalImageUrl) {
+                                console.log('🔄 Gallery trying fallback URL:', fallbackUrl);
+                                e.target.src = fallbackUrl;
+                                e.target.style.display = 'block';
+                                const fallbackDiv2 = e.target.nextElementSibling;
+                                if (fallbackDiv2 && fallbackDiv2.classList.contains('absolute') && fallbackDiv2.classList.contains('inset-0')) {
+                                  fallbackDiv2.classList.add('hidden');
+                                }
+                                return;
+                              }
+                            }
+                          }
+                        }}
+                        onLoad={() => {
+                          if (!isPreviewImage) {
+                            console.log('✅ Gallery image loaded successfully');
+                          }
+                        }}
+                      />
+                      {/* Fallback icon สำหรับ gallery images */}
+                      <div className={`absolute inset-0 w-full h-full bg-gradient-to-r from-gray-400 to-gray-600 flex items-center justify-center text-white text-sm font-bold hidden`}>
+                        <User className="h-6 w-6" />
+                      </div>
+                    </>
                     
                     {/* Overlay สำหรับรูปที่เบลอ */}
                     {isBlurred && (

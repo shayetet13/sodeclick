@@ -336,6 +336,15 @@ const AIMatchingSystem = ({ currentUser }) => {
       console.log('Matches:', data.data?.matches);
       console.log('📊 Like counts from API:', data.data?.matches?.map(m => ({ id: m.id || m._id, likeCount: m.likeCount })));
       
+      // 🔍 Debug: ตรวจสอบ profileImages ที่ API ส่งมา
+      console.log('🖼️ Debug profileImages from API:', data.data?.matches?.map(m => ({
+        id: m.id || m._id,
+        name: m.displayName || m.firstName,
+        profileImages: m.profileImages,
+        imageCount: m.profileImages?.length || 0,
+        firstImage: m.profileImages?.[0]
+      })));
+      
       // ดึงข้อมูล likeCount แยก
       const matches = data.data?.matches || [];
       const userIds = matches.map(m => m.id || m._id);
@@ -557,12 +566,19 @@ const AIMatchingSystem = ({ currentUser }) => {
 
   // อัปเดตสถานะ online/offline แบบ real-time ทุกๆ 10 วินาที
   useEffect(() => {
-    const interval = setInterval(async () => {
-      // อัปเดตสถานะ online/offline จาก API
+    console.log('🔄 Setting up online status interval...');
+    
+    // อัปเดตทันทีเมื่อ component mount
+    const updateOnlineStatus = async () => {
       try {
         const token = sessionStorage.getItem('token');
-        if (!token) return;
+        if (!token) {
+          console.log('⚠️ No token found, skipping online status update');
+          return;
+        }
 
+        console.log('🔍 Fetching online status...');
+        
         // ดึงข้อมูลผู้ใช้ที่ออนไลน์ล่าสุด
         const response = await fetch(`${import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000'}/api/users/online-status`, {
           method: 'GET',
@@ -574,31 +590,59 @@ const AIMatchingSystem = ({ currentUser }) => {
 
         if (response.ok) {
           const result = await response.json();
+          console.log('✅ Online status response:', result);
+          
           if (result.success && result.data) {
             const onlineUsers = result.data.onlineUsers || [];
+            console.log(`🟢 Found ${onlineUsers.length} online users:`, onlineUsers.map(u => ({
+              id: u._id,
+              name: u.displayName || u.username
+            })));
             
             // อัปเดตสถานะ online ใน matches
-            setMatches(prevMatches => 
-              prevMatches.map(match => {
+            setMatches(prevMatches => {
+              console.log(`📊 Updating online status for ${prevMatches.length} matches`);
+              
+              const updated = prevMatches.map(match => {
+                const matchId = match._id || match.id;
                 const isOnline = onlineUsers.some(onlineUser => 
-                  onlineUser._id === match._id || onlineUser._id === match.id
+                  onlineUser._id === matchId
                 );
+                
+                if (isOnline !== match.isOnline) {
+                  console.log(`🔄 User ${matchId} status changed: ${match.isOnline} -> ${isOnline}`);
+                }
                 
                 return {
                   ...match,
                   isOnline: isOnline,
                   lastActive: match.lastActive
                 };
-              })
-            );
+              });
+              
+              console.log(`✅ Updated ${updated.filter(m => m.isOnline).length} users as online`);
+              return updated;
+            });
           }
+        } else {
+          console.error('❌ Failed to fetch online status:', response.status);
         }
       } catch (error) {
         console.error('❌ Error updating online status:', error);
       }
-    }, 10000); // อัปเดตทุก 10 วินาที
+    };
+    
+    // อัปเดตทันที
+    updateOnlineStatus();
+    
+    // ตั้ง interval
+    const interval = setInterval(updateOnlineStatus, 10000);
+    console.log('✅ Online status interval set up (every 10s)');
 
-    return () => clearInterval(interval);
+    return () => {
+      console.log('🧹 Clearing online status interval');
+      clearInterval(interval);
+    };
   }, []);
 
   // ฟัง event เมื่อมีการเปลี่ยนแปลงสถานะการกดไลค์
@@ -1165,60 +1209,34 @@ const AIMatchingSystem = ({ currentUser }) => {
             >
                 <div className="h-48 sm:h-60 md:h-72 overflow-hidden relative">
               {(() => {
-                // สร้าง image URL ที่ถูกต้อง
-                let imageUrl = null
+                // แสดงเฉพาะรูปจริง - ไม่มี placeholder
                 if (match.profileImages && match.profileImages.length > 0) {
                   const firstImage = match.profileImages[0]
+                  
                   if (firstImage && typeof firstImage === 'string') {
+                    let imageUrl = null
+                    
                     if (firstImage.startsWith('http')) {
                       imageUrl = firstImage
-                    } else if (firstImage.startsWith('data:image/svg+xml')) {
-                      imageUrl = firstImage
                     } else {
-                      // ใช้ utility function สำหรับสร้าง URL ที่ถูกต้อง
                       imageUrl = getProfileImageUrl(firstImage, match._id)
+                    }
+                    
+                    if (imageUrl && imageUrl !== 'undefined' && imageUrl.trim() !== '') {
+                      return (
+                        <img 
+                          src={imageUrl} 
+                          alt={displayName} 
+                          className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
+                        />
+                      )
                     }
                   }
                 }
                 
-                // ตรวจสอบว่า imageUrl ถูกต้องและไม่เป็น undefined
-                if (imageUrl && imageUrl !== 'undefined' && imageUrl.trim() !== '') {
-                  return (
-                    <img 
-                      src={imageUrl} 
-                      alt={displayName} 
-                      className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
-                      onError={(e) => {
-                        console.warn('⚠️ AI Matching image failed to load, using fallback:', {
-                          imageUrl: imageUrl,
-                          originalImage: match.profileImages?.[0],
-                          matchId: match.id || match._id
-                        });
-                        // แสดง fallback แทนการซ่อนรูปภาพ
-                        e.target.style.display = 'none';
-                        const fallbackDiv = e.target.nextElementSibling;
-                        if (fallbackDiv) {
-                          fallbackDiv.style.display = 'flex';
-                        }
-                      }}
-                      onLoad={() => {
-                        console.log('✅ AI Matching image loaded successfully:', {
-                          imageUrl: imageUrl,
-                          originalImage: match.profileImages?.[0],
-                          matchId: match.id || match._id
-                        });
-                      }}
-                    />
-                  )
-                }
-                
+                // ไม่มีรูป - ไม่แสดงอะไรเลย (card จะเป็นสีพื้นหลัง gradient)
                 return null
               })()}
-                  
-                  {/* Fallback element สำหรับรูปภาพที่โหลดไม่ได้ */}
-                  <div className="absolute inset-0 bg-gradient-to-br from-pink-400 to-violet-500 flex items-center justify-center text-white text-2xl font-bold">
-                    <User className="h-16 w-16 text-white/80" />
-                  </div>
               
                   <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent"></div>
                   

@@ -508,18 +508,6 @@ userSchema.methods.getMembershipLimits = function() {
   }
 
   const limits = {
-    test: {
-      dailyChats: 5,
-      dailyImages: 2,
-      dailyVideos: 1,
-      dailyBonus: 100,
-      spinInterval: 24 * 60 * 60 * 1000, // 24 hours
-      canTransferCoins: false,
-      canHideOnlineStatus: false,
-      chatRoomLimit: 0,
-      canCreatePrivateRooms: false,
-      privateRoomMemberLimit: 0
-    },
     member: {
       dailyChats: 10,
       dailyImages: 3,

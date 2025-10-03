@@ -1,5 +1,6 @@
 const express = require('express');
 const router = express.Router();
+const mongoose = require('mongoose');
 const User = require('../models/User');
 const { auth } = require('../middleware/auth');
 
@@ -199,8 +200,8 @@ router.get('/ai-matches', auth, async (req, res) => {
       _id: { $ne: userId },
       role: { $nin: ['admin', 'superadmin'] }
     })
-      .select('_id firstName lastName displayName dateOfBirth gender profileImages interests lifestyle membership bio lastActive isOnline role')
-      .lean(); // ใช้ lean() เพื่อเพิ่มประสิทธิภาพ
+      .select('_id firstName lastName displayName dateOfBirth gender profileImages mainProfileImageIndex interests lifestyle membership bio lastActive isOnline role')
+      .lean();
     
     console.log('Found users:', allUsers.length);
 
@@ -355,11 +356,14 @@ router.get('/ai-matches', auth, async (req, res) => {
     
     console.log('Filtered users:', finalFilteredUsers.length);
     console.log('Sample user:', finalFilteredUsers[0]);
-    console.log('🔍 Debug gender data in matches:', finalFilteredUsers.slice(0, 3).map(user => ({
-      id: user._id,
-      name: user.displayName || user.firstName,
-      gender: user.gender,
-      hasGender: !!user.gender
+    
+    // 🔍 Debug: ตรวจสอบ profileImages ที่จะส่งไปให้ Frontend
+    console.log('🖼️ Sending profileImages to frontend:', finalFilteredUsers.slice(0, 3).map(u => ({
+      id: u._id,
+      name: u.displayName || u.firstName,
+      profileImages: u.profileImages,
+      imageCount: u.profileImages?.length || 0,
+      firstImage: u.profileImages?.[0]
     })));
 
     res.json({

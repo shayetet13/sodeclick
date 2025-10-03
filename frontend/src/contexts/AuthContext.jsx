@@ -329,6 +329,23 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
+  // Function to update user data (for coin/vote updates)
+  const updateUserData = (updatedUser) => {
+    console.log('🔄 AuthContext: Updating user data:', updatedUser)
+    setUser(updatedUser)
+
+    // Also update localStorage
+    localStorage.setItem('user', JSON.stringify(updatedUser))
+  };
+
+  // Expose updateUserData globally for components that need it
+  useEffect(() => {
+    window.updateAuthContext = updateUserData
+    return () => {
+      delete window.updateAuthContext
+    }
+  }, [])
+
   const value = {
     user,
     login,
@@ -336,7 +353,8 @@ export const AuthProvider = ({ children }) => {
     validateUser,
     loading,
     showIdleWarning,
-    dismissIdleWarning
+    dismissIdleWarning,
+    updateUserData
   };
 
   return (

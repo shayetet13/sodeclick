@@ -1060,13 +1060,13 @@ setInterval(() => {
   }
 }, 30000); // Check every 30 seconds
 
-// Socket.IO Configuration
+// Socket.IO Configuration - ปรับปรุงสำหรับ real-time ที่ดีขึ้น
 const io = socketIo(server, {
   cors: {
     origin: function (origin, callback) {
       // อนุญาตให้ requests ที่ไม่มี origin
       if (!origin) return callback(null, true);
-      
+
       const allowedOrigins = [
         'http://localhost:5173',
         'http://127.0.0.1:5173',
@@ -1076,7 +1076,7 @@ const io = socketIo(server, {
         'https://sodeclick-frontend-production.up.railway.app',
         'https://sodeclick-frontend-production-8907.up.railway.app'
       ];
-      
+
       // อนุญาต IP ใน local network
       if (origin && (
         origin.match(/^http:\/\/192\.168\.\d{1,3}\.\d{1,3}:5173$/) ||
@@ -1086,7 +1086,7 @@ const io = socketIo(server, {
         console.log('✅ Socket.IO CORS allowed for local network IP:', origin);
         return callback(null, true);
       }
-      
+
       if (allowedOrigins.indexOf(origin) !== -1) {
         callback(null, true);
       } else {
@@ -1097,13 +1097,23 @@ const io = socketIo(server, {
     methods: ["GET", "POST"],
     credentials: true
   },
-  pingTimeout: 10000, // ลดจาก 60000 เป็น 10000 (10 วินาที)
-  pingInterval: 5000, // ลดจาก 25000 เป็น 5000 (5 วินาที) - ตรวจสอบบ่อยขึ้น
+  // ปรับปรุง ping settings สำหรับ real-time ที่ดีขึ้น
+  pingTimeout: 60000, // เพิ่มจาก 10000 เป็น 60000 (60 วินาที) - ทนต่อการเชื่อมต่อช้าขึ้น
+  pingInterval: 25000, // เพิ่มจาก 5000 เป็น 25000 (25 วินาที) - ลดการ ping บ่อยเกินไป
   maxHttpBufferSize: 1e6, // 1MB
   allowEIO3: true,
   transports: ['websocket', 'polling'],
   upgrade: true,
-  rememberUpgrade: true
+  rememberUpgrade: true,
+  // เพิ่มการตั้งค่าเพื่อความเสถียรของการเชื่อมต่อ
+  connectTimeout: 45000, // เพิ่ม timeout สำหรับการเชื่อมต่อเริ่มต้น
+  forceNew: false,
+  // เพิ่มการตั้งค่า reconnection ที่ดีขึ้น
+  reconnection: true,
+  reconnectionAttempts: 10, // เพิ่มจำนวนครั้งการพยายามเชื่อมต่อใหม่
+  reconnectionDelay: 1000, // เพิ่ม delay เริ่มต้น
+  reconnectionDelayMax: 5000, // เพิ่ม max delay
+  randomizationFactor: 0.5 // เพิ่ม randomization สำหรับการกระจายโหลด
 });
 
 // Socket.IO error handling
@@ -1282,11 +1292,16 @@ io.on('connection', (socket) => {
         
         // อัปเดตสถานะออนไลน์ในฐานข้อมูล
         try {
-          await User.findByIdAndUpdate(userId, {
-            isOnline: true,
-            lastActive: new Date()
-          });
-          console.log(`🟢 User ${userId} marked as online in database`);
+          const updatedUser = await User.findByIdAndUpdate(
+            userId, 
+            {
+              isOnline: true,
+              lastActive: new Date()
+            },
+            { new: true }
+          );
+          console.log(`🟢 User ${userId} (${updatedUser.displayName || updatedUser.username}) marked as online in database`);
+          console.log(`🟢 Verified isOnline status in DB: ${updatedUser.isOnline}`);
         } catch (error) {
           console.error('Error updating user online status:', error);
         }
@@ -1412,9 +1427,10 @@ io.on('connection', (socket) => {
   // ส่งข้อความ
   socket.on('send-message', async (data) => {
     try {
-      // Rate limiting สำหรับการส่งข้อความ (ลดเหลือ 500ms เพื่อให้ส่งเร็วขึ้น)
-      if (!checkSocketRateLimit(socket.id, 'send-message', 500)) {
-        socket.emit('error', { message: 'Rate limit: Please wait before sending another message' });
+      // Rate limiting สำหรับการส่งข้อความ (เพิ่มเป็น 100ms เพื่อให้ส่งเร็วขึ้นมาก)
+      if (!checkSocketRateLimit(socket.id, 'send-message', 100)) {
+        // ไม่ส่ง error เพื่อไม่ให้รบกวน UX แต่แค่ skip การส่ง
+        console.log(`⏱️ Rate limit: send-message from ${socket.id} (${Date.now()})`);
         return;
       }
 
@@ -1481,8 +1497,30 @@ io.on('connection', (socket) => {
         console.log('📤 [server.js] Broadcasting private message to room:', chatRoomId);
         const roomSize = io.sockets.adapter.rooms.get(chatRoomId)?.size || 0;
         console.log('📤 [server.js] Connected sockets in room:', roomSize);
+        console.log('📤 [server.js] Message content:', message.content?.substring(0, 50) || message.messageType);
+        console.log('📤 [server.js] Message ID:', message._id);
+        console.log('📤 [server.js] Sender:', message.sender.displayName || message.sender.username);
         
-        io.to(chatRoomId).emit('new-message', message);
+        // Broadcast ทันที
+        const broadcastPayload = {
+          _id: message._id,
+          content: message.content,
+          sender: {
+            _id: message.sender._id,
+            displayName: message.sender.displayName,
+            username: message.sender.username,
+            profileImages: message.sender.profileImages,
+            membershipTier: message.sender.membershipTier
+          },
+          chatRoom: message.chatRoom,
+          messageType: message.messageType,
+          fileUrl: message.fileUrl,
+          replyTo: message.replyTo,
+          createdAt: message.createdAt,
+          updatedAt: message.updatedAt
+        };
+        
+        io.to(chatRoomId).emit('new-message', broadcastPayload);
         console.log('✅ [server.js] Private message broadcasted immediately to', roomSize, 'client(s)');
         
         // ทำ unread count และ notification แบบ async (ไม่บล็อก broadcast)
@@ -1530,11 +1568,33 @@ io.on('connection', (socket) => {
                 unreadCount: user2UnreadCount
               });
 
-              // ส่งการแจ้งเตือนข้อความใหม่ให้ผู้ใช้ที่ไม่ได้ส่งข้อความ
+              // ส่งการแจ้งเตือนข้อความใหม่ให้ผู้ใช้ที่ไม่ได้ส่งข้อความ (เฉพาะครั้งแรกของแต่ละข้อความ)
               const receiverId = senderId === userId1 ? userId2 : userId1;
+              
+              // เช็คว่าข้อความนี้ถูกแจ้งเตือนไปแล้วหรือยัง (ใช้ Set เพื่อเก็บ messageId ที่แจ้งเตือนแล้ว)
+              if (!global.notifiedMessages) {
+                global.notifiedMessages = new Set();
+              }
+              
+              const notificationKey = `${message._id}_${receiverId}`;
+              if (global.notifiedMessages.has(notificationKey)) {
+                console.log('⏭️ Notification already sent for this message, skipping');
+                return;
+              }
+              
               const sender = await User.findById(senderId).select('username displayName firstName lastName profileImages mainProfileImageIndex membershipTier');
           
           if (sender) {
+            // บันทึกว่าแจ้งเตือนข้อความนี้แล้ว
+            global.notifiedMessages.add(notificationKey);
+            
+            // ลบ key เก่าๆ ทุก 1 ชั่วโมง (ป้องกัน memory leak)
+            setTimeout(() => {
+              global.notifiedMessages.delete(notificationKey);
+            }, 60 * 60 * 1000); // 1 ชั่วโมง
+            
+            console.log('🔔 Sending notification for message:', message._id, 'to user:', receiverId);
+            
             // ส่งแจ้งเตือนไปยัง receiver
             io.to(`user_${receiverId}`).emit('newNotification', {
               _id: `msg_${message._id}`,
@@ -1648,23 +1708,69 @@ io.on('connection', (socket) => {
       ]);
 
       // 🚀 ส่งข้อความไปยังสมาชิกทุกคนในห้องทันที (ไม่รอ unread count)
-      console.log('📤 [server.js] Broadcasting message to room:', chatRoomId);
-      io.to(chatRoomId).emit('new-message', message);
-      console.log('✅ [server.js] Message broadcasted immediately');
+      console.log('📤 [server.js] Broadcasting room message to room:', chatRoomId);
+      const roomSize = io.sockets.adapter.rooms.get(chatRoomId)?.size || 0;
+      console.log('📤 [server.js] Connected sockets in room:', roomSize);
+      console.log('📤 [server.js] Message content:', message.content?.substring(0, 50) || message.messageType);
+      console.log('📤 [server.js] Message ID:', message._id);
+      console.log('📤 [server.js] Sender:', message.sender.displayName || message.sender.username);
+      
+      // Broadcast ทันที
+      const broadcastPayload = {
+        _id: message._id,
+        content: message.content,
+        sender: {
+          _id: message.sender._id,
+          displayName: message.sender.displayName,
+          username: message.sender.username,
+          profileImages: message.sender.profileImages,
+          membershipTier: message.sender.membershipTier,
+          membership: message.sender.membership
+        },
+        chatRoom: message.chatRoom,
+        messageType: message.messageType,
+        fileUrl: message.fileUrl,
+        replyTo: message.replyTo,
+        createdAt: message.createdAt,
+        updatedAt: message.updatedAt,
+        reactions: message.reactions || []
+      };
+      
+      io.to(chatRoomId).emit('new-message', broadcastPayload);
+      console.log('✅ [server.js] Room message broadcasted immediately to', roomSize, 'client(s)');
       
       // ส่ง notification และ unread count แบบ async (ไม่บล็อก)
       setImmediate(async () => {
         try {
-          // ส่ง notification ไปยังเจ้าของข้อความเดิมเมื่อมีคนตอบกลับ
+          // ส่ง notification ไปยังเจ้าของข้อความเดิมเมื่อมีคนตอบกลับ (ป้องกันการแจ้งเตือนซ้ำ)
           if (replyToId) {
             const originalMessage = await Message.findById(replyToId);
             if (originalMessage && originalMessage.sender.toString() !== senderId) {
-              io.emit('public-chat-reply-notification', {
-                messageId: message._id,
-                userId: senderId,
-                originalMessageOwnerId: originalMessage.sender.toString(),
-                roomId: chatRoomId
-              });
+              // เช็คว่าแจ้งเตือน reply นี้ไปแล้วหรือยัง
+              if (!global.notifiedMessages) {
+                global.notifiedMessages = new Set();
+              }
+              
+              const replyNotificationKey = `reply_${message._id}_${originalMessage.sender}`;
+              if (!global.notifiedMessages.has(replyNotificationKey)) {
+                global.notifiedMessages.add(replyNotificationKey);
+                
+                // ลบ key เก่าๆ ทุก 1 ชั่วโมง
+                setTimeout(() => {
+                  global.notifiedMessages.delete(replyNotificationKey);
+                }, 60 * 60 * 1000);
+                
+                console.log('🔔 Sending reply notification for message:', message._id);
+                
+                io.emit('public-chat-reply-notification', {
+                  messageId: message._id,
+                  userId: senderId,
+                  originalMessageOwnerId: originalMessage.sender.toString(),
+                  roomId: chatRoomId
+                });
+              } else {
+                console.log('⏭️ Reply notification already sent, skipping');
+              }
             }
           }
           
@@ -1778,8 +1884,8 @@ io.on('connection', (socket) => {
   // จัดการสเตตัสข้อความ - ทำเครื่องหมายว่าอ่านแล้ว
   socket.on('mark-message-read', async (data) => {
     try {
-      // Rate limiting สำหรับการทำเครื่องหมายอ่าน (500ms ต่อครั้ง)
-      if (!checkSocketRateLimit(socket.id, 'mark-message-read', 500)) {
+      // Rate limiting สำหรับการทำเครื่องหมายอ่าน (100ms ต่อครั้ง) - ลดลงเพื่อให้เร็วขึ้น
+      if (!checkSocketRateLimit(socket.id, 'mark-message-read', 100)) {
         return; // ไม่แสดง error เพื่อไม่ให้รบกวน UX
       }
 

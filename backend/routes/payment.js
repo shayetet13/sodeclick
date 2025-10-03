@@ -1,5 +1,8 @@
 const express = require('express');
 const router = express.Router();
+
+console.log('🔄 Loading payment routes...');
+console.log('🔄 Payment routes loaded successfully!');
 const QRCode = require('qrcode');
 const crypto = require('crypto');
 const axios = require('axios');
@@ -181,7 +184,9 @@ router.get('/check-payment/:transactionId', async (req, res) => {
 // ยืนยันการชำระเงิน (สำหรับระบบจริง)
 router.post('/confirm-payment', async (req, res) => {
   try {
-    const { transactionId, paymentReference, amount, bankId } = req.body;
+    console.log('🔄 Payment confirmation API called');
+    const { transactionId, paymentReference, amount, bankId, planId, planTier, userId } = req.body;
+    console.log('📋 Request data:', { transactionId, planTier, planId, userId });
 
     // Payment verification - would integrate with bank API
     // Note: Would verify transaction expiration, amount accuracy, and prevent duplicate confirmations
@@ -200,21 +205,133 @@ router.post('/confirm-payment', async (req, res) => {
     // Note: Would update transaction status in database when transaction model is implemented
     // await Transaction.findOneAndUpdate(
     //   { transactionId: transactionId },
-    //   { 
+    //   {
     //     status: 'completed',
     //     paymentReference: paymentReference,
     //     confirmedAt: new Date()
     //   }
     // );
 
-    // User membership upgrade - placeholder for future implementation
-    // Note: Would upgrade user membership when payment confirmation is successful
-    // await upgradeUserMembership(userId, planId);
+    // อัปเกรดเหรียญและคะแนนโหวตให้ผู้ใช้เมื่อชำระเงินสำเร็จ
+    let upgradeResult = null;
+    console.log('🔄 Processing payment confirmation for:', { planTier, planId, userId });
+
+    if (planTier === 'coin_package' && planId && userId) {
+      const session = await require('../models/User').startSession();
+
+      try {
+        // เริ่ม transaction สำหรับการอัพเกรดเหรียญ
+        session.startTransaction();
+
+        const User = require('../models/User');
+        const CoinPackage = require('../models/CoinPackage');
+
+        // ค้นหาผู้ใช้และแพจเกจใน transaction เดียวกัน
+        console.log('🔍 Searching for user and package:', { userId, planId });
+        const [user, coinPackage] = await Promise.all([
+          User.findById(userId).session(session),
+          CoinPackage.findById(planId).session(session)
+        ]);
+
+        console.log('🔍 Found user:', !!user, 'package:', !!coinPackage);
+
+        if (user && coinPackage) {
+          // เก็บข้อมูลก่อนการอัพเกรดเพื่อ rollback ถ้าจำเป็น
+          const userBeforeUpdate = {
+            coins: user.coins,
+            votePoints: user.votePoints,
+            paymentHistory: [...user.paymentHistory]
+          };
+
+          // คำนวณเหรียญที่ได้รับ
+          const baseCoins = coinPackage.rewards.coins;
+          const bonusCoins = Math.floor(baseCoins * (coinPackage.rewards.bonusPercentage / 100));
+          const totalCoins = baseCoins + bonusCoins;
+          const totalVotePoints = coinPackage.rewards.votePoints;
+
+          console.log('🔍 Coin calculation:', {
+            baseCoins,
+            bonusPercentage: coinPackage.rewards.bonusPercentage,
+            bonusCoins,
+            totalCoins,
+            totalVotePoints,
+            userCoinsBefore: user.coins,
+            userVotePointsBefore: user.votePoints
+          });
+
+          // เพิ่มเหรียญและคะแนนโหวต (บวกเพิ่มเข้าไปกับของเดิม)
+          user.coins += totalCoins;
+          user.votePoints += totalVotePoints;
+
+          console.log('📊 Final user data:', {
+            coins: user.coins,
+            votePoints: user.votePoints,
+            coinsAdded: totalCoins,
+            votePointsAdded: totalVotePoints
+          });
+
+          // บันทึกประวัติการชำระเงิน
+          user.paymentHistory.push({
+            tier: 'coin_package',
+            amount: coinPackage.price,
+            currency: coinPackage.currency,
+            paymentMethod: 'rabbit_gateway',
+            transactionId: transactionId,
+            status: 'completed',
+            purchaseDate: new Date(),
+            expiryDate: null // เหรียญไม่หมดอายุ
+          });
+
+          // อัปเดตสถิติแพ็กเกจ
+          coinPackage.stats.totalPurchases += 1;
+          coinPackage.stats.totalRevenue += coinPackage.price;
+
+          // บันทึกการเปลี่ยนแปลงทั้งหมดใน transaction เดียวกัน
+          await Promise.all([
+            user.save({ session }),
+            coinPackage.save({ session })
+          ]);
+
+          // ยืนยัน transaction
+          await session.commitTransaction();
+
+          upgradeResult = {
+            coins: totalCoins,
+            votePoints: totalVotePoints,
+            totalCoins: user.coins,
+            totalVotePoints: user.votePoints,
+            coinsBefore: userBeforeUpdate.coins,
+            votePointsBefore: userBeforeUpdate.votePoints
+          };
+
+          console.log(`✅ อัปเกรดผู้ใช้สำเร็จ: ${user.displayName} ได้รับ ${totalCoins} เหรียญ และ ${totalVotePoints} คะแนนโหวต`);
+        } else {
+          // Rollback transaction ถ้าหา user หรือ package ไม่เจอ
+          await session.abortTransaction();
+          console.error('❌ User or coin package not found for upgrade');
+        }
+      } catch (error) {
+        // Rollback transaction ถ้ามี error
+        if (session.inTransaction()) {
+          await session.abortTransaction();
+          console.log('🔄 Coin upgrade transaction rolled back due to error:', error.message);
+        }
+
+        console.error('❌ Error upgrading user:', error);
+        // ไม่ให้ error นี้หยุดการทำงานของ payment confirmation
+      } finally {
+        // ปิด session
+        await session.endSession();
+      }
+    }
 
     res.json({
       success: true,
       message: 'ยืนยันการชำระเงินสำเร็จ',
-      data: paymentConfirmation
+      data: {
+        ...paymentConfirmation,
+        upgradeResult
+      }
     });
 
   } catch (error) {

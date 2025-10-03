@@ -1,7 +1,6 @@
 const passport = require('passport');
 const GoogleStrategy = require('passport-google-oauth20').Strategy;
 const User = require('../models/User');
-const { DEFAULT_AVATAR_BASE64 } = require('./defaultAvatar');
 
 // Configure Google OAuth Strategy only if credentials are provided
 if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
@@ -58,7 +57,7 @@ if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
                 lastName: lastName,
                 username: displayName || `google_user_${Date.now()}`, // ใช้ชื่อจริงแทน Google ID
                 displayName: displayName,
-                profileImages: profile.photos && profile.photos.length > 0 ? [profile.photos[0].value] : [DEFAULT_AVATAR_BASE64],
+                profileImages: profile.photos && profile.photos.length > 0 ? [profile.photos[0].value] : [],
                 isVerified: true, // Google accounts are considered verified
                 // Set default required fields
                 dateOfBirth: new Date('1990-01-01'), // Default date - user will need to update

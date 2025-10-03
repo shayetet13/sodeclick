@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { ChevronLeft, ChevronRight, Heart } from 'lucide-react';
 import { Button } from './ui/button';
-import { getMainProfileImage, getMainProfileImageGuest, getDefaultAvatarUrl } from '../utils/profileImageUtils';
+import { getMainProfileImage, getMainProfileImageGuest } from '../utils/profileImageUtils';
 import voteAPI from '../services/voteAPI';
 
 // Get profile image URL
@@ -30,9 +30,8 @@ const getImageUrl = (userData) => {
     return imageUrl;
   }
   
-  console.log('❌ No images found for user, using default avatar');
-  // ใช้ default avatar เมื่อไม่มีรูป
-  return getDefaultAvatarUrl(userData.gender);
+  console.log('❌ No images found for user');
+  return null; // ไม่มีรูป
 };
 
 const TopVotedCarousel = () => {

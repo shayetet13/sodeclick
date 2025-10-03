@@ -128,7 +128,9 @@ const CoinShop = ({ userId, onNavigateToPayment }) => {
 
       {/* Package Grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
-        {packages.map((pkg) => {
+        {packages
+          .filter(pkg => pkg.name !== 'Test Package') // กรอง Test Package ออก
+          .map((pkg) => {
           const totalCoins = shopHelpers.calculateTotalCoins(pkg.rewards.coins, pkg.rewards.bonusPercentage);
           const bonusCoins = shopHelpers.calculateBonus(pkg.rewards.coins, pkg.rewards.bonusPercentage);
           const isPopular = shopHelpers.isPopularPackage(pkg);

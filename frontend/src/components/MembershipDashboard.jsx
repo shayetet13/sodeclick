@@ -31,6 +31,48 @@ const MembershipDashboard = ({ userId }) => {
   const [wonPrize, setWonPrize] = useState(null)
   const { success, error: showError } = useToast()
 
+  // ฟังก์ชันสำหรับดึงข้อมูลผู้ใช้ล่าสุดจาก localStorage
+  const getCurrentUserData = useCallback(() => {
+    try {
+      const userData = localStorage.getItem('user')
+      return userData ? JSON.parse(userData) : null
+    } catch (e) {
+      console.error('Error parsing user data from localStorage:', e)
+      return null
+    }
+  }, [])
+
+  // อัปเดตข้อมูลเหรียญและโหวตแบบเรียลไทม์
+  useEffect(() => {
+    const updateUserData = () => {
+      if (membershipData) {
+        const currentUserData = getCurrentUserData()
+        if (currentUserData) {
+          const updatedData = {
+            ...membershipData,
+            coins: currentUserData.coins || membershipData.coins,
+            votePoints: currentUserData.votePoints || membershipData.votePoints
+          }
+
+          // อัปเดตเฉพาะถ้ามีการเปลี่ยนแปลง
+          if (updatedData.coins !== membershipData.coins || updatedData.votePoints !== membershipData.votePoints) {
+            console.log('🔄 Updating membership data with latest user data:', {
+              oldCoins: membershipData.coins,
+              newCoins: updatedData.coins,
+              oldVotePoints: membershipData.votePoints,
+              newVotePoints: updatedData.votePoints
+            })
+            setMembershipData(updatedData)
+          }
+        }
+      }
+    }
+
+    // ตรวจสอบทุก 1 วินาที
+    const interval = setInterval(updateUserData, 1000)
+    return () => clearInterval(interval)
+  }, [membershipData, getCurrentUserData])
+
   // ดึงข้อมูลสมาชิก
   const fetchMembershipData = useCallback(async () => {
     if (!userId) {
@@ -41,9 +83,36 @@ const MembershipDashboard = ({ userId }) => {
 
     try {
       setLoading(true)
+
+      // ดึงข้อมูลจาก localStorage ก่อน (ข้อมูลล่าสุด)
+      const localStorageUser = localStorage.getItem('user')
+      let localUserData = null
+      if (localStorageUser) {
+        try {
+          localUserData = JSON.parse(localStorageUser)
+        } catch (e) {
+          console.error('Error parsing localStorage user data:', e)
+        }
+      }
+
+      // ดึงข้อมูลจาก API
       const response = await membershipAPI.getUserMembership(userId)
-             setMembershipData(response.data.data)
-       
+      const apiData = response.data.data
+
+      // ถ้ามีข้อมูลใน localStorage ให้ใช้ข้อมูลนั้นแทนสำหรับเหรียญและโหวต
+      if (localUserData && apiData) {
+        apiData.coins = localUserData.coins || apiData.coins
+        apiData.votePoints = localUserData.votePoints || apiData.votePoints
+        console.log('🔄 Updated membership data with localStorage data:', {
+          coins: apiData.coins,
+          votePoints: apiData.votePoints,
+          localCoins: localUserData.coins,
+          localVotePoints: localUserData.votePoints
+        })
+      }
+
+      setMembershipData(apiData)
+
        // Debug: แสดงข้อมูลที่ได้รับ (เฉพาะเมื่อต้องการ debug)
        // console.log('🔍 Frontend Debug - Membership Data:', response.data.data)
        // console.log('🔍 Frontend Debug - User Role:', response.data.data.role)
@@ -173,6 +242,19 @@ const MembershipDashboard = ({ userId }) => {
 
   return (
     <div className="space-y-3 sm:space-y-4">
+      {/* ข้อความเตือนการอัปเดตข้อมูล */}
+      <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 text-sm">
+        <div className="flex items-center">
+          <div className="w-6 h-6 bg-blue-100 rounded-full flex items-center justify-center text-blue-600 text-xs mr-2 flex-shrink-0">
+            ℹ️
+          </div>
+          <div className="text-blue-800">
+            <p className="font-medium">ข้อมูลเหรียญและโหวตอัปเดตแบบเรียลไทม์</p>
+            <p className="text-xs mt-1">ข้อมูลจะอัปเดตอัตโนมัติเมื่อมีการเปลี่ยนแปลง</p>
+          </div>
+        </div>
+      </div>
+
       {/* Compact Membership Status Card */}
       <div className="bg-white/80 backdrop-blur-sm rounded-xl p-3 sm:p-4 border border-white/20 shadow-lg">
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-3 gap-3">

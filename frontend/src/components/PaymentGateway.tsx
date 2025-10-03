@@ -62,9 +62,13 @@ const PaymentGateway = ({ plan, onBack, onSuccess, onCancel }) => {
   const [timeRemaining, setTimeRemaining] = useState(300000) // 5 นาที
   const [currentTransaction, setCurrentTransaction] = useState<PaymentData | null>(null)
   const [paymentCheckInterval, setPaymentCheckInterval] = useState<number | null>(null)
-  
+  const [bypassMode, setBypassMode] = useState(false)
+
   // useRef สำหรับ QR Code element
   const qrCodeRef = useRef<HTMLDivElement>(null)
+
+  // ตรวจสอบว่าผู้ใช้เป็น admin หรือไม่
+  const isAdmin = user?.role === 'admin' || user?.role === 'superadmin'
 
   // ระดับชั้นและราคาที่ตรงกัน (ใช้เป็น fallback เท่านั้น)
   const tierPricing = {
@@ -164,7 +168,7 @@ const PaymentGateway = ({ plan, onBack, onSuccess, onCancel }) => {
     
     // สร้าง QR ใหม่ทันทีเมื่อเข้ามาหน้า (Auto Generate)
     if (!processing) {
-      createRabbitPayment()
+      checkBypassMode()
     }
   }, [plan?.id, plan?.tier]) // เพิ่ม plan.tier เป็น dependency ด้วย
 
@@ -193,6 +197,91 @@ const PaymentGateway = ({ plan, onBack, onSuccess, onCancel }) => {
     // เลื่อนครั้งเดียวหลังจาก 1000ms
     setTimeout(scrollToBottom, 1000)
   }, []) // รันครั้งเดียวเมื่อเข้ามาหน้า
+
+  // ตรวจสอบ bypass mode
+  const checkBypassMode = async () => {
+    try {
+      // ตรวจสอบการตั้งค่า bypass จาก localStorage หรือ API
+      const bypassEnabled = localStorage.getItem('payment_bypass_enabled') === 'true'
+
+      if (bypassEnabled) {
+        console.log('🔄 Payment bypass mode enabled')
+        setBypassMode(true)
+        bypassPayment()
+      } else {
+        console.log('💳 Normal payment mode')
+        setBypassMode(false)
+        createRabbitPayment()
+      }
+    } catch (error) {
+      console.error('Error checking bypass mode:', error)
+      createRabbitPayment()
+    }
+  }
+
+  // Bypass payment (สำหรับการทดสอบหรือ admin)
+  const bypassPayment = async () => {
+    try {
+      setProcessing(true)
+
+      // ตาม RABBIT_GATEWAY_INTEGRATION_SUMMARY.md line 501-507
+      const pricing = tierPricing[plan.tier] || tierPricing.vip
+      const orderId = rabbitHelpers.generateOrderId()
+
+      // สำหรับ coin package ใช้ plan.price โดยตรง
+      const amount = plan.tier === 'coin_package' ? plan.price : pricing.amount
+
+      // สร้าง transaction data สำหรับ bypass
+      const transaction = {
+        id: `bypass-${Date.now()}`,
+        transactionId: `bypass-${Date.now()}`,
+        orderId: orderId,
+        amount: amount,
+        currency: 'THB',
+        planId: plan.id,
+        planTier: plan.tier,
+        planName: plan.name,
+        userId: user?._id,
+        status: 'completed',
+        createdAt: new Date(),
+        expiryTime: new Date(Date.now() + 5 * 60 * 1000) // 5 นาที
+      }
+
+      setCurrentTransaction(transaction)
+
+      // สร้าง success data ทันที (ไม่ต้องรอ payment)
+      const successData = {
+        ...transaction,
+        paymentMethod: 'bypass',
+        timestamp: new Date().toISOString(),
+        status: 'completed',
+        tier: plan.tier,
+        plan: plan // ส่ง plan object ไปด้วยเพื่อให้ PaymentSuccess สามารถแสดงข้อมูลได้
+      }
+
+      console.log('🎉 Payment bypassed! Success data:', successData)
+      console.log('📦 Plan object:', JSON.stringify(plan, null, 2))
+      console.log('🪙 Plan rewards:', JSON.stringify(plan?.rewards, null, 2))
+
+      // ทดสอบการเพิ่มเหรียญแบบ manual
+      if (plan?.rewards) {
+        const testCoins = plan.rewards.totalCoins || plan.rewards.coins || 0
+        const testVotes = plan.rewards.votePoints || 0
+        console.log('🧪 Manual test - would add:', testCoins, 'coins and', testVotes, 'vote points')
+      }
+
+      // รอ 1 วินาทีเพื่อแสดง loading animation
+      setTimeout(() => {
+        onSuccess && onSuccess(successData)
+      }, 1000)
+
+    } catch (error) {
+      console.error('Error in bypass payment:', error)
+      setPaymentStatus('error')
+    } finally {
+      setProcessing(false)
+    }
+  }
 
   // สร้าง Rabbit Payment
   const createRabbitPayment = async () => {
@@ -315,7 +404,8 @@ const PaymentGateway = ({ plan, onBack, onSuccess, onCancel }) => {
           transactionId: data.payment_id,
           amount: data.amount,
           currency: data.currency,
-          tier: plan.tier // เพิ่ม tier สำหรับการอัพเกรดสมาชิก
+          tier: plan.tier, // เพิ่ม tier สำหรับการอัพเกรดสมาชิก
+          plan: plan // ส่ง plan object ไปด้วยเพื่อให้ PaymentSuccess สามารถแสดงข้อมูลได้
         }
         
         onSuccess && onSuccess(successData)
@@ -403,22 +493,136 @@ const PaymentGateway = ({ plan, onBack, onSuccess, onCancel }) => {
       <div className="max-w-6xl mx-auto">
         {/* Header */}
         <div className="mb-4">
-          <Button 
-            variant="ghost"
-            onClick={onBack}
-            className="mb-2 text-slate-600 hover:text-slate-800"
-          >
-            <ArrowLeft className="h-4 w-4 mr-2" />
-            กลับ
-          </Button>
+          <div className="flex items-center justify-between mb-2">
+            <Button
+              variant="ghost"
+              onClick={onBack}
+              className="text-slate-600 hover:text-slate-800"
+            >
+              <ArrowLeft className="h-4 w-4 mr-2" />
+              กลับ
+            </Button>
+
+            {/* Admin Controls - แสดงเฉพาะ admin */}
+            {isAdmin && (
+              <div className="flex items-center gap-2">
+                <Button
+                  variant={bypassMode ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => {
+                    const newBypassMode = !bypassMode
+                    setBypassMode(newBypassMode)
+                    localStorage.setItem('payment_bypass_enabled', newBypassMode.toString())
+
+                    if (newBypassMode) {
+                      // ถ้าเปิด bypass mode ให้เรียก bypass payment ทันที
+                      bypassPayment()
+                    }
+                  }}
+                  className={`text-xs ${bypassMode ? 'bg-yellow-500 hover:bg-yellow-600' : ''}`}
+                >
+                  <Shield className="h-3 w-3 mr-1" />
+                  {bypassMode ? 'ปิด Bypass' : 'เปิด Bypass'}
+                </Button>
+
+                {/* ปุ่มรีเซ็ตเหรียญสำหรับทดสอบ */}
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    if (confirm('รีเซ็ตเหรียญและโหวตของผู้ใช้เป็น 0?')) {
+                      const resetUser = {
+                        ...user,
+                        coins: 0,
+                        votePoints: 0,
+                        membership: { tier: 'member' }
+                      }
+                      localStorage.setItem('user', JSON.stringify(resetUser))
+                      if (window.updateAuthContext) {
+                        window.updateAuthContext(resetUser)
+                      }
+                      console.log('🔄 Reset user coins and vote points to 0')
+                      alert('รีเซ็ตเหรียญและโหวตเรียบร้อยแล้ว!')
+                    }
+                  }}
+                  className="text-xs bg-red-500 text-white hover:bg-red-600"
+                >
+                  🔄 รีเซ็ต
+                </Button>
+              </div>
+            )}
+          </div>
           
-          <div className="text-center">
+              <div className="text-center">
             <h1 className="text-2xl font-bold gradient-text mb-1">
               🐇 Rabbit Payment Gateway
+              {bypassMode && (
+                <span className="ml-2 px-2 py-1 bg-yellow-500 text-white text-xs rounded-full">
+                  BYPASS MODE
+                </span>
+              )}
               </h1>
             <p className="text-slate-600 text-sm">
-              ชำระเงินอย่างปลอดภัยและรวดเร็ว
+              {bypassMode ? 'โหมดทดสอบ - ไม่ต้องชำระเงินจริง' : 'ชำระเงินอย่างปลอดภัยและรวดเร็ว'}
               </p>
+
+            {/* แสดงข้อมูลผู้ใช้ปัจจุบันสำหรับการทดสอบ */}
+            {user && (
+              <div className="mt-4 p-3 bg-slate-50 rounded-lg text-sm">
+                <div className="grid grid-cols-2 gap-4 text-center">
+                  <div>
+                    <div className="text-slate-600">เหรียญ</div>
+                    <div className="font-bold text-amber-600">{user.coins?.toLocaleString() || 0}</div>
+                  </div>
+                  <div>
+                    <div className="text-slate-600">โหวต</div>
+                    <div className="font-bold text-purple-600">{user.votePoints?.toLocaleString() || 0}</div>
+                  </div>
+                </div>
+                <div className="mt-2 text-center">
+                  <div className="text-slate-600">ระดับสมาชิก</div>
+                  <div className="font-bold text-pink-600">
+                    {user.membership?.tier === 'diamond' ? '💎 Diamond' :
+                     user.membership?.tier === 'gold' ? '🥇 Gold' :
+                     user.membership?.tier === 'silver' ? '🥈 Silver' : '🆓 Member'}
+                  </div>
+                </div>
+
+                {/* ปุ่มทดสอบการเพิ่มเหรียญด้วยตนเอง */}
+                <div className="mt-3 pt-3 border-t border-slate-200">
+                  <div className="flex gap-2">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => {
+                        const testUser = { ...user, coins: (user.coins || 0) + 1000, votePoints: (user.votePoints || 0) + 100 }
+                        localStorage.setItem('user', JSON.stringify(testUser))
+                        if (window.updateAuthContext) {
+                          window.updateAuthContext(testUser)
+                        }
+                        console.log('🧪 Manual test: Added 1000 coins and 100 vote points')
+                        alert('เพิ่มเหรียญทดสอบแล้ว! ตรวจสอบใน console')
+                      }}
+                      className="text-xs"
+                    >
+                      🧪 เพิ่มเหรียญทดสอบ
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => {
+                        const currentUserData = localStorage.getItem('user')
+                        console.log('🔍 Current localStorage user data:', currentUserData ? JSON.parse(currentUserData) : 'No data')
+                        alert('ตรวจสอบข้อมูลใน console แล้ว!')
+                      }}
+                      className="text-xs"
+                    >
+                      🔍 ดูข้อมูล localStorage
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         </div>
 

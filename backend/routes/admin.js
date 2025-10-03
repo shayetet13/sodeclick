@@ -1085,7 +1085,9 @@ router.get('/stats', requireAdmin, async (req, res) => {
 // Get membership plans
 router.get('/membership-plans', requireAdmin, async (req, res) => {
   try {
-    const plans = await MembershipPlan.find().sort({ order: 1 });
+    const plans = await MembershipPlan.find({
+      tier: { $ne: 'test' } // กรอง test tier ออก
+    }).sort({ order: 1 });
     res.json(plans);
   } catch (error) {
     res.status(500).json({ message: 'Server error', error: error.message });

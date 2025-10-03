@@ -83,10 +83,46 @@ const upload = multer({
     const extname = allowedTypes.test(path.extname(file.originalname).toLowerCase());
     const mimetype = allowedTypes.test(file.mimetype);
 
+    // ตรวจสอบขนาดไฟล์ขั้นต่ำ (100KB) เพื่อป้องกันไฟล์ว่างหรือขนาดเล็กเกินไป
+    const minSize = 100 * 1024; // 100KB
+    if (file.size < minSize) {
+      return cb(new Error('ไฟล์รูปภาพมีขนาดเล็กเกินไป (ขั้นต่ำ 100KB)'));
+    }
+
+    // ตรวจสอบขนาดไฟล์สูงสุด
+    const maxSize = 10 * 1024 * 1024; // 10MB
+    if (file.size > maxSize) {
+      return cb(new Error('ไฟล์รูปภาพมีขนาดใหญ่เกินไป (สูงสุด 10MB)'));
+    }
+
+    // ตรวจสอบนามสกุลและ MIME type ต้องตรงกัน
     if (mimetype && extname) {
+      // เพิ่มการตรวจสอบพิเศษสำหรับ PNG และ JPEG
+      if (file.mimetype.includes('png') && !file.originalname.toLowerCase().endsWith('.png')) {
+        return cb(new Error('ไฟล์ PNG ต้องมีนามสกุล .png'));
+      }
+      if ((file.mimetype.includes('jpeg') || file.mimetype.includes('jpg')) &&
+          !file.originalname.toLowerCase().endsWith('.jpg') &&
+          !file.originalname.toLowerCase().endsWith('.jpeg')) {
+        return cb(new Error('ไฟล์ JPEG ต้องมีนามสกุล .jpg หรือ .jpeg'));
+      }
+
+      console.log('✅ Image file validation passed:', {
+        filename: file.originalname,
+        mimetype: file.mimetype,
+        size: file.size,
+        extension: path.extname(file.originalname).toLowerCase()
+      });
+
       return cb(null, true);
     } else {
-      cb(new Error('รองรับเฉพาะไฟล์รูปภาพ (JPEG, JPG, PNG, GIF, WebP)'));
+      console.warn('❌ Image file validation failed:', {
+        filename: file.originalname,
+        mimetype: file.mimetype,
+        size: file.size,
+        extension: path.extname(file.originalname).toLowerCase()
+      });
+      cb(new Error('รองรับเฉพาะไฟล์รูปภาพ (JPEG, JPG, PNG, GIF, WebP) และต้องมีนามสกุลที่ถูกต้อง'));
     }
   }
 });
@@ -1268,7 +1304,6 @@ router.post('/:userId/upload-image', authenticateToken, (req, res, next) => {
 router.delete('/:userId/image/:imageIndex', authenticateToken, async (req, res) => {
   try {
     const { userId, imageIndex } = req.params;
-    const { DEFAULT_AVATAR_BASE64 } = require('../config/defaultAvatar');
     
     console.log('🗑️ Delete image request:', { userId, imageIndex, authUserId: req.user.id });
     
@@ -1357,11 +1392,8 @@ router.delete('/:userId/image/:imageIndex', authenticateToken, async (req, res) 
     console.log('🗑️ Deleted image:', imageToDelete);
     console.log('🗑️ Remaining images:', user.profileImages.length);
     
-    // ถ้าไม่มีรูปภาพเหลือแล้ว ให้ใส่รูป default
-    if (user.profileImages.length === 0) {
-      user.profileImages = [DEFAULT_AVATAR_BASE64];
-      console.log('🗑️ Added default avatar');
-    }
+    // ไม่ต้องใส่ default avatar - ให้ผู้ใช้อัปโหลดรูปเอง
+    // profileImages จะเป็น array ว่าง [] ถ้าไม่มีรูป
     
     await user.save();
 

@@ -5,7 +5,7 @@ const membershipPlanSchema = new mongoose.Schema({
     type: String,
     required: true,
     unique: true,
-    enum: ['member', 'test', 'silver', 'gold', 'vip', 'vip1', 'vip2', 'diamond', 'platinum']
+    enum: ['member', 'silver', 'gold', 'vip', 'vip1', 'vip2', 'diamond', 'platinum']
   },
   name: {
     type: String,

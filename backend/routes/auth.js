@@ -3,7 +3,6 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const passport = require('../config/passport');
 const User = require('../models/User');
-const { DEFAULT_AVATAR_BASE64 } = require('../config/defaultAvatar');
 const router = express.Router();
 
 // JWT Secret
@@ -91,7 +90,7 @@ router.post('/register', async (req, res) => {
         coordinates: [0, 0] // Default coordinates, can be updated later
       },
       displayName: `${firstName} ${lastName}`,
-      profileImages: [DEFAULT_AVATAR_BASE64], // เพิ่มรูปโปรไฟล์เริ่มต้น
+      profileImages: [], // ไม่มีรูปโปรไฟล์เริ่มต้น - ให้ผู้ใช้อัปโหลดเอง
       lifestyle: {
         smoking: null, // เลือก
         drinking: null, // เลือก
@@ -192,7 +191,7 @@ router.post('/register-phone', async (req, res) => {
         type: 'Point',
         coordinates: [100.5018, 13.7563] // Default Bangkok coordinates
       },
-      profileImages: [DEFAULT_AVATAR_BASE64], // เพิ่มรูปโปรไฟล์เริ่มต้น
+      profileImages: [], // ไม่มีรูปโปรไฟล์เริ่มต้น - ให้ผู้ใช้อัปโหลดเอง
       lifestyle: {
         smoking: null, // เลือก
         drinking: null, // เลือก

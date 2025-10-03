@@ -15,6 +15,12 @@ export default defineConfig({
         changeOrigin: true,
         secure: false
       }
+    },
+    // เพิ่มการรองรับ Service Worker
+    middlewareMode: false,
+    fs: {
+      // Allow serving files from one level up to the project root
+      allow: ['..']
     }
   },
   build: {

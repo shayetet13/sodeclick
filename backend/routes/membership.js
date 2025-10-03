@@ -6,7 +6,10 @@ const MembershipPlan = require('../models/MembershipPlan');
 // GET /api/membership/plans - ดึงแพ็กเกจสมาชิกทั้งหมด
 router.get('/plans', async (req, res) => {
   try {
-    const plans = await MembershipPlan.find({ isActive: true }).sort({ order: 1 });
+    const plans = await MembershipPlan.find({
+      isActive: true,
+      tier: { $ne: 'test' } // กรอง test tier ออก
+    }).sort({ order: 1 });
     res.json({
       success: true,
       data: plans
@@ -110,9 +113,6 @@ router.get('/user/:userId', async (req, res) => {
         case 'diamond':
         case 'platinum':
           durationDays = 30;
-          break;
-        case 'test':
-          durationDays = 1;
           break;
         default:
           durationDays = 30;

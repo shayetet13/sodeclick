@@ -57,11 +57,12 @@ class SocketManager {
 
     this.socket = io(baseURL, {
       withCredentials: true,
-      timeout: 10000, // ลด timeout ให้เร็วขึ้น
+      timeout: 45000, // เพิ่ม timeout ให้ตรงกับ server
       reconnection: true,
-      reconnectionAttempts: Infinity, // เพิ่มเป็น Infinity เพื่อพยายามเชื่อมต่อตลอด
-      reconnectionDelay: 500, // ลดเป็น 500ms เพื่อ reconnect เร็วขึ้น
-      reconnectionDelayMax: 5000, // ลด max delay
+      reconnectionAttempts: 10, // ลดจำนวนครั้งเพื่อไม่ให้พยายามนานเกินไป
+      reconnectionDelay: 1000, // เพิ่ม delay เริ่มต้นให้ตรงกับ server
+      reconnectionDelayMax: 5000, // เพิ่ม max delay ให้ตรงกับ server
+      randomizationFactor: 0.5, // เพิ่ม randomization สำหรับการกระจายโหลด
       forceNew: false,
       transports: ['websocket', 'polling'], // ใช้ websocket เป็นหลัก
       upgrade: true,
@@ -70,10 +71,13 @@ class SocketManager {
       auth: {
         token: token
       },
-      // ปรับปรุงการตั้งค่า ping ให้เร็วขึ้น
-      pingTimeout: 10000, // ลด ping timeout ให้เร็วขึ้น
-      pingInterval: 5000, // ลด ping interval ให้ตรวจสอบบ่อยขึ้น
+      // ปรับปรุงการตั้งค่า ping ให้ตรงกับ server
+      pingTimeout: 60000, // เพิ่ม ping timeout ให้ตรงกับ server (60 วินาที)
+      pingInterval: 25000, // เพิ่ม ping interval ให้ตรงกับ server (25 วินาที)
       allowEIO3: true,
+      // เพิ่มการตั้งค่าเพื่อความเสถียร
+      connectTimeout: 45000,
+      forceNew: false,
       // เพิ่มการตั้งค่า polling
       polling: {
         extraHeaders: {
@@ -154,6 +158,33 @@ class SocketManager {
       console.log('🔔 Received notification:', notification);
       window.dispatchEvent(new CustomEvent('newNotification', {
         detail: notification
+      }));
+    });
+
+    // Listen for membership upgrade notifications
+    this.socket.on('user-upgraded', (upgradeData) => {
+      console.log('🎉 User upgrade notification received:', upgradeData);
+
+      // แจ้งเตือนผู้ใช้ว่าอัพเกรดสำเร็จแล้ว
+      if (window.updateAuthContext) {
+        // อัปเดตข้อมูลผู้ใช้ใน AuthContext ถ้าจำเป็น
+        console.log('🔄 Updating AuthContext with upgrade data:', upgradeData);
+        // สามารถเพิ่ม logic สำหรับการอัปเดตข้อมูลผู้ใช้ที่นี่ได้
+      }
+
+      // แจ้งเตือนผู้ใช้ว่าสิทธิประโยชน์ได้รับการอัปเดตแล้ว
+      window.dispatchEvent(new CustomEvent('userUpgraded', {
+        detail: upgradeData
+      }));
+    });
+
+    // Listen for membership tier updates
+    this.socket.on('membership-updated', (membershipData) => {
+      console.log('👑 Membership updated notification received:', membershipData);
+
+      // แจ้งเตือนการเปลี่ยนระดับสมาชิกแบบ real-time
+      window.dispatchEvent(new CustomEvent('membershipUpdated', {
+        detail: membershipData
       }));
     });
 

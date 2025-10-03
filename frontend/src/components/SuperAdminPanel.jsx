@@ -6,17 +6,18 @@ import { Label } from './ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from './ui/dialog';
 import { Badge } from './ui/badge';
 import { useToast } from './ui/toast';
-import { 
-  Crown, 
-  Search, 
-  User, 
+import {
+  Crown,
+  Search,
+  User,
   Coins,
   Vote,
   Plus,
   Eye,
   History,
   Shield,
-  Star
+  Star,
+  AlertCircle
 } from 'lucide-react';
 
 const SuperAdminPanel = () => {
@@ -31,6 +32,10 @@ const SuperAdminPanel = () => {
   const [showUserStatsModal, setShowUserStatsModal] = useState(false);
   const [showHistoryModal, setShowHistoryModal] = useState(false);
   const [adminActions, setAdminActions] = useState([]);
+  const [showPaymentSettingsModal, setShowPaymentSettingsModal] = useState(false);
+  const [paymentSettings, setPaymentSettings] = useState({
+    bypassEnabled: false
+  });
 
   const [voteForm, setVoteForm] = useState({
     voteType: 'popularity_male',
@@ -57,7 +62,32 @@ const SuperAdminPanel = () => {
 
   useEffect(() => {
     fetchUsers();
+    loadPaymentSettings();
   }, [searchTerm]);
+
+  // โหลดการตั้งค่า payment
+  const loadPaymentSettings = async () => {
+    try {
+      const bypassEnabled = localStorage.getItem('payment_bypass_enabled') === 'true';
+      setPaymentSettings({
+        bypassEnabled: bypassEnabled
+      });
+    } catch (error) {
+      console.error('Error loading payment settings:', error);
+    }
+  };
+
+  // บันทึกการตั้งค่า payment
+  const savePaymentSettings = async () => {
+    try {
+      localStorage.setItem('payment_bypass_enabled', paymentSettings.bypassEnabled.toString());
+      success('บันทึกการตั้งค่า Payment สำเร็จ');
+      setShowPaymentSettingsModal(false);
+    } catch (error) {
+      console.error('Error saving payment settings:', error);
+      error('เกิดข้อผิดพลาดในการบันทึกการตั้งค่า');
+    }
+  };
 
   const fetchUsers = async () => {
     try {
@@ -280,10 +310,16 @@ const SuperAdminPanel = () => {
           </h1>
           <p className="text-slate-600 mt-1">จัดการระบบด้วยสิทธิ์สูงสุด</p>
         </div>
-        <Button onClick={handleViewHistory} variant="outline">
-          <History size={16} className="mr-2" />
-          ดูประวัติการกระทำ
-        </Button>
+        <div className="flex gap-2">
+          <Button onClick={() => setShowPaymentSettingsModal(true)} variant="outline">
+            <Shield size={16} className="mr-2" />
+            ตั้งค่า Payment
+          </Button>
+          <Button onClick={handleViewHistory} variant="outline">
+            <History size={16} className="mr-2" />
+            ดูประวัติการกระทำ
+          </Button>
+        </div>
       </div>
 
       {/* Search */}
@@ -640,6 +676,76 @@ const SuperAdminPanel = () => {
                 </div>
               </div>
             ))}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Payment Settings Modal */}
+      <Dialog open={showPaymentSettingsModal} onOpenChange={setShowPaymentSettingsModal}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Shield className="h-5 w-5 text-blue-500" />
+              ตั้งค่า Payment System
+            </DialogTitle>
+            <DialogDescription>
+              กำหนดการตั้งค่าระบบการชำระเงินสำหรับการทดสอบและพัฒนา
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <Label className="text-base">Bypass Payment Mode</Label>
+                <p className="text-sm text-slate-500">
+                  เมื่อเปิดใช้งาน การชำระเงินจะข้ามไปเลยโดยไม่ต้องใช้ Rabbit Gateway
+                </p>
+              </div>
+              <div className="flex items-center space-x-2">
+                <span className={`text-sm ${paymentSettings.bypassEnabled ? 'text-green-600' : 'text-slate-500'}`}>
+                  {paymentSettings.bypassEnabled ? 'เปิดใช้งาน' : 'ปิดใช้งาน'}
+                </span>
+                <input
+                  type="checkbox"
+                  checked={paymentSettings.bypassEnabled}
+                  onChange={(e) => setPaymentSettings({
+                    ...paymentSettings,
+                    bypassEnabled: e.target.checked
+                  })}
+                  className="w-4 h-4 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-blue-500"
+                />
+              </div>
+            </div>
+
+            <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3">
+              <div className="flex items-start gap-2">
+                <AlertCircle className="h-5 w-5 text-yellow-600 flex-shrink-0 mt-0.5" />
+                <div>
+                  <p className="text-sm font-medium text-yellow-800">คำเตือน</p>
+                  <p className="text-sm text-yellow-700">
+                    โหมดนี้สำหรับการทดสอบเท่านั้น อย่าเปิดใช้งานใน Production
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="flex gap-3 pt-4">
+            <Button
+              onClick={savePaymentSettings}
+              className="flex-1"
+              disabled={paymentSettings.bypassEnabled}
+            >
+              <Shield className="h-4 w-4 mr-2" />
+              บันทึกการตั้งค่า
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => setShowPaymentSettingsModal(false)}
+              className="flex-1"
+            >
+              ยกเลิก
+            </Button>
           </div>
         </DialogContent>
       </Dialog>

@@ -7,6 +7,7 @@ import YouTubePreview from './YouTubePreview';
 import { separateYouTubeFromText } from '../utils/linkUtils';
 import { membershipHelpers } from '../services/membershipAPI';
 import { getProfileImageUrl } from '../utils/profileImageUtils';
+import autoRefreshManager from '../services/autoRefreshManager';
 
 import {
   Heart,
@@ -99,21 +100,61 @@ const RealTimeChat = ({ roomId, currentUser, onBack, showWebappNotification }) =
   const hasScrolledToBottomRef = useRef(false);
   const isInitialLoadRef = useRef(true);
 
-  // ใช้ global SocketManager แทนการสร้าง connection ใหม่
+  // Event handlers สำหรับ auto refresh (ต้องอยู่ข้างนอก useEffect เพื่อให้เข้าถึงได้ใน cleanup)
+  const handleChatMessagesUpdated = (event) => {
+    console.log('📨 RealTimeChat: Received chat messages update event:', event.detail);
+    const { roomId: updatedRoomId, messages: newMessages } = event.detail;
+    if (updatedRoomId === roomId) {
+      console.log('🔄 Auto refresh: Chat messages updated for current room');
+      setMessages(prev => {
+        const existingIds = prev.map(msg => msg._id);
+        const newUniqueMessages = newMessages.filter(msg => !existingIds.includes(msg._id));
+        if (newUniqueMessages.length > 0) {
+          console.log(`➕ Auto refresh added ${newUniqueMessages.length} new messages`);
+          return [...prev, ...newUniqueMessages];
+        }
+        return prev;
+      });
+    } else {
+      console.log('🔄 Auto refresh: Chat messages for different room, ignoring');
+    }
+  };
+
+  const handleOnlineUsersUpdated = (event) => {
+    const { roomId: updatedRoomId, onlineUsers, onlineCount } = event.detail;
+    if (updatedRoomId === roomId) {
+      console.log('🔄 Auto refresh: Online users updated');
+      setOnlineUsers(onlineUsers);
+      setOnlineCount(onlineCount);
+    }
+  };
+
+  const handleNotificationsUpdated = (event) => {
+    const { notifications } = event.detail;
+    console.log('🔄 Auto refresh: Notifications updated');
+    window.dispatchEvent(new CustomEvent('globalNotificationsUpdated', {
+      detail: { notifications }
+    }));
+  };
+
+  // ใช้ global SocketManager และ AutoRefreshManager แทนการสร้าง connection ใหม่
   useEffect(() => {
     console.log('🔌 RealTimeChat useEffect - Starting setup for room:', roomId);
-    
+
     let retryIntervalId = null;
     let hasSetupListeners = false;
+    let refreshCleanup = null;
     
     const setupSocketAndJoinRoom = () => {
+      console.log('🔌 RealTimeChat: Checking socket manager...');
+
       if (!window.socketManager?.socket) {
-        console.log('⚠️ Socket manager not available yet');
+        console.log('⚠️ RealTimeChat: Socket manager not available yet');
         return false;
       }
 
       const socket = window.socketManager.socket;
-      console.log('🔌 Socket state:', {
+      console.log('🔌 RealTimeChat: Socket state:', {
         id: socket.id,
         connected: socket.connected,
         roomId
@@ -121,17 +162,18 @@ const RealTimeChat = ({ roomId, currentUser, onBack, showWebappNotification }) =
 
       // ถ้า socket ไม่เชื่อมต่อ ให้ reconnect
       if (!socket.connected) {
-        console.log('🔄 Socket not connected, attempting to connect...');
+        console.log('🔄 RealTimeChat: Socket not connected, attempting to connect...');
         socket.connect();
         return false; // รอให้เชื่อมต่อก่อน
       }
 
+      console.log('✅ RealTimeChat: Socket is connected, proceeding with setup');
       setIsConnected(socket.connected);
       setSocket(socket);
 
       // Join room ทันทีเมื่อ socket พร้อม
       const token = sessionStorage.getItem('token');
-      console.log('🚪 Joining room:', roomId);
+      console.log('🚪 RealTimeChat: Joining room:', roomId, 'with userId:', currentUser._id);
       socket.emit('join-room', {
         roomId,
         userId: currentUser._id,
@@ -141,12 +183,28 @@ const RealTimeChat = ({ roomId, currentUser, onBack, showWebappNotification }) =
       return true;
     };
 
-    // ตั้งค่า socket listeners เมื่อ socket พร้อม
+    // ตั้งค่า socket listeners และ auto refresh เมื่อ socket พร้อม
     const setupListeners = () => {
       if (!window.socketManager || !window.socketManager.socket) return false;
       if (hasSetupListeners) return true; // ถ้าตั้งค่าแล้ว ไม่ต้องตั้งค่าซ้ำ
-      
+
       const socket = window.socketManager.socket;
+
+      // เริ่มระบบ auto refresh สำหรับข้อมูลที่อาจหลุดหายไปจาก Socket.IO
+      console.log('🚀 RealTimeChat: Starting auto refresh for room:', roomId);
+      try {
+        autoRefreshManager.startChatRefresh(roomId, currentUser._id);
+        refreshCleanup = () => autoRefreshManager.stopChatRefresh();
+        console.log('✅ RealTimeChat: Auto refresh started successfully');
+
+        // แสดง stats ของ auto refresh manager สำหรับ debugging
+        setTimeout(() => {
+          console.log('📊 RealTimeChat: Auto refresh stats:', autoRefreshManager.getStats());
+        }, 1000);
+
+      } catch (error) {
+        console.error('❌ RealTimeChat: Error starting auto refresh:', error);
+      }
 
       // เมื่อ socket reconnect ให้ rejoin room อัตโนมัติ
       socket.on('connect', () => {
@@ -362,9 +420,15 @@ const RealTimeChat = ({ roomId, currentUser, onBack, showWebappNotification }) =
         console.error('Socket connection error:', error);
         setIsConnected(false);
       });
-      
+
+      // เพิ่ม event listeners สำหรับ auto refresh
+      console.log('🔧 RealTimeChat: Adding auto refresh event listeners');
+      window.addEventListener('chatMessagesUpdated', handleChatMessagesUpdated);
+      window.addEventListener('onlineUsersUpdated', handleOnlineUsersUpdated);
+      window.addEventListener('notificationsUpdated', handleNotificationsUpdated);
+
       hasSetupListeners = true;
-      console.log('✅ Socket listeners setup complete');
+      console.log('✅ RealTimeChat: Socket listeners and auto refresh setup complete');
       return true;
     };
 
@@ -373,14 +437,16 @@ const RealTimeChat = ({ roomId, currentUser, onBack, showWebappNotification }) =
     
     if (success) {
       // ถ้า join room สำเร็จ ให้ setup listeners
+      console.log('✅ RealTimeChat: Socket setup successful, setting up listeners');
       setupListeners();
     } else {
       // ถ้าไม่สำเร็จ ลองใหม่
-      console.log('⏰ Setup failed, retrying every 500ms...');
+      console.log('⏰ RealTimeChat: Setup failed, retrying every 500ms...');
       retryIntervalId = setInterval(() => {
+        console.log('🔄 RealTimeChat: Retrying socket setup...');
         const joinSuccess = setupSocketAndJoinRoom();
         if (joinSuccess && !hasSetupListeners) {
-          console.log('✅ Setup successful on retry');
+          console.log('✅ RealTimeChat: Setup successful on retry');
           setupListeners();
           clearInterval(retryIntervalId);
         }
@@ -400,8 +466,18 @@ const RealTimeChat = ({ roomId, currentUser, onBack, showWebappNotification }) =
       if (retryIntervalId) {
         clearInterval(retryIntervalId);
       }
-      
-      // Cleanup listeners
+
+      // Cleanup auto refresh
+      if (refreshCleanup) {
+        refreshCleanup();
+      }
+
+      // Cleanup auto refresh event listeners
+      window.removeEventListener('chatMessagesUpdated', handleChatMessagesUpdated);
+      window.removeEventListener('onlineUsersUpdated', handleOnlineUsersUpdated);
+      window.removeEventListener('notificationsUpdated', handleNotificationsUpdated);
+
+      // Cleanup socket listeners
       if (window.socketManager && window.socketManager.socket) {
         const socket = window.socketManager.socket;
         console.log('🧹 Cleaning up socket listeners for room:', roomId);
@@ -415,14 +491,14 @@ const RealTimeChat = ({ roomId, currentUser, onBack, showWebappNotification }) =
         socket.off('online-count-updated');
         socket.off('membership-updated');
         socket.off('connect_error');
-        
+
         // Leave room เมื่อ unmount
         if (socket.connected) {
           socket.emit('leave-room', { roomId, userId: currentUser._id });
         }
       }
     };
-  }, [roomId, currentUser._id]);
+  }, [roomId, currentUser._id, handleChatMessagesUpdated, handleOnlineUsersUpdated, handleNotificationsUpdated]);
 
   // โหลดข้อความเก่า
   useEffect(() => {

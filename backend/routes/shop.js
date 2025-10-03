@@ -6,7 +6,10 @@ const User = require('../models/User');
 // GET /api/shop/packages - ดูแพ็กเกจเหรียญ
 router.get('/packages', async (req, res) => {
   try {
-    const packages = await CoinPackage.find({ isActive: true })
+    const packages = await CoinPackage.find({
+      isActive: true,
+      name: { $ne: 'Test Package' } // กรอง Test Package ออก
+    })
       .sort({ order: 1, price: 1 });
 
     res.json({
